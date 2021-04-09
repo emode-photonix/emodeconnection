@@ -8,7 +8,7 @@ This package provides an interface to the EMode software from EMode Photonix LLC
 
 ## Using emodeconnection
 
-See the [guide]() provided by EMode Photonix.
+See the [guide](https://www.emodephotonix.com/) provided by EMode Photonix.
 
 ## License
 

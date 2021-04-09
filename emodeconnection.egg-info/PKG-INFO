@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: emodeconnection
-Version: 1.0.0b2
+Version: 1.0.0b3
 Summary: Python connection for EMode
 Home-page: https://github.com/emode-photonix/emodeconnection
 Author: EMode Photonix LLC
@@ -16,7 +16,7 @@ Description: # emodeconnection
         
         ## Using emodeconnection
         
-        See the [guide]() provided by EMode Photonix.
+        See the [guide](https://www.emodephotonix.com/) provided by EMode Photonix.
         
         ## License
         

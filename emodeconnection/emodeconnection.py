@@ -10,27 +10,32 @@
 ###########################################################
 ###########################################################
 
-import socket, struct, klepto
-from subprocess import Popen, PIPE
+import socket, struct, pickle, time
+from subprocess import Popen
 import numpy as np
 
 class EMode:
-    def __init__(self, sim="emode"):
+    def __init__(self, username, password, sim="emode"):
         '''
         Initialize defaults and connects to EMode.
         '''
         self.ext = ".eph"
-        self.sim = sim
-        self.DL = 1024
+        self.exit_flag = False
+        self.dsim = sim
+        self.DL = 2048
         self.HOST = '127.0.0.1'
+        self.LHOST = '67.205.182.231'
+        self.LPORT = '64000'
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.bind((self.HOST, 0))
         self.PORT_SERVER = int(self.s.getsockname()[1])
         self.s.listen(1)
-        proc = Popen(['EMode.exe', str(self.PORT_SERVER)])
+        proc = Popen(['EMode.exe', username, password, self.LHOST, self.LPORT, str(self.PORT_SERVER)])
         self.conn, self.addr = self.s.accept()
+        time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected!")
-        self.call("EM_init", sim = self.sim)
+        self.call("EM_init")  
+        return
     
     def call(self, function, **kwargs):
         '''
@@ -45,19 +50,31 @@ class EMode:
         for kw in kwargs:
             sendset.append(kw.encode('utf_8'))
             if (isinstance(kwargs[kw], str)):
+                if ((len(kwargs[kw]) % 8) == 0):
+                    kwargs[kw] = ' '+kwargs[kw]
                 sendset.append(kwargs[kw].encode('utf_8'))
             elif (isinstance(kwargs[kw], list)):
                 sendset.append(struct.pack('@%dd' % int(len(kwargs[kw])), *kwargs[kw]))
-            elif (isinstance(kwargs[kw], (int, float, np.int64, np.float64))):
+            elif (isinstance(kwargs[kw], (int, float, np.integer, np.float))):
                 sendset.append(struct.pack('@1d', kwargs[kw]))
             else:
-                raise TypeError("type not recognized in '**kwargs' as str, list, int, float, np.int64, or np.float64")
+                raise TypeError("type not recognized in '**kwargs' as str, list, intrger, or float")
+        
+        if ('sim' not in kwargs):
+            sendset.append('sim'.encode('utf_8'))
+            sendset.append(self.dsim.encode('utf_8'))
         
         sendstr = b':'.join(sendset)
-        self.conn.sendall(sendstr)
-        RV = self.conn.recv(self.DL)
-        if (RV.decode("utf_8").split(":")[0] == "sim"):
-            self.dsim = RV.decode("utf_8").split(":")[1]
+        try:
+            self.conn.sendall(sendstr)
+            RV = self.conn.recv(self.DL)
+        except:
+            # Exited due to license checkout
+            self.conn.close()
+            self.exit_flag = True
+        
+        if (self.exit_flag):
+            raise RuntimeError("License checkout error!")
         
         return RV.decode("utf_8")
 
@@ -68,8 +85,9 @@ class EMode:
         if (not isinstance(variable, str)):
             raise TypeError("input parameter 'variable' must be a string")
         
-        f = klepto.archives.file_archive(self.dsim+self.ext)
-        f.load()
+        fl = open(self.dsim+self.ext, 'rb')
+        f = pickle.load(fl)
+        fl.close()
         if (variable in list(f.keys())):
             data = f[variable]
         else:
@@ -82,8 +100,9 @@ class EMode:
         '''
         Return list of keys from available data in simulation file.
         '''
-        f = klepto.archives.file_archive(self.dsim+self.ext)
-        f.load()
+        fl = open(self.dsim+self.ext, 'rb')
+        f = pickle.load(fl)
+        fl.close()
         fkeys = list(f.keys())
         fkeys.remove("EMode_simulation_file")
         return fkeys
