@@ -15,7 +15,7 @@ from subprocess import Popen
 import numpy as np
 
 class EMode:
-    def __init__(self, username, password, sim="emode"):
+    def __init__(self, sim="emode"):
         '''
         Initialize defaults and connects to EMode.
         '''
@@ -30,7 +30,7 @@ class EMode:
         self.s.bind((self.HOST, 0))
         self.PORT_SERVER = int(self.s.getsockname()[1])
         self.s.listen(1)
-        proc = Popen(['EMode.exe', username, password, self.LHOST, self.LPORT, str(self.PORT_SERVER)])
+        proc = Popen(['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)])
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected!")
