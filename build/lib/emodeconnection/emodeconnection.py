@@ -10,9 +10,10 @@
 ###########################################################
 ###########################################################
 
-import socket, struct, pickle, time
-from subprocess import Popen
+import os, socket, struct, pickle, time
+from subprocess import Popen, PIPE
 import numpy as np
+import scipy.io as sio
 
 class EMode:
     def __init__(self, sim="emode"):
@@ -30,7 +31,7 @@ class EMode:
         self.s.bind((self.HOST, 0))
         self.PORT_SERVER = int(self.s.getsockname()[1])
         self.s.listen(1)
-        proc = Popen(['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)])
+        proc = Popen(['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)], stderr=None)
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected!")
@@ -116,3 +117,61 @@ class EMode:
         self.conn.close()
         print("Exited EMode")
         return
+
+def open_file(sim):
+    '''
+    Opens an EMode simulation file with either .eph or .mat extension.
+    '''
+    ext = '.eph'
+    mat = '.mat'
+    found = False
+    for file in os.listdir():
+        if ((file == sim+ext) or ((file == sim) and (sim.endswith(ext)))):
+            found = True
+            if (sim.endswith(ext)):
+                sim = sim.replace(ext,'')
+            fl = open(sim+ext, 'rb')
+            f = pickle.load(fl)
+            fl.close()
+        elif ((file == sim+mat) or ((file == sim) and (sim.endswith(mat)))):
+            found = True
+            f = sio.loadmat(sim+mat)
+    
+    if (not found):
+        print("ERROR: file not found!")
+        return "ERROR"
+    
+    return f
+
+def get(variable, sim='emode'):
+    '''
+    Return data from simulation file.
+    '''
+    if (not isinstance(variable, str)):
+        raise TypeError("input parameter 'variable' must be a string")
+    
+    if (not isinstance(sim, str)):
+        raise TypeError("input parameter 'sim' must be a string")
+    
+    f = open_file(sim=sim)
+    
+    if (variable in list(f.keys())):
+        data = f[variable]
+    else:
+        print("Data does not exist.")
+        return
+    
+    return data
+
+def inspect(sim='emode'):
+    '''
+    Return list of keys from available data in simulation file.
+    '''
+    if (not isinstance(sim, str)):
+        raise TypeError("input parameter 'sim' must be a string")
+    
+    f = open_file(sim=sim)
+    
+    fkeys = list(f.keys())
+    fkeys.remove("EMode_simulation_file")
+    return fkeys
