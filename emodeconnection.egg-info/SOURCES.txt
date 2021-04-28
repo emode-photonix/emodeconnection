@@ -1,0 +1,9 @@
+README.md
+setup.py
+emodeconnection/__init__.py
+emodeconnection/emodeconnection.py
+emodeconnection.egg-info/PKG-INFO
+emodeconnection.egg-info/SOURCES.txt
+emodeconnection.egg-info/dependency_links.txt
+emodeconnection.egg-info/requires.txt
+emodeconnection.egg-info/top_level.txt
