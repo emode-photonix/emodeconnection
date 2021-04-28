@@ -1,1 +1,1 @@
-from .emodeconnection import EMode
+from .emodeconnection import EMode, open_file, get, inspect

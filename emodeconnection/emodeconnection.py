@@ -16,7 +16,7 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim="emode"):
+    def __init__(self, sim='emode'):
         '''
         Initialize defaults and connects to EMode.
         '''
