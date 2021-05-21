@@ -44,16 +44,16 @@ class EMode:
         '''
         sendset = []
         if (isinstance(function, str)):
-            sendset.append(function.encode('utf_8'))
+            sendset.append(function.encode('utf-8'))
         else:
             raise TypeError("input parameter 'function' must be a string")
         
         for kw in kwargs:
-            sendset.append(kw.encode('utf_8'))
+            sendset.append(kw.encode('utf-8'))
             if (isinstance(kwargs[kw], str)):
                 if ((len(kwargs[kw]) % 8) == 0):
                     kwargs[kw] = ' '+kwargs[kw]
-                sendset.append(kwargs[kw].encode('utf_8'))
+                sendset.append(kwargs[kw].encode('utf-8'))
             elif (isinstance(kwargs[kw], list)):
                 sendset.append(struct.pack('@%dd' % int(len(kwargs[kw])), *kwargs[kw]))
             elif (isinstance(kwargs[kw], (int, float, np.integer, np.float))):
@@ -62,10 +62,10 @@ class EMode:
                 raise TypeError("type not recognized in '**kwargs' as str, list, intrger, or float")
         
         if ('sim' not in kwargs):
-            sendset.append('sim'.encode('utf_8'))
-            sendset.append(self.dsim.encode('utf_8'))
+            sendset.append('sim'.encode('utf-8'))
+            sendset.append(self.dsim.encode('utf-8'))
         
-        sendstr = b':'.join(sendset)
+        sendstr = b':::::'.join(sendset)
         try:
             self.conn.sendall(sendstr)
             RV = self.conn.recv(self.DL)
@@ -77,7 +77,7 @@ class EMode:
         if (self.exit_flag):
             raise RuntimeError("License checkout error!")
         
-        return RV.decode("utf_8")
+        return RV.decode("utf-8")
 
     def get(self, variable):
         '''
