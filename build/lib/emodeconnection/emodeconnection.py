@@ -35,7 +35,8 @@ class EMode:
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected!")
-        self.call("EM_init")  
+        RV = self.call("EM_init")
+        self.dsim = RV[len("sim:"):]
         return
     
     def call(self, function, **kwargs):
@@ -50,6 +51,10 @@ class EMode:
         
         for kw in kwargs:
             sendset.append(kw.encode('utf-8'))
+            if (isinstance(kwargs[kw], np.ndarray)):
+                if (len(kwargs[kw].shape) == 1):
+                    kwargs[kw] = list(kwargs[kw])
+            
             if (isinstance(kwargs[kw], str)):
                 if ((len(kwargs[kw]) % 8) == 0):
                     kwargs[kw] = ' '+kwargs[kw]
@@ -59,7 +64,7 @@ class EMode:
             elif (isinstance(kwargs[kw], (int, float, np.integer, np.float))):
                 sendset.append(struct.pack('@1d', kwargs[kw]))
             else:
-                raise TypeError("type not recognized in '**kwargs' as str, list, intrger, or float")
+                raise TypeError("type not recognized in '**kwargs' as str, list, integer, or float")
         
         if ('sim' not in kwargs):
             sendset.append('sim'.encode('utf-8'))
