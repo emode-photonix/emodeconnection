@@ -16,7 +16,7 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim='emode'):
+    def __init__(self, sim='emode', open_existing=False, new_name=False):
         '''
         Initialize defaults and connects to EMode.
         '''
@@ -35,7 +35,10 @@ class EMode:
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected!")
-        RV = self.call("EM_init")
+        if (open_existing):
+            RV = self.call("EM_open", sim=sim, new_name=new_name)
+        else:
+            RV = self.call("EM_init", sim=sim)
         self.dsim = RV[len("sim:"):]
         return
     
