@@ -34,7 +34,7 @@ class EMode:
         proc = Popen(['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)], stderr=None)
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
-        self.conn.sendall(b"connected!")
+        self.conn.sendall(b"connected with Python!")
         if (open_existing):
             RV = self.call("EM_open", sim=sim, new_name=new_name)
         else:
