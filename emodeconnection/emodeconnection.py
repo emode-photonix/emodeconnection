@@ -10,8 +10,8 @@
 ###########################################################
 ###########################################################
 
-import os, socket, struct, pickle, time
-from subprocess import Popen, PIPE
+import os, socket, struct, pickle, time, atexit
+from subprocess import Popen
 import numpy as np
 import scipy.io as sio
 
@@ -20,12 +20,17 @@ class EMode:
         '''
         Initialize defaults and connects to EMode.
         '''
+        try:
+            sim = str(sim)
+        except:
+            raise TypeError("input parameter 'sim' must be a string")
+            return
+        self.dsim = sim
         self.ext = ".eph"
         self.exit_flag = False
-        self.dsim = sim
         self.DL = 2048
         self.HOST = '127.0.0.1'
-        self.LHOST = '67.205.182.231'
+        self.LHOST = 'lm.emodephotonix.com'
         self.LPORT = '64000'
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.bind((self.HOST, 0))
@@ -120,6 +125,7 @@ class EMode:
         '''
         Send saving options to EMode and close the connection.
         '''
+        if (self.conn.fileno() == -1): return
         self.call("EM_close", **kwargs)
         self.conn.sendall(b"exit")
         self.conn.close()

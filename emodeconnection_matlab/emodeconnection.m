@@ -44,6 +44,13 @@ classdef emodeconnection
                 pkg load sockets;
             end
             
+            try
+                sim = num2str(sim);
+            catch
+                error('Input parameter "sim" must be a string.');
+                return
+            end
+            
             obj.dsim = sim;
             obj.ext = '.mat';
             obj.exit_flag = false;
@@ -99,7 +106,7 @@ classdef emodeconnection
             if (ischar(func_name))
                 sendset = [sendset, uint8(func_name)];
             else
-                error('Input parameter 'function' must be a string.');
+                error('Input parameter "function" must be a string.');
             end
             
             sim_flag = true;
