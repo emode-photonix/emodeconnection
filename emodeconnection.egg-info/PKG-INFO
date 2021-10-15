@@ -1,0 +1,31 @@
+Metadata-Version: 2.1
+Name: emodeconnection
+Version: 1.0.0b14
+Summary: Python connection for EMode
+Home-page: https://github.com/emode-photonix/emodeconnection
+Author: EMode Photonix LLC
+Author-email: EModeSolver@gmail.com
+License: UNKNOWN
+Description: # emodeconnection
+        
+        This package provides an interface to the EMode software from EMode Photonix LLC.
+        
+        ## Installation
+        
+        `$ pip install emodeconnection`
+        
+        ## Using emodeconnection
+        
+        See the [guide](https://www.emodephotonix.com/docs/emode/emodeconnection.html) provided by EMode Photonix.
+        
+        ## License
+        
+        This package is published under the 3-Clause BSD License.
+        
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Operating System :: OS Independent
+Classifier: Development Status :: 3 - Alpha
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
