@@ -56,7 +56,7 @@ classdef emodeconnection
             obj.exit_flag = false;
             obj.DL = 2048;
             obj.HOST = '127.0.0.1';
-            obj.LHOST = '67.205.182.231';
+            obj.LHOST = 'lm.emodephotonix.com';
             obj.LPORT = '64000';
             
             obj.PORT_SERVER = 4000;
@@ -177,15 +177,16 @@ classdef emodeconnection
             % Return data from simulation file.
             
             if (~ischar(variable))
-                error('Input parameter 'variable' must be a string.');
+                error('Input parameter "variable" must be a string.');
             end
             
             obj.call('EM_save_mat');
             
-            load(sprintf('%s%s', obj.dsim, obj.ext), variable);
+            fvariables = who('-file', sprintf('%s%s', obj.dsim, obj.ext), variable);
             
-            if (exist(variable, 'var') == 1)
-                data = eval(variable);
+            if (ismember(variable, fvariables))
+                T = load(sprintf('%s%s', obj.dsim, obj.ext), variable);
+                data = T.(variable);
             else
                 error('Data does not exist.');
                 data = 0;
@@ -243,11 +244,11 @@ classdef emodeconnection
             end
             
             if (~ischar(variable))
-                error('Input parameter 'variable' must be a string.');
+                error('Input parameter "variable" must be a string.');
             end
             
             if (~ischar(sim))
-                error('Input parameter 'sim' must be a string.');
+                error('Input parameter "sim" must be a string.');
             end
             
             mat = '.mat';
@@ -272,7 +273,7 @@ classdef emodeconnection
             end
             
             if (~ischar(sim))
-                error('Input parameter 'sim' must be a string.');
+                error('Input parameter "sim" must be a string.');
             end
             
             mat = '.mat';

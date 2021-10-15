@@ -16,7 +16,7 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim='emode', open_existing=False, new_name=False):
+    def __init__(self, sim='emode', open_existing=False, new_name=False, verbose=False):
         '''
         Initialize defaults and connects to EMode.
         '''
@@ -36,7 +36,10 @@ class EMode:
         self.s.bind((self.HOST, 0))
         self.PORT_SERVER = int(self.s.getsockname()[1])
         self.s.listen(1)
-        proc = Popen(['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)], stderr=None)
+        cmd_lst = ['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)]
+        if (verbose == True):
+            cmd_lst.append('-v')
+        proc = Popen(cmd_lst, stderr=None)
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
         self.conn.sendall(b"connected with Python!")
