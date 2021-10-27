@@ -20,7 +20,7 @@ class EMode:
         '''
         Initialize defaults and connects to EMode.
         '''
-        atexit.register(self.close())
+        atexit.register(self.close)
         try:
             sim = str(sim)
         except:
@@ -131,7 +131,10 @@ class EMode:
         '''
         Send saving options to EMode and close the connection.
         '''
-        if (self.conn.fileno() == -1): return
+        try:
+            if (self.conn.fileno() == -1): return
+        except:
+            pass
         self.call("EM_close", **kwargs)
         self.conn.sendall(b"exit")
         self.conn.close()

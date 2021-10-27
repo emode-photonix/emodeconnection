@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="emodeconnection",
-    version="1.0.0b15",
+    version="1.0.0b16",
     author="EMode Photonix LLC",
     author_email="EModeSolver@gmail.com",
     description="Python connection for EMode",
