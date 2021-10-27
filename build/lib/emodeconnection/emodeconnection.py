@@ -20,6 +20,7 @@ class EMode:
         '''
         Initialize defaults and connects to EMode.
         '''
+        atexit.register(self.close())
         try:
             sim = str(sim)
         except:
@@ -71,6 +72,8 @@ class EMode:
                     kwargs[kw] = ' '+kwargs[kw]
                 sendset.append(kwargs[kw].encode('utf-8'))
             elif (isinstance(kwargs[kw], list)):
+                str_check = [True for kk in kwargs[kw] if isinstance(kk, str)]
+                if (True in str_check): raise TypeError("list inputs must not contain strings")
                 sendset.append(struct.pack('@%dd' % int(len(kwargs[kw])), *kwargs[kw]))
             elif (isinstance(kwargs[kw], (int, float, np.integer, np.float))):
                 sendset.append(struct.pack('@1d', kwargs[kw]))
