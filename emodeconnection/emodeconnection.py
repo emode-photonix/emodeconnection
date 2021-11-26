@@ -16,7 +16,7 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim='emode', open_existing=False, new_name=False, verbose=False):
+    def __init__(self, sim='emode', open_existing=False, new_name=False, priority='pN', roaming=False, verbose=False):
         '''
         Initialize defaults and connects to EMode.
         '''
@@ -25,6 +25,11 @@ class EMode:
             sim = str(sim)
         except:
             raise TypeError("input parameter 'sim' must be a string")
+            return
+        try:
+            priority = str(priority)
+        except:
+            raise TypeError("input parameter 'priority' must be a string")
             return
         self.dsim = sim
         self.ext = ".eph"
@@ -40,6 +45,11 @@ class EMode:
         cmd_lst = ['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)]
         if (verbose == True):
             cmd_lst.append('-v')
+        if (priority != 'pN'):
+            priority = priority.strip('-')
+            cmd_lst.append('-'+priority)
+        if roaming:
+            cmd_lst.append('-r')
         proc = Popen(cmd_lst, stderr=None)
         self.conn, self.addr = self.s.accept()
         time.sleep(0.2) # wait for EMode to recv
@@ -131,10 +141,7 @@ class EMode:
         '''
         Send saving options to EMode and close the connection.
         '''
-        try:
-            if (self.conn.fileno() == -1): return
-        except:
-            pass
+        if (self.conn.fileno() == -1): return
         self.call("EM_close", **kwargs)
         self.conn.sendall(b"exit")
         self.conn.close()

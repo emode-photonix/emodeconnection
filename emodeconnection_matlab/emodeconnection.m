@@ -24,18 +24,36 @@ classdef emodeconnection
         conn
     end
     methods
-        function obj = emodeconnection(sim, open_existing, new_name)
+        function obj = emodeconnection(sim, open_existing, new_name, priority, roaming, verbose)
             % Initialize defaults and connect to EMode.
             
             if nargin == 0
                 sim = 'emode';
                 open_existing = false;
                 new_name = false;
+                priority = 'pN';
+                roaming = false;
+                verbose = false;
             elseif nargin == 1
                 open_existing = false;
                 new_name = false;
+                priority = 'pN';
+                roaming = false;
+                verbose = false;
             elseif nargin == 2
                 new_name = false;
+                priority = 'pN';
+                roaming = false;
+                verbose = false;
+            elseif nargin == 3
+                priority = 'pN';
+                roaming = false;
+                verbose = false;
+            elseif nargin == 4
+                roaming = false;
+                verbose = false;
+            elseif nargin == 5
+                verbose = false;
             end
             
             isOctave = exist('OCTAVE_VERSION', 'builtin') ~= 0;
@@ -48,6 +66,13 @@ classdef emodeconnection
                 sim = num2str(sim);
             catch
                 error('Input parameter "sim" must be a string.');
+                return
+            end
+            
+            try
+                priority = num2str(priority);
+            catch
+                error('Input parameter "priority" must be a string.');
                 return
             end
             
@@ -75,11 +100,27 @@ classdef emodeconnection
                 end
             end
             
+            EM_cmd_str = 'EMode.exe %s %s %s';
+            
+            if verbose == true
+                EM_cmd_str = strcat(EM_cmd_str, ' -v');
+            end
+            
+            if ~strcmp(priority, 'pN')
+                priority = erase(priority, '-');
+                EM_cmd_str = strcat(EM_cmd_str, ' -', priority);
+            end
+            
+            if roaming
+                EM_cmd_str = strcat(EM_cmd_str, ' -r');
+            end
+            
             % Open EMode
             if isOctave
-                system(sprintf('EMode.exe %s %s %s', obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), false, 'async');
+                system(sprintf(EM_cmd_str, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), false, 'async');
             else % Matlab
-                system(sprintf('EMode.exe %s %s %s &', obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)));
+                EM_cmd_str = strcat(EM_cmd_str, ' &')
+                system(sprintf(EM_cmd_str, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)));
             end
             
             obj.conn = accept(obj.s);
