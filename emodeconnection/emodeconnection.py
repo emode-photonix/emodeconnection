@@ -5,7 +5,7 @@
 ## Copyright (c) 2022 EMode Photonix LLC
 ###########################################################
 
-import os, socket, struct, pickle, time, atexit
+import os, socket, json, pickle, time, atexit
 from subprocess import Popen
 import numpy as np
 import scipy.io as sio
