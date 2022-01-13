@@ -2,12 +2,7 @@
 ###########################################################
 ## EMode - Python interface, by EMode Photonix LLC
 ###########################################################
-## Copyright (c) 2021 EMode Photonix LLC
-###########################################################
-## NOTES:
-## - strings are UTF-8
-## - numbers are doubles with IEEE 754 binary64
-###########################################################
+## Copyright (c) 2022 EMode Photonix LLC
 ###########################################################
 
 import os, socket, struct, pickle, time, atexit
@@ -52,12 +47,14 @@ class EMode:
             cmd_lst.append('-r')
         proc = Popen(cmd_lst, stderr=None)
         self.conn, self.addr = self.s.accept()
-        time.sleep(0.2) # wait for EMode to recv
+        time.sleep(0.1) # wait for EMode to recv
         self.conn.sendall(b"connected with Python!")
         if (open_existing):
             RV = self.call("EM_open", sim=sim, new_name=new_name)
         else:
             RV = self.call("EM_init", sim=sim)
+        if (RV == 'ERROR'):
+            raise RuntimeError("internal EMode error")
         self.dsim = RV[len("sim:"):]
         return
     
@@ -65,39 +62,34 @@ class EMode:
         '''
         Send a command to EMode.
         '''
-        sendset = []
+        sendset = {}
         if (isinstance(function, str)):
-            sendset.append(function.encode('utf-8'))
+            sendset['function'] = function
         else:
             raise TypeError("input parameter 'function' must be a string")
         
         for kw in kwargs:
-            sendset.append(kw.encode('utf-8'))
-            if (isinstance(kwargs[kw], np.ndarray)):
-                if (len(kwargs[kw].shape) == 1):
-                    kwargs[kw] = list(kwargs[kw])
+            data = kwargs[kw]
+            if (type(data).__module__ == np.__name__):
+                data = np.squeeze(data).tolist()
             
-            if (isinstance(kwargs[kw], str)):
-                if ((len(kwargs[kw]) % 8) == 0):
-                    kwargs[kw] = ' '+kwargs[kw]
-                sendset.append(kwargs[kw].encode('utf-8'))
-            elif (isinstance(kwargs[kw], list)):
-                str_check = [True for kk in kwargs[kw] if isinstance(kk, str)]
-                if (True in str_check): raise TypeError("list inputs must not contain strings")
-                sendset.append(struct.pack('@%dd' % int(len(kwargs[kw])), *kwargs[kw]))
-            elif (isinstance(kwargs[kw], (int, float, np.integer, np.float))):
-                sendset.append(struct.pack('@1d', kwargs[kw]))
-            else:
-                raise TypeError("type not recognized in '**kwargs' as str, list, integer, or float")
+            if (isinstance(data, list)):
+                if (len(data) == 1):
+                    data = data[0]
+            
+            sendset[kw] = data
         
         if ('sim' not in kwargs):
-            sendset.append('sim'.encode('utf-8'))
-            sendset.append(self.dsim.encode('utf-8'))
+            sendset['sim'] = self.dsim
         
-        sendstr = b':::::'.join(sendset)
         try:
-            self.conn.sendall(sendstr)
-            RV = self.conn.recv(self.DL)
+            sendstr = json.dumps(sendset)
+        except TypeError:
+            raise TypeError("EMode function inputs must have type string, int/float, or list")
+        
+        try:
+            self.conn.sendall(bytes(sendstr, encoding="utf-8"))
+            recvstr = self.conn.recv(self.DL)
         except:
             # Exited due to license checkout
             self.conn.close()
@@ -106,7 +98,10 @@ class EMode:
         if (self.exit_flag):
             raise RuntimeError("License checkout error!")
         
-        return RV.decode("utf-8")
+        recvjson = recvstr.decode("utf-8")
+        recvset = json.loads(recvjson)
+        
+        return recvset['RV']
 
     def get(self, variable):
         '''
@@ -114,6 +109,8 @@ class EMode:
         '''
         if (not isinstance(variable, str)):
             raise TypeError("input parameter 'variable' must be a string")
+        
+        RV = self.call("EM_save", sim=self.dsim)
         
         fl = open(self.dsim+self.ext, 'rb')
         f = pickle.load(fl)
@@ -130,6 +127,7 @@ class EMode:
         '''
         Return list of keys from available data in simulation file.
         '''
+        RV = self.call("EM_save", sim=self.dsim)
         fl = open(self.dsim+self.ext, 'rb')
         f = pickle.load(fl)
         fl.close()
@@ -143,7 +141,8 @@ class EMode:
         '''
         if (self.conn.fileno() == -1): return
         self.call("EM_close", **kwargs)
-        self.conn.sendall(b"exit")
+        sendjson = json.dumps({'function': 'exit'})
+        self.conn.sendall(bytes(sendjson, encoding="utf-8"))
         self.conn.close()
         print("Exited EMode")
         return

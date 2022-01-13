@@ -4,11 +4,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Copyright (c) 2021 EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% NOTES:
-%% - strings are UTF-8
-%% - numbers are doubles with IEEE 754 binary64
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 classdef emodeconnection
     properties
@@ -60,6 +55,22 @@ classdef emodeconnection
             
             if isOctave
                 pkg load sockets;
+                ov = OCTAVE_VERSION;
+                if str2num(ov(1)) < 7
+                    [usrpkg, syspkg] = pkg('list');
+                    nojsonstuff = true;
+                    for kk = 1:length(usrpkg)
+                        if strcmp(usrpkg{kk}.name, 'jsonstuff')
+                            % found jsonstuff
+                            nojsonstuff = false;
+                        end
+                    end
+                    if nojsonstuff
+                        % install jsonstuff
+                        pkg install https://github.com/apjanke/octave-jsonstuff/releases/download/v0.3.3/jsonstuff-0.3.3.tar.gz
+                    end
+                    pkg load jsonstuff
+                end
             end
             
             try
@@ -117,10 +128,11 @@ classdef emodeconnection
             
             % Open EMode
             if isOctave
-                system(sprintf(EM_cmd_str, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), false, 'async');
+                % system(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), false, 'async');
+                popen(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), "r");
             else % Matlab
                 EM_cmd_str = strcat(EM_cmd_str, ' &')
-                system(sprintf(EM_cmd_str, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)));
+                system(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)));
             end
             
             obj.conn = accept(obj.s);
@@ -137,70 +149,46 @@ classdef emodeconnection
             else
                 RV = obj.call('EM_init', 'sim', sim);
             end
+            
+            if strcmp(RV, 'ERROR')
+                error('internal EMode error');
+                return
+            end
+            
             obj.dsim = RV(length('sim:')+1:end);
         end
         
         function RV = call(obj, func_name, varargin)
             % Send a command to EMode.
-            
-            sendset = {};
+            s = struct();
             if (ischar(func_name))
-                sendset = [sendset, uint8(func_name)];
+                s.('function') = func_name;
             else
                 error('Input parameter "function" must be a string.');
             end
-            
-            sim_flag = true;
             
             if (mod(length(varargin), 2))
                 error('Incorrect number of inputs!\nAn even number of inputs is required following the function name.');
                 return
             end
             
+            sim_flag = true;
             for kk = 1:length(varargin)/2
                 kw = varargin{kk*2-1};
                 kv = varargin{kk*2};
-                sendset = [sendset, uint8(kw)];
-                if (ischar(kv))
-                    if (mod(length(kv), 8) == 0)
-                        kv = sprintf(' %s', kv);
-                    end
-                    sendset = [sendset, uint8(kv)];
-                elseif (isa(kv, 'numeric') || isa(kv, 'integer') || isa(kv, 'logical'))
-                    if isa(kv, 'logical')
-                        kv = double(kv);
-                    end
-                    for ll = 1:length(kv)
-                        tc = typecast(kv(ll), 'uint8');
-                        if (ll == 1)
-                            tc_set = tc;
-                        else
-                            tc_set = [tc_set tc];
-                        end
-                    end
-                    sendset = [sendset, tc_set];
-                else
-                    error('Input type not recognized numeric or integer.');
-                end
-                
+                s.(kw) = kv;
                 if (strcmp(kw, 'sim'))
                     sim_flag = false;
                 end
             end
             
             if (sim_flag)
-                sendset = [sendset, uint8('sim')];
-                sendset = [sendset, uint8(obj.dsim)];
-            end
-            
-            sendstr = sendset{1};
-            for mm = 2:length(sendset)
-                sendstr = [sendstr uint8(':::::') sendset{mm}];
+                s.('sim') = obj.dsim;
             end
             
             try
-                send(obj.conn, sendstr);
-                RV = recv(obj.conn, obj.DL);
+                send(obj.conn, uint8(jsonencode(s)));
+                recvstr = recv(obj.conn, obj.DL);
             catch
                 % Exited due to license checkout
                 disconnect(obj.conn);
@@ -211,9 +199,10 @@ classdef emodeconnection
                 error('License checkout error!');
             end
             
-            RV = char(RV);
+            recvset = jsondecode(recvstr);
+            RV = recvset.('RV');
         end
-
+        
         function data = get(obj, variable)
             % Return data from simulation file.
             
