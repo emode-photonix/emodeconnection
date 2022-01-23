@@ -173,7 +173,7 @@ class EMode:
                 time.sleep(0.01)
                 if self.proc.poll() is None:
                     break
-            time.sleep(0.25)
+            time.sleep(0.5)
             self.s.shutdown(socket.SHUT_RDWR)
         except:
             pass
