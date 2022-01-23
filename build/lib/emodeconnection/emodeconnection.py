@@ -37,7 +37,7 @@ class EMode:
         if os.path.exists(port_path): os.remove(port_path)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.settimeout(60)
-        cmd_lst = ['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)]
+        cmd_lst = ['EMode.exe', 'run']
         if (verbose == True):
             cmd_lst.append('-v')
         if (priority != 'pN'):
