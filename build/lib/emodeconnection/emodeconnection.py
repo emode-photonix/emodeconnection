@@ -11,10 +11,11 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim='emode', open_existing=False, new_name=False, priority='pN', roaming=False, verbose=False):
+    def __init__(self, sim="emode", verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
         '''
         Initialize defaults and connects to EMode.
         '''
+        self.status = 'open'
         atexit.register(self.close)
         try:
             sim = str(sim)
@@ -30,13 +31,12 @@ class EMode:
         self.ext = ".eph"
         self.exit_flag = False
         self.DL = 2048
-        self.HOST = '127.0.0.1'
-        self.LHOST = 'lm.emodephotonix.com'
-        self.LPORT = '64000'
+        HOST = '127.0.0.1'
+        PORT_SERVER = 0
+        port_path = os.path.join(os.environ['APPDATA'], 'EMode', 'port.txt')
+        if os.path.exists(port_path): os.remove(port_path)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.bind((self.HOST, 0))
-        self.PORT_SERVER = int(self.s.getsockname()[1])
-        self.s.listen(1)
+        self.s.settimeout(60)
         cmd_lst = ['EMode.exe', self.LHOST, self.LPORT, str(self.PORT_SERVER)]
         if (verbose == True):
             cmd_lst.append('-v')
@@ -45,10 +45,35 @@ class EMode:
             cmd_lst.append('-'+priority)
         if roaming:
             cmd_lst.append('-r')
-        proc = Popen(cmd_lst, stderr=None)
-        self.conn, self.addr = self.s.accept()
-        time.sleep(0.1) # wait for EMode to recv
-        self.conn.sendall(b"connected with Python!")
+        self.proc = Popen(cmd_lst, stderr=None)
+        
+        # Read EMode port
+        t0 = time.perf_counter()
+        waiting = True
+        wait_time = 20 # [seconds]
+        while waiting:
+            try:
+                with open(port_path, 'r') as f:
+                    PORT_SERVER = int(f.read())
+            except:
+                pass
+            if (PORT_SERVER != 0):
+                # print("Connection: %d" % PORT_SERVER, flush=True)
+                break
+            elif (time.perf_counter() - t0) > wait_time:
+                waiting = False
+            time.sleep(0.05)
+        
+        if not waiting:
+            self.s.close()
+            raise RuntimeError("EMode connection error!")
+        
+        time.sleep(0.1) # wait for EMode to open
+        self.s.connect((HOST, PORT_SERVER))
+        self.s.settimeout(None)
+        self.s.sendall(b"connected with Python!")
+        time.sleep(0.1) # wait for EMode
+        
         if (open_existing):
             RV = self.call("EM_open", sim=sim, new_name=new_name)
         else:
@@ -88,11 +113,12 @@ class EMode:
             raise TypeError("EMode function inputs must have type string, int/float, or list")
         
         try:
-            self.conn.sendall(bytes(sendstr, encoding="utf-8"))
-            recvstr = self.conn.recv(self.DL)
+            self.s.sendall(bytes(sendstr, encoding="utf-8"))
+            recvstr = self.s.recv(self.DL)
         except:
             # Exited due to license checkout
-            self.conn.close()
+            self.s.shutdown(socket.SHUT_RDWR)
+            self.s.close()
             self.exit_flag = True
         
         if (self.exit_flag):
@@ -102,7 +128,7 @@ class EMode:
         recvset = json.loads(recvjson)
         
         return recvset['RV']
-
+    
     def get(self, variable):
         '''
         Return data from simulation file.
@@ -139,12 +165,25 @@ class EMode:
         '''
         Send saving options to EMode and close the connection.
         '''
-        if (self.conn.fileno() == -1): return
-        self.call("EM_close", **kwargs)
-        sendjson = json.dumps({'function': 'exit'})
-        self.conn.sendall(bytes(sendjson, encoding="utf-8"))
-        self.conn.close()
-        print("Exited EMode")
+        try:
+            self.call("EM_close", **kwargs)
+            sendjson = json.dumps({'function': 'exit'})
+            self.s.sendall(bytes(sendjson, encoding="utf-8"))
+            while True:
+                time.sleep(0.01)
+                if self.proc.poll() is None:
+                    break
+            time.sleep(0.25)
+            self.s.shutdown(socket.SHUT_RDWR)
+        except:
+            pass
+        self.s.close()
+        self.status = 'closed'
+        return
+    
+    def close_atexit(self, **kwargs):
+        if self.status == 'open':
+            self.close()
         return
 
 def open_file(sim):

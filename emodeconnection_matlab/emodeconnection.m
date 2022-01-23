@@ -1,8 +1,8 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% EMode - Matlab/Octave interface, by EMode Photonix LLC
+%% EMode - MATLAB/Octave interface, by EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Copyright (c) 2021 EMode Photonix LLC
+%% Copyright (c) 2022 EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 classdef emodeconnection
@@ -11,44 +11,39 @@ classdef emodeconnection
         ext
         exit_flag
         DL
-        HOST
-        LHOST
-        LPORT
-        PORT_SERVER
         s
-        conn
     end
     methods
-        function obj = emodeconnection(sim, open_existing, new_name, priority, roaming, verbose)
-            % Initialize defaults and connect to EMode.
+        function obj = emodeconnection(sim, verbose, roaming, open_existing, new_name, priority)
+            % Initialize defaults and connects to EMode.
             
             if nargin == 0
                 sim = 'emode';
+                verbose = false;
+                roaming = false;
                 open_existing = false;
                 new_name = false;
                 priority = 'pN';
-                roaming = false;
-                verbose = false;
             elseif nargin == 1
+                verbose = false;
+                roaming = false;
                 open_existing = false;
                 new_name = false;
                 priority = 'pN';
-                roaming = false;
-                verbose = false;
             elseif nargin == 2
+                roaming = false;
+                open_existing = false;
                 new_name = false;
                 priority = 'pN';
-                roaming = false;
-                verbose = false;
             elseif nargin == 3
+                open_existing = false;
+                new_name = false;
                 priority = 'pN';
-                roaming = false;
-                verbose = false;
             elseif nargin == 4
-                roaming = false;
-                verbose = false;
+                new_name = false;
+                priority = 'pN';
             elseif nargin == 5
-                verbose = false;
+                priority = 'pN';
             end
             
             isOctave = exist('OCTAVE_VERSION', 'builtin') ~= 0;
@@ -57,7 +52,7 @@ classdef emodeconnection
                 pkg load sockets;
                 ov = OCTAVE_VERSION;
                 if str2num(ov(1)) < 7
-                    [usrpkg, syspkg] = pkg('list');
+                    [usrpkg, ~] = pkg('list');
                     nojsonstuff = true;
                     for kk = 1:length(usrpkg)
                         if strcmp(usrpkg{kk}.name, 'jsonstuff')
@@ -70,6 +65,11 @@ classdef emodeconnection
                         pkg install https://github.com/apjanke/octave-jsonstuff/releases/download/v0.3.3/jsonstuff-0.3.3.tar.gz
                     end
                     pkg load jsonstuff
+                    pkg load instrument-control
+                end
+            else
+                if verLessThan('matlab', '9.1')
+                    error('EMode only supports MATLAB version R2016b or higher.');
                 end
             end
             
@@ -77,41 +77,27 @@ classdef emodeconnection
                 sim = num2str(sim);
             catch
                 error('Input parameter "sim" must be a string.');
-                return
             end
             
             try
                 priority = num2str(priority);
             catch
                 error('Input parameter "priority" must be a string.');
-                return
             end
             
             obj.dsim = sim;
             obj.ext = '.mat';
             obj.exit_flag = false;
             obj.DL = 2048;
-            obj.HOST = '127.0.0.1';
-            obj.LHOST = 'lm.emodephotonix.com';
-            obj.LPORT = '64000';
+            HOST = '127.0.0.1';
+            PORT_SERVER = 0;
             
-            obj.PORT_SERVER = 4000;
-            while (1)
-                try
-                    if isOctave
-                        obj.s = socket(AF_INET, SOCK_STREAM);
-                        bind(obj.s, obj.PORT_SERVER);
-                        a = listen(obj.s, 0);
-                    else % Matlab
-                        obj.s = tcpserver(obj.HOST, obj.PORT_SERVER);
-                    end
-                    break
-                catch
-                    obj.PORT_SERVER = obj.PORT_SERVER + 1;
-                end
+            port_path = fullfile(getenv('APPDATA'), 'EMode', 'port.txt');
+            if exist(port_path, 'file') == 2
+                delete(port_path);
             end
             
-            EM_cmd_str = 'EMode.exe %s %s %s';
+            EM_cmd_str = 'EMode.exe run';
             
             if verbose == true
                 EM_cmd_str = strcat(EM_cmd_str, ' -v');
@@ -128,21 +114,44 @@ classdef emodeconnection
             
             % Open EMode
             if isOctave
-                % system(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), false, 'async');
-                popen(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)), "r");
-            else % Matlab
-                EM_cmd_str = strcat(EM_cmd_str, ' &')
-                system(sprintf(EM_cmd_str, path, obj.LHOST, obj.LPORT, num2str(obj.PORT_SERVER)));
+                system(EM_cmd_str, false, 'async');
+            else % MATLAB
+                EM_cmd_str = strcat(EM_cmd_str, ' &');
+                system(EM_cmd_str);
             end
             
-            obj.conn = accept(obj.s);
-            pause(0.2); % wait for EMode to recv
+            % Read EMode port
+            t1 = now;
+            waiting = true;
+            wait_time = 20; % [seconds]
+            while waiting
+                try
+                    file = fopen(port_path, 'r');
+                    PORT_SERVER = str2num(fscanf(file, '%s'));
+                    fclose(file);
+                catch
+                    % continue
+                end
+                if (PORT_SERVER ~= 0)
+                    break
+                elseif (now - t1) > wait_time
+                    waiting = false;
+                end
+                pause(0.05);
+            end
             
+            if ~waiting
+                error("EMode connection error!");
+            end
+            
+            pause(0.1) % wait for EMode to open
+            obj.s = tcpclient(HOST, PORT_SERVER, "Timeout", 60);
             if isOctave
-                send(obj.conn, uint8('connected with Octave!'));
-            else % Matlab
-                send(obj.conn, uint8('connected with Matlab!'));
+                write(obj.s, native2unicode('connected with Octave!', 'UTF-8'));
+            else % MATLAB
+                write(obj.s, native2unicode('connected with MATLAB!', 'UTF-8'));
             end
+            pause(0.1); % wait for EMode to recv
             
             if open_existing
                 RV = obj.call('EM_open', 'sim', sim, 'new_name', new_name);
@@ -152,7 +161,6 @@ classdef emodeconnection
             
             if strcmp(RV, 'ERROR')
                 error('internal EMode error');
-                return
             end
             
             obj.dsim = RV(length('sim:')+1:end);
@@ -160,38 +168,49 @@ classdef emodeconnection
         
         function RV = call(obj, func_name, varargin)
             % Send a command to EMode.
-            s = struct();
+            st = struct();
             if (ischar(func_name))
-                s.('function') = func_name;
+                st.('function') = func_name;
             else
                 error('Input parameter "function" must be a string.');
             end
             
             if (mod(length(varargin), 2))
                 error('Incorrect number of inputs!\nAn even number of inputs is required following the function name.');
-                return
             end
             
             sim_flag = true;
             for kk = 1:length(varargin)/2
                 kw = varargin{kk*2-1};
                 kv = varargin{kk*2};
-                s.(kw) = kv;
+                st.(kw) = kv;
                 if (strcmp(kw, 'sim'))
                     sim_flag = false;
                 end
             end
             
             if (sim_flag)
-                s.('sim') = obj.dsim;
+                st.('sim') = obj.dsim;
             end
             
             try
-                send(obj.conn, uint8(jsonencode(s)));
-                recvstr = recv(obj.conn, obj.DL);
+                sendstr = jsonencode(st);
+            catch
+                error('EMode function inputs must have type string, int/float, or list');
+            end
+            
+            try
+                write(obj.s, native2unicode(sendstr, 'UTF-8'));
+                while true
+                    if obj.s.NumBytesAvailable > 0
+                        break
+                    end
+                end
+                pause(0.1);
+                recvstr = read(obj.s, obj.s.NumBytesAvailable);
             catch
                 % Exited due to license checkout
-                disconnect(obj.conn);
+                clear obj.s;
                 obj.exit_flag = true;
             end
             
@@ -199,7 +218,7 @@ classdef emodeconnection
                 error('License checkout error!');
             end
             
-            recvset = jsondecode(recvstr);
+            recvset = jsondecode(char(recvstr));
             RV = recvset.('RV');
         end
         
@@ -210,9 +229,16 @@ classdef emodeconnection
                 error('Input parameter "variable" must be a string.');
             end
             
-            obj.call('EM_save_mat');
+            obj.call('EM_save', 'sim', obj.dsim, 'ftype', obj.ext(2:end));
             
             fvariables = who('-file', sprintf('%s%s', obj.dsim, obj.ext), variable);
+            
+            for kk = 1:100
+                if (ismember(variable, fvariables))
+                    break
+                end
+                pause(0.1); % wait for file to write
+            end
             
             if (ismember(variable, fvariables))
                 T = load(sprintf('%s%s', obj.dsim, obj.ext), variable);
@@ -225,23 +251,27 @@ classdef emodeconnection
     
         function fkeys = inspect(obj)
             % Return list of keys from available data in simulation file.
-            
-            obj.call('EM_save_mat');
-            
+            obj.call('EM_save', 'sim', obj.dsim, 'ftype', obj.ext(2:end));
             fkeys = who('-file',sprintf('%s%s', obj.dsim, obj.ext));
         end
         
         function close(obj, varargin)
             % Send saving options to EMode and close the connection.
-            
-            if (length(varargin) > 0)
-                obj.call('EM_close', varargin{:});
-            else
-                obj.call('EM_close', 'save', true, 'ftype', 'mat');
+            try
+                if (length(varargin) > 0)
+                    obj.call('EM_close', varargin{:});
+                else
+                    obj.call('EM_close', 'save', true, 'ftype', obj.ext(2:end));
+                end
+                s = struct();
+                s.('function') = 'exit';
+                sendstr = jsonencode(s);
+                write(obj.s, native2unicode(sendstr, 'UTF-8'));
+                pause(0.25);
+            catch
+                % continue
             end
-            send(obj.conn, uint8('exit'));
-            disconnect(obj.conn);
-            disp('Exited EMode');
+            clear obj.s;
         end
     end
     methods (Static = true)
@@ -288,7 +318,8 @@ classdef emodeconnection
             end
             
             try
-                data = load(sprintf('%s%s', sim, mat), variable).(variable);
+                data_load = load(sprintf('%s%s', sim, mat), variable);
+                data = data_load.(variable);
             catch
                 error('Data does not exist.');
                 data = 0;
