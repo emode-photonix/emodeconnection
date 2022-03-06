@@ -7,6 +7,7 @@
 
 import os, socket, json, pickle, time, atexit
 from subprocess import Popen
+from datetime import datetime as dt
 import numpy as np
 import scipy.io as sio
 
@@ -33,11 +34,11 @@ class EMode:
         self.DL = 2048
         HOST = '127.0.0.1'
         PORT_SERVER = 0
-        port_path = os.path.join(os.environ['APPDATA'], 'EMode', 'port.txt')
-        if os.path.exists(port_path): os.remove(port_path)
+        port_file_ext = dt.utcnow().strftime('%Y%m%d%H%M%S%f')
+        port_path = os.path.join(os.environ['APPDATA'], 'EMode', 'port_%s.txt' % port_file_ext)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.settimeout(60)
-        cmd_lst = ['EMode.exe', 'run']
+        cmd_lst = ['EMode.exe', 'run', port_file_ext]
         if (verbose == True):
             cmd_lst.append('-v')
         if (priority != 'pN'):
@@ -57,8 +58,10 @@ class EMode:
                     PORT_SERVER = int(f.read())
             except:
                 pass
+            finally:
+                if os.path.exists(port_path):
+                    os.remove(port_path)
             if (PORT_SERVER != 0):
-                # print("Connection: %d" % PORT_SERVER, flush=True)
                 break
             elif (time.perf_counter() - t0) > wait_time:
                 waiting = False
@@ -173,7 +176,7 @@ class EMode:
                 time.sleep(0.01)
                 if self.proc.poll() is None:
                     break
-            time.sleep(0.5)
+            time.sleep(1.0)
             self.s.shutdown(socket.SHUT_RDWR)
         except:
             pass

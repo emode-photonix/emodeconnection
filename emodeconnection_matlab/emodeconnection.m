@@ -267,7 +267,7 @@ classdef emodeconnection
                 s.('function') = 'exit';
                 sendstr = jsonencode(s);
                 write(obj.s, native2unicode(sendstr, 'UTF-8'));
-                pause(0.25);
+                pause(1.0);
             catch
                 % continue
             end
