@@ -5,16 +5,17 @@
 %% Copyright (c) 2022 EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-classdef emodeconnection
+classdef emodeconnection_debug
     properties
+        isOctave
+        endian
         dsim
         ext
         exit_flag
-        DL
         s
     end
     methods
-        function obj = emodeconnection(sim, verbose, roaming, open_existing, new_name, priority)
+        function obj = emodeconnection_debug(sim, verbose, roaming, open_existing, new_name, priority)
             % Initialize defaults and connects to EMode.
             
             if nargin == 0
@@ -46,26 +47,15 @@ classdef emodeconnection
                 priority = 'pN';
             end
             
-            isOctave = exist('OCTAVE_VERSION', 'builtin') ~= 0;
+            obj.isOctave = exist('OCTAVE_VERSION', 'builtin') ~= 0;
+            [str,maxsize,obj.endian] = computer;
             
-            if isOctave
+            if obj.isOctave
                 pkg load sockets;
+                pkg load instrument-control;
                 ov = OCTAVE_VERSION;
                 if str2num(ov(1)) < 7
-                    [usrpkg, ~] = pkg('list');
-                    nojsonstuff = true;
-                    for kk = 1:length(usrpkg)
-                        if strcmp(usrpkg{kk}.name, 'jsonstuff')
-                            % found jsonstuff
-                            nojsonstuff = false;
-                        end
-                    end
-                    if nojsonstuff
-                        % install jsonstuff
-                        pkg install https://github.com/apjanke/octave-jsonstuff/releases/download/v0.3.3/jsonstuff-0.3.3.tar.gz
-                    end
-                    pkg load jsonstuff
-                    pkg load instrument-control
+                    error('EMode only supports Octave version 7.x or higher.');
                 end
             else
                 if verLessThan('matlab', '9.1')
@@ -88,16 +78,19 @@ classdef emodeconnection
             obj.dsim = sim;
             obj.ext = '.mat';
             obj.exit_flag = false;
-            obj.DL = 2048;
             HOST = '127.0.0.1';
             PORT_SERVER = 0;
             
-            port_path = fullfile(getenv('APPDATA'), 'EMode', 'port.txt');
-            if exist(port_path, 'file') == 2
-                delete(port_path);
+            if obj.isOctave
+                now_utc = gmtime(time());
+                port_file_ext = strcat(strftime("%Y%m%d%H%M%S", now_utc), num2str(now_utc.usec));
+            else % MATLAB
+                port_file_ext = datestr(datetime('now', 'TimeZone', 'Europe/London'), 'yyyymmddHHMMSSFFF');
             end
+            port_path = fullfile(getenv('APPDATA'), 'EMode', strcat('port_', port_file_ext, '.txt'));
             
-            EM_cmd_str = 'EMode.exe run';
+            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext);
+            EM_cmd_str = EM_cmd_str{1,1};
             
             if verbose == true
                 EM_cmd_str = strcat(EM_cmd_str, ' -v');
@@ -113,7 +106,7 @@ classdef emodeconnection
             end
             
             % Open EMode
-            if isOctave
+            if obj.isOctave
                 system(EM_cmd_str, false, 'async');
             else % MATLAB
                 EM_cmd_str = strcat(EM_cmd_str, ' &');
@@ -146,7 +139,7 @@ classdef emodeconnection
             
             pause(0.1) % wait for EMode to open
             obj.s = tcpclient(HOST, PORT_SERVER, "Timeout", 60);
-            if isOctave
+            if obj.isOctave
                 write(obj.s, native2unicode('connected with Octave!', 'UTF-8'));
             else % MATLAB
                 write(obj.s, native2unicode('connected with MATLAB!', 'UTF-8'));
@@ -200,14 +193,26 @@ classdef emodeconnection
             end
             
             try
-                write(obj.s, native2unicode(sendstr, 'UTF-8'));
+                msg = native2unicode(sendstr, 'UTF-8');
+                msg_L = uint32([length(msg)]);
+                if (obj.endian == 'L')
+                    msg_L = swapbytes(msg_L);
+                end
+                write(obj.s, msg_L, 'uint32');
+                write(obj.s, msg);
+                
                 while true
                     if obj.s.NumBytesAvailable > 0
                         break
                     end
                 end
                 pause(0.1);
-                recvstr = read(obj.s, obj.s.NumBytesAvailable);
+                msglen = read(obj.s, 4);
+                msglen = typecast(uint8(msglen), 'uint32');
+                if (obj.endian == 'L')
+                    msglen = swapbytes(msglen);
+                end
+                recvstr = read(obj.s, msglen);
             catch
                 % Exited due to license checkout
                 clear obj.s;
@@ -218,8 +223,12 @@ classdef emodeconnection
                 error('License checkout error!');
             end
             
-            recvset = jsondecode(char(recvstr));
-            RV = recvset.('RV');
+            recvjson = char(recvstr);
+            try
+                RV = jsondecode(recvjson);
+            catch
+                RV = recvjson;
+            end
         end
         
         function data = get(obj, variable)
@@ -229,23 +238,29 @@ classdef emodeconnection
                 error('Input parameter "variable" must be a string.');
             end
             
-            obj.call('EM_save', 'sim', obj.dsim, 'ftype', obj.ext(2:end));
+            data = obj.call('EM_get', 'key', variable, 'sim', obj.dsim);
             
-            fvariables = who('-file', sprintf('%s%s', obj.dsim, obj.ext), variable);
-            
-            for kk = 1:100
-                if (ismember(variable, fvariables))
-                    break
+            if isstruct(data)
+                nd_index = find(strcmp(fieldnames(data), '__ndarray__') == 1);
+                if length(nd_index) > 0
+                    dtype = data.dtype;
+                    dshape = data.shape;
+                    if length(dshape) == 1
+                        dshape = [1 dshape];
+                    end
+                    
+                    if obj.isOctave
+                        data = base64_decode(data.__ndarray__);
+                    else
+                        data = base64decode(data.__ndarray__);
+                    end
+                    
+                    if strcmp(dtype, 'complex128')
+                        data = typecast(data, 'double complex');
+                    end
+                    
+                    data = reshape(data, dshape);
                 end
-                pause(0.1); % wait for file to write
-            end
-            
-            if (ismember(variable, fvariables))
-                T = load(sprintf('%s%s', obj.dsim, obj.ext), variable);
-                data = T.(variable);
-            else
-                error('Data does not exist.');
-                data = 0;
             end
         end
     
@@ -266,7 +281,14 @@ classdef emodeconnection
                 s = struct();
                 s.('function') = 'exit';
                 sendstr = jsonencode(s);
-                write(obj.s, native2unicode(sendstr, 'UTF-8'));
+                msg = native2unicode(sendstr, 'UTF-8');
+                msg_L = uint32([length(msg)]);
+                [str,maxsize,endian] = computer;
+                if (endian == 'L')
+                    msg_L = swapbytes(msg_L);
+                end
+                write(obj.s, msg_L, 'uint32');
+                write(obj.s, msg);
                 pause(1.0);
             catch
                 % continue

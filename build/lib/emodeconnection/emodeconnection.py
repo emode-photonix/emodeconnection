@@ -5,7 +5,7 @@
 ## Copyright (c) 2022 EMode Photonix LLC
 ###########################################################
 
-import os, socket, json, pickle, time, atexit
+import os, socket, json, pickle, time, atexit, base64, struct
 from subprocess import Popen
 from datetime import datetime as dt
 import numpy as np
@@ -31,7 +31,6 @@ class EMode:
         self.dsim = sim
         self.ext = ".eph"
         self.exit_flag = False
-        self.DL = 2048
         HOST = '127.0.0.1'
         PORT_SERVER = 0
         port_file_ext = dt.utcnow().strftime('%Y%m%d%H%M%S%f')
@@ -116,8 +115,11 @@ class EMode:
             raise TypeError("EMode function inputs must have type string, int/float, or list")
         
         try:
-            self.s.sendall(bytes(sendstr, encoding="utf-8"))
-            recvstr = self.s.recv(self.DL)
+            msg = bytes(sendstr, encoding="utf-8")
+            msg = struct.pack('>I', len(msg)) + msg
+            self.s.sendall(msg)
+            
+            recvstr = recv_msg(self.s)
         except:
             # Exited due to license checkout
             self.s.shutdown(socket.SHUT_RDWR)
@@ -128,9 +130,9 @@ class EMode:
             raise RuntimeError("License checkout error!")
         
         recvjson = recvstr.decode("utf-8")
-        recvset = json.loads(recvjson)
+        result = json.loads(recvjson, object_hook=obj_hook)
         
-        return recvset['RV']
+        return result
     
     def get(self, variable):
         '''
@@ -139,16 +141,7 @@ class EMode:
         if (not isinstance(variable, str)):
             raise TypeError("input parameter 'variable' must be a string")
         
-        RV = self.call("EM_save", sim=self.dsim)
-        
-        fl = open(self.dsim+self.ext, 'rb')
-        f = pickle.load(fl)
-        fl.close()
-        if (variable in list(f.keys())):
-            data = f[variable]
-        else:
-            print("Data does not exist.")
-            return
+        data = self.call("EM_get", key=variable, sim=self.dsim)
         
         return data
     
@@ -170,8 +163,10 @@ class EMode:
         '''
         try:
             self.call("EM_close", **kwargs)
-            sendjson = json.dumps({'function': 'exit'})
-            self.s.sendall(bytes(sendjson, encoding="utf-8"))
+            sendstr = json.dumps({'function': 'exit'})
+            msg = bytes(sendstr, encoding="utf-8")
+            msg = struct.pack('>I', len(msg)) + msg
+            self.s.sendall(msg)
             while True:
                 time.sleep(0.01)
                 if self.proc.poll() is None:
@@ -188,6 +183,28 @@ class EMode:
         if self.status == 'open':
             self.close()
         return
+
+def recv_msg(sock):
+    raw_msglen = recvall(sock, 4)
+    if not raw_msglen:
+        return None
+    msglen = struct.unpack('>I', raw_msglen)[0]
+    return recvall(sock, msglen)
+
+def recvall(sock, n):
+    data = bytearray()
+    while len(data) < n:
+        packet = sock.recv(n - len(data))
+        if not packet:
+            return None
+        data.extend(packet)
+    return data
+
+def obj_hook(dct):
+    if isinstance(dct, dict) and '__ndarray__' in dct:
+        data = base64.b64decode(dct['__ndarray__'].encode())
+        return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
+    return dct
 
 def open_file(sim):
     '''
