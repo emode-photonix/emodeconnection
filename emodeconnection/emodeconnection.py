@@ -59,7 +59,10 @@ class EMode:
                 pass
             finally:
                 if os.path.exists(port_path):
-                    os.remove(port_path)
+                    try:
+                        os.remove(port_path)
+                    except:
+                        pass
             if (PORT_SERVER != 0):
                 break
             elif (time.perf_counter() - t0) > wait_time:
@@ -149,12 +152,9 @@ class EMode:
         '''
         Return list of keys from available data in simulation file.
         '''
-        RV = self.call("EM_save", sim=self.dsim)
-        fl = open(self.dsim+self.ext, 'rb')
-        f = pickle.load(fl)
-        fl.close()
-        fkeys = list(f.keys())
-        fkeys.remove("EMode_simulation_file")
+        
+        fkeys = self.call("EM_inspect", sim=self.dsim)
+        
         return fkeys
     
     def close(self, **kwargs):

@@ -5,7 +5,7 @@
 %% Copyright (c) 2022 EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-classdef emodeconnection_debug
+classdef emodeconnection
     properties
         isOctave
         endian
@@ -15,7 +15,7 @@ classdef emodeconnection_debug
         s
     end
     methods
-        function obj = emodeconnection_debug(sim, verbose, roaming, open_existing, new_name, priority)
+        function obj = emodeconnection(sim, verbose, roaming, open_existing, new_name, priority)
             % Initialize defaults and connects to EMode.
             
             if nargin == 0
@@ -241,25 +241,44 @@ classdef emodeconnection_debug
             data = obj.call('EM_get', 'key', variable, 'sim', obj.dsim);
             
             if isstruct(data)
-                nd_index = find(strcmp(fieldnames(data), '__ndarray__') == 1);
-                if length(nd_index) > 0
+                fnames = fieldnames(data);
+                fnamecell = strfind(fnames, '__ndarray__');
+                
+                for mm = 1:length(fnamecell)
+                    if fnamecell{mm} > 0
+                        nd_logic = true;
+                        nd_fname = fnames{mm};
+                    end
+                end
+                
+                if nd_logic
                     dtype = data.dtype;
                     dshape = data.shape;
                     if length(dshape) == 1
                         dshape = [1 dshape];
                     end
                     
+                    sdshape = size(dshape);
+                    if sdshape(1) > 1
+                        dshape = dshape.';
+                    end
+                    
                     if obj.isOctave
-                        data = base64_decode(data.__ndarray__);
+                        data = base64_decode(getfield(data, nd_fname));
                     else
-                        data = base64decode(data.__ndarray__);
+                        data = matlab.net.base64decode(getfield(data, nd_fname));
                     end
                     
                     if strcmp(dtype, 'complex128')
                         data = typecast(data, 'double complex');
+                        if ~obj.isOctave
+                            data = complex(data(1:2:end), data(2:2:end));
+                        end
+                    else
+                        data = typecast(data, 'double');
                     end
                     
-                    data = reshape(data, dshape);
+                    data = reshape(data, flip(dshape));
                 end
             end
         end
