@@ -1,3 +1,4 @@
+LICENSE
 README.md
 setup.py
 emodeconnection/__init__.py

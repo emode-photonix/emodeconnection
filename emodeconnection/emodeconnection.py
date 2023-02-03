@@ -2,7 +2,7 @@
 ###########################################################
 ## EMode - Python interface, by EMode Photonix LLC
 ###########################################################
-## Copyright (c) 2022 EMode Photonix LLC
+## Copyright (c) 2023 EMode Photonix LLC
 ###########################################################
 
 import os, socket, json, pickle, time, atexit, base64, struct
@@ -12,22 +12,27 @@ import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim="emode", verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
+    def __init__(self, sim="emode", simulation_name=None, save_path='.', verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
         '''
         Initialize defaults and connects to EMode.
         '''
         self.status = 'open'
         atexit.register(self.close)
-        try:
-            sim = str(sim)
-        except:
+        
+        if (simulation_name != None): sim = simulation_name
+        
+        if not type(sim) == str:
             raise TypeError("input parameter 'sim' must be a string")
             return
-        try:
-            priority = str(priority)
-        except:
+        
+        if not type(save_path) == str:
+            raise TypeError("input parameter 'save_path' must be a string")
+            return
+        
+        if not type(priority) == str:
             raise TypeError("input parameter 'priority' must be a string")
             return
+        
         self.dsim = sim
         self.ext = ".eph"
         self.exit_flag = False
@@ -80,11 +85,13 @@ class EMode:
         time.sleep(0.1) # wait for EMode
         
         if (open_existing):
-            RV = self.call("EM_open", sim=sim, new_name=new_name)
+            RV = self.call("EM_open", sim=sim, save_path=save_path, new_name=new_name)
         else:
-            RV = self.call("EM_init", sim=sim)
+            RV = self.call("EM_init", sim=sim, save_path=save_path)
+        
         if (RV == 'ERROR'):
             raise RuntimeError("internal EMode error")
+        
         self.dsim = RV[len("sim:"):]
         return
     
@@ -109,8 +116,8 @@ class EMode:
             
             sendset[kw] = data
         
-        if ('sim' not in kwargs):
-            sendset['sim'] = self.dsim
+        if ('sim' not in kwargs) and ('simulation_name' not in kwargs):
+            sendset['simulation_name'] = self.dsim
         
         try:
             sendstr = json.dumps(sendset)
@@ -169,7 +176,7 @@ class EMode:
             self.s.sendall(msg)
             while True:
                 time.sleep(0.01)
-                if self.proc.poll() is None:
+                if (self.proc.poll() is None) or (self.proc.poll() is self.proc.returncode):
                     break
             time.sleep(1.0)
             self.s.shutdown(socket.SHUT_RDWR)
