@@ -144,26 +144,6 @@ class EMode:
         
         return result
     
-    def get(self, variable):
-        '''
-        Return data from simulation file.
-        '''
-        if (not isinstance(variable, str)):
-            raise TypeError("input parameter 'variable' must be a string")
-        
-        data = self.call("EM_get", key=variable, sim=self.dsim)
-        
-        return data
-    
-    def inspect(self):
-        '''
-        Return list of keys from available data in simulation file.
-        '''
-        
-        fkeys = self.call("EM_inspect", sim=self.dsim)
-        
-        return fkeys
-    
     def close(self, **kwargs):
         '''
         Send saving options to EMode and close the connection.
@@ -185,6 +165,16 @@ class EMode:
         self.s.close()
         self.status = 'closed'
         return
+    
+    def __getattr__(self, name):
+        def wrapper(*args, **kwargs):
+            try:
+                if args: kwargs['key'] = args[0]
+                result = self.call('EM_'+name, **kwargs)
+                return result
+            except:
+                raise RuntimeError("Unknown function or parameter.")
+        return wrapper
     
     def close_atexit(self, **kwargs):
         if self.status == 'open':
@@ -213,10 +203,14 @@ def obj_hook(dct):
         return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
     return dct
 
-def open_file(sim):
+def open_file(sim='emode', simulation_name=None):
     '''
     Opens an EMode simulation file with either .eph or .mat extension.
     '''
+    if (simulation_name != None): sim = simulation_name
+    if (not isinstance(sim, str)):
+        raise TypeError("input parameter 'simulation_name' must be a string")
+    
     ext = '.eph'
     mat = '.mat'
     found = False
@@ -238,15 +232,16 @@ def open_file(sim):
     
     return f
 
-def get(variable, sim='emode'):
+def get(variable, sim='emode', simulation_name=None):
     '''
     Return data from simulation file.
     '''
     if (not isinstance(variable, str)):
         raise TypeError("input parameter 'variable' must be a string")
     
+    if (simulation_name != None): sim = simulation_name
     if (not isinstance(sim, str)):
-        raise TypeError("input parameter 'sim' must be a string")
+        raise TypeError("input parameter 'simulation_name' must be a string")
     
     f = open_file(sim=sim)
     
@@ -258,12 +253,13 @@ def get(variable, sim='emode'):
     
     return data
 
-def inspect(sim='emode'):
+def inspect(sim='emode', simulation_name=None):
     '''
     Return list of keys from available data in simulation file.
     '''
+    if (simulation_name != None): sim = simulation_name
     if (not isinstance(sim, str)):
-        raise TypeError("input parameter 'sim' must be a string")
+        raise TypeError("input parameter 'simulation_name' must be a string")
     
     f = open_file(sim=sim)
     
