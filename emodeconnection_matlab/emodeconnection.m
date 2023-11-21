@@ -116,7 +116,7 @@ classdef emodeconnection
             pause(0.1); % wait for EMode to recv
             
             if obj.open_existing
-                RV = obj.call('EM_open', 'simulation_name', obj.simulation_name, 'save_path', obj.save_path, 'new_name', obj.new_name);
+                RV = obj.call('EM_open', 'simulation_name', obj.simulation_name, 'save_path', obj.save_path, 'new_simulation_name', obj.new_name);
             else
                 RV = obj.call('EM_init', 'simulation_name', obj.simulation_name, 'save_path', obj.save_path);
             end
@@ -246,7 +246,7 @@ classdef emodeconnection
         function close(obj, varargin)
             % Send saving options to EMode and close the connection.
             try
-                if isempty(varargin)
+                if ~isempty(varargin)
                     obj.call('EM_close', varargin{:});
                 else
                     obj.call('EM_close', 'save', true, 'file_type', obj.ext(2:end));

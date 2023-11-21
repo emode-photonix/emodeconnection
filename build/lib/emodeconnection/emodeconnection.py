@@ -85,7 +85,7 @@ class EMode:
         time.sleep(0.1) # wait for EMode
         
         if (open_existing):
-            RV = self.call("EM_open", sim=sim, save_path=save_path, new_name=new_name)
+            RV = self.call("EM_open", sim=sim, save_path=save_path, new_simulation_name=new_name)
         else:
             RV = self.call("EM_init", sim=sim, save_path=save_path)
         
@@ -198,9 +198,12 @@ def recvall(sock, n):
     return data
 
 def obj_hook(dct):
-    if isinstance(dct, dict) and '__ndarray__' in dct:
-        data = base64.b64decode(dct['__ndarray__'].encode())
-        return np.frombuffer(data, dct['dtype']).reshape(dct['shape'])
+    if "__ndarray__" in dct:
+        data = base64.b64decode(dct["__ndarray__"])
+        if dct["dtype"] == "object":
+            return None  # placeholder value
+        else:
+            return np.frombuffer(data, dct["dtype"]).reshape(dct["shape"])
     return dct
 
 def open_file(sim='emode', simulation_name=None):

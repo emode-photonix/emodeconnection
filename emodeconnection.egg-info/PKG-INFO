@@ -1,10 +1,10 @@
 Metadata-Version: 2.1
 Name: emodeconnection
-Version: 1.0.3
+Version: 1.0.4
 Summary: Python connection for EMode
 Home-page: https://github.com/emode-photonix/emodeconnection
 Author: EMode Photonix LLC
-Author-email: EModeSolver@gmail.com
+Author-email: hello@emodephotonix.com
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: BSD License
 Classifier: Operating System :: OS Independent
