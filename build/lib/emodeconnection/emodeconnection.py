@@ -2,22 +2,22 @@
 ###########################################################
 ## EMode - Python interface, by EMode Photonix LLC
 ###########################################################
-## Copyright (c) 2023 EMode Photonix LLC
+## Copyright (c) 2024 EMode Photonix LLC
 ###########################################################
 
-import os, socket, json, pickle, time, atexit, base64, struct
+import os, socket, json, pickle, time, atexit, base64, struct, threading
 from subprocess import Popen
 from datetime import datetime as dt
 import numpy as np
 import scipy.io as sio
 
 class EMode:
-    def __init__(self, sim="emode", simulation_name=None, save_path='.', verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
+    def __init__(self, sim="emode", simulation_name=None, license_type='default', save_path='.', verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
         '''
         Initialize defaults and connects to EMode.
         '''
         self.status = 'open'
-        atexit.register(self.close)
+        atexit.register(self.close_atexit)
         
         if (simulation_name != None): sim = simulation_name
         
@@ -27,6 +27,14 @@ class EMode:
         
         if not type(save_path) == str:
             raise TypeError("input parameter 'save_path' must be a string")
+            return
+        
+        if not type(license_type) == str:
+            raise TypeError("input parameter 'license_type' must be a string")
+            return
+        
+        if license_type.lower() not in ['default', '2d', '3d']:
+            raise Exception("input for 'license_type' is not an accepted value")
             return
         
         if not type(priority) == str:
@@ -42,7 +50,7 @@ class EMode:
         port_path = os.path.join(os.environ['APPDATA'], 'EMode', 'port_%s.txt' % port_file_ext)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.s.settimeout(60)
-        cmd_lst = ['EMode.exe', 'run', port_file_ext]
+        cmd_lst = ['EMode.exe', 'run', port_file_ext, '-'+license_type]
         if (verbose == True):
             cmd_lst.append('-v')
         if (priority != 'pN'):
@@ -50,12 +58,23 @@ class EMode:
             cmd_lst.append('-'+priority)
         if roaming:
             cmd_lst.append('-r')
+        
+        self.stop_thread = False
+        try:
+            _ = get_ipython().__class__.__name__
+            conn_msg = "connected with iPython"
+            print_path = os.path.join(os.environ['APPDATA'], 'EMode', 'emode_output_%s.txt' % port_file_ext)
+            self.t = threading.Thread(name='print EMode output', target=print_output, args=[print_path, lambda: self.stop_thread])
+            self.t.start()
+        except NameError:
+            conn_msg = "connected with Python!"
+        
         self.proc = Popen(cmd_lst, stderr=None)
         
         # Read EMode port
         t0 = time.perf_counter()
         waiting = True
-        wait_time = 20 # [seconds]
+        wait_time = 10 # [seconds]
         while waiting:
             try:
                 with open(port_path, 'r') as f:
@@ -78,10 +97,26 @@ class EMode:
             self.s.close()
             raise RuntimeError("EMode connection error!")
         
+        if any('VSCODE' in name for name in os.environ):
+            ide = '-VSCode'
+        elif any('SPYDER' in name for name in os.environ):
+            ide = '-Spyder'
+        elif any('JPY_' in name for name in os.environ):
+            ide = '-Jupyter'
+        elif any('PYCHARM' in name for name in os.environ):
+            ide = '-PyCharm'
+        elif any('HOME' == name for name in os.environ):
+            ide = '-IDLE'
+        else:
+            ide = '-cmd'
+        
+        conn_msg = conn_msg + ide
+        conn_msg = conn_msg.encode("utf-8")
+        
         time.sleep(0.1) # wait for EMode to open
         self.s.connect((HOST, PORT_SERVER))
         self.s.settimeout(None)
-        self.s.sendall(b"connected with Python!")
+        self.s.sendall(conn_msg)
         time.sleep(0.1) # wait for EMode
         
         if (open_existing):
@@ -164,6 +199,7 @@ class EMode:
             pass
         self.s.close()
         self.status = 'closed'
+        self.stop_thread = True
         return
     
     def __getattr__(self, name):
@@ -179,6 +215,7 @@ class EMode:
     def close_atexit(self, **kwargs):
         if self.status == 'open':
             self.close()
+        self.stop_thread = True
         return
 
 def recv_msg(sock):
@@ -220,14 +257,12 @@ def open_file(sim='emode', simulation_name=None):
     for file in os.listdir():
         if ((file == sim+ext) or ((file == sim) and (sim.endswith(ext)))):
             found = True
-            if (sim.endswith(ext)):
-                sim = sim.replace(ext,'')
-            fl = open(sim+ext, 'rb')
+            fl = open(file, 'rb')
             f = pickle.load(fl)
             fl.close()
         elif ((file == sim+mat) or ((file == sim) and (sim.endswith(mat)))):
             found = True
-            f = sio.loadmat(sim+mat)
+            f = loadmat(sim+mat)
     
     if (not found):
         print("ERROR: file not found!")
@@ -269,3 +304,79 @@ def inspect(sim='emode', simulation_name=None):
     fkeys = list(f.keys())
     fkeys.remove("EMode_simulation_file")
     return fkeys
+
+
+def print_output(print_path, stop):
+    while not os.path.exists(print_path):
+        continue
+    
+    with open(print_path,'r') as f:
+        lines = f.readlines()
+    
+    if len(lines) > 0:
+        lastLine = lines[-1]
+    else:
+        lastLine = ''
+    
+    Nlines = len(lines)
+    while True:
+        try:
+            while True:
+                with open(print_path,'r') as f:
+                    lines = f.readlines()
+                
+                with open(print_path,'r') as f:
+                    lines2 = f.readlines()
+                
+                if lines == lines2: break
+            
+            Nnewlines = len(lines) - Nlines
+            Nlines += Nnewlines
+            Ncheck = Nnewlines + 1
+            for kk in range(Ncheck):
+                line = lines[-Ncheck + kk]
+                if line != lastLine:
+                    if line.startswith(lastLine) and (not lastLine.endswith('\n')):
+                        print(line[len(lastLine):], flush=True, end='')
+                    else:
+                        print(line, flush=True, end='')
+                    
+                    lastLine = line
+        except:
+            pass
+        
+        if stop():
+            break
+
+def loadmat(filename):
+    data = sio.loadmat(filename, struct_as_record=False, squeeze_me=True)
+    return _check_keys(data)
+
+def _check_keys(data):
+    force_1D = ['effective_index', 'TE_indices', 'TM_indices']
+    force_3D = ['Fx', 'Fy', 'Ex', 'Ey', 'Ez', 'Hx', 'Hy', 'Hz']
+    for key in data:
+        if isinstance(data[key], sio.matlab.mio5_params.mat_struct):
+            data[key] = _todict(data[key])
+    
+        if key in force_1D:
+            if (not isinstance(data[key], list)) and (not isinstance(data[key], np.ndarray)):
+                data[key] = np.expand_dims(data[key], axis=0)
+        
+        if key in force_3D:
+            if len(np.shape(data[key])) < 3:
+                data[key] = np.expand_dims(data[key], axis=0)
+    
+    return data
+
+def _todict(matobj):
+    ddict = {}
+    for strg in matobj._fieldnames:
+        elem = matobj.__dict__[strg]
+        if isinstance(elem, sio.matlab.mio5_params.mat_struct):
+            ddict[strg] = _todict(elem)
+        if isinstance(elem, str):
+            ddict[strg] = elem.strip()
+        else:
+            ddict[strg] = elem
+    return ddict

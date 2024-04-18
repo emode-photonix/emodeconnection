@@ -2,13 +2,18 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% EMode - MATLAB interface, by EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Copyright (c) 2023 EMode Photonix LLC
+%% Copyright (c) 2024 EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-classdef emodeconnection
+classdef emodeconnection < handle
     properties
         endian, dsim, ext, exit_flag, s;
-        sim, simulation_name, save_path, verbose, roaming, open_existing, new_name, priority;
+        sim, simulation_name, license_type, save_path;
+        verbose, roaming, open_existing, new_name, priority;
+        print_timer, print_path;
+        stop_thread = false;
+        lastLine = '';
+        Nlines = 0;
     end
     methods
         function obj = emodeconnection(namedArgs)
@@ -17,6 +22,7 @@ classdef emodeconnection
             arguments
                 namedArgs.sim = 'emode';
                 namedArgs.simulation_name = 'emode';
+                namedArgs.license_type = 'default';
                 namedArgs.save_path = '.';
                 namedArgs.verbose = false;
                 namedArgs.roaming = false;
@@ -27,6 +33,7 @@ classdef emodeconnection
             
             obj.sim = namedArgs.sim;
             obj.simulation_name = namedArgs.simulation_name;
+            obj.license_type = namedArgs.license_type;
             obj.save_path = namedArgs.save_path;
             obj.verbose = namedArgs.verbose;
             obj.roaming = namedArgs.roaming;
@@ -51,6 +58,16 @@ classdef emodeconnection
             end
             
             try
+                obj.license_type = num2str(obj.license_type);
+            catch
+                error('Input parameter "license_type" must be a string.');
+            end
+            
+            if ~ismember(lower(obj.license_type), {'default', '2d', '3d'})
+                error("Input for 'license_type' is not an accepted value")
+            end
+            
+            try
                 obj.priority = num2str(obj.priority);
             catch
                 error('Input parameter "priority" must be a string.');
@@ -66,7 +83,7 @@ classdef emodeconnection
 
             port_path = fullfile(getenv('APPDATA'), 'EMode', strcat('port_', port_file_ext, '.txt'));
             
-            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext);
+            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext, '-', obj.license_type);
             EM_cmd_str = EM_cmd_str{1,1};
             
             if obj.verbose == true
@@ -82,14 +99,17 @@ classdef emodeconnection
                 EM_cmd_str = strcat(EM_cmd_str, ' -r');
             end
             
+            % Run printing process
+            obj.print_path = fullfile(getenv('APPDATA'), 'EMode', strcat('emode_output_', port_file_ext, '.txt'));
+            obj.start_printing();
+            
             % Open EMode
-            EM_cmd_str = strcat(EM_cmd_str, ' &');
-            system(EM_cmd_str);
+            java.lang.Runtime.getRuntime.exec(EM_cmd_str);
             
             % Read EMode port
             t1 = datetime('now');
             waiting = true;
-            wait_time = seconds(20); % [seconds]
+            wait_time = seconds(10); % [seconds]
             while waiting
                 try
                     file = fopen(port_path, 'r');
@@ -203,40 +223,55 @@ classdef emodeconnection
             RV = obj.convert_data(RV);
         end
         
-        function data = convert_data(~, raw_data)
+        function data = convert_data(obj, raw_data)
             if isstruct(raw_data)
                 fnames = fieldnames(raw_data);
                 fnamecell = strfind(fnames, '__ndarray__');
-                
+        
+                nd_logic = false;
                 for mm = 1:length(fnamecell)
                     if fnamecell{mm} > 0
                         nd_logic = true;
                         nd_fname = fnames{mm};
                     end
                 end
-                
+        
                 if nd_logic
                     dtype = raw_data.dtype;
                     dshape = raw_data.shape;
                     if length(dshape) == 1
                         dshape = [1 dshape];
                     end
-                    
+        
                     sdshape = size(dshape);
                     if sdshape(1) > 1
                         dshape = dshape.';
                     end
-                    
+        
                     data_bytes = matlab.net.base64decode(raw_data.(nd_fname));
-                    data_ = typecast(data_bytes, 'double');
-
-                    if strcmp(dtype, 'complex128')
-                        data_ = complex(data_(1:2:end), data_(2:2:end));
+        
+                    switch dtype
+                        case {'int8', 'int16', 'int32', 'int64', ...
+                              'uint8', 'uint16', 'uint32', 'uint64'}
+                            data_ = typecast(data_bytes, dtype);
+                        case {'float16', 'float32', 'float64'}
+                            data_ = typecast(data_bytes, 'double');
+                        case {'complex64', 'complex128'}
+                            data_ = typecast(data_bytes, 'double');
+                            data_ = complex(data_(1:2:end), data_(2:2:end));
+                        case 'bool'
+                            data_ = logical(typecast(data_bytes, 'uint8'));
+                        otherwise
+                            % Generic case for any other data type
+                            data_ = typecast(data_bytes, 'double');
                     end
-                    
+        
                     data = reshape(data_, flip(dshape));
                 else
-                    data = raw_data;
+                    data = struct();
+                    for ii = 1:numel(fnames)
+                        data.(fnames{ii}) = obj.convert_data(raw_data.(fnames{ii}));
+                    end
                 end
             else
                 data = raw_data;
@@ -267,6 +302,7 @@ classdef emodeconnection
                 % continue
             end
             clear obj.s;
+            obj.stop_printing();
         end
         
         function varargout = subsref(obj, s)
@@ -281,6 +317,64 @@ classdef emodeconnection
                 [varargout{1:nargout}] = obj.call(strcat('EM_',s(1).subs), s(2).subs{:});
             end
         end
+        
+        function print_output(obj)
+            % Loop until the file exists
+            if ~exist(obj.print_path, 'file') || obj.stop_thread
+                return;
+            end
+            
+            try
+                while true
+                    lines = custom_read(obj.print_path);
+                    lines2 = custom_read(obj.print_path);
+                    if isequal(lines, lines2)
+                        break
+                    end
+                end
+            catch ME
+                fprintf(ME.message);
+                return;
+            end
+            
+            if isequal(length(lines), 0)
+                return;
+            end
+            
+            Nnewlines = max(0, length(lines) - obj.Nlines);
+            obj.Nlines = obj.Nlines + Nnewlines;
+            
+            for kk = max(1,length(lines)-Nnewlines):length(lines)
+                line = lines{kk};
+                if ~strcmp(line, obj.lastLine)
+                    pline = regexprep(line,'[\n\r]+','');
+                    if startsWith(line, obj.lastLine) && ~endsWith(obj.lastLine, '\n')
+                        fprintf('%s', pline(length(obj.lastLine) + 1:end));
+                    else
+                        fprintf('\n%s', pline);
+                    end
+                end
+                obj.lastLine = line;
+            end
+        end
+        
+        function start_printing(obj)
+            obj.print_timer = timer('ExecutionMode', 'fixedRate', ...
+                               'Period', 0.02, ...
+                               'TasksToExecute', Inf, ...
+                               'TimerFcn', @(~,~)obj.print_output());
+            start(obj.print_timer);
+        end
+        
+        function stop_printing(obj)
+            obj.stop_thread = true;
+            fprintf('\n');
+            if ~isempty(obj.print_timer)
+                stop(obj.print_timer);
+                delete(obj.print_timer);
+            end
+        end
+        
     end
     methods (Static = true)
         function f = open_file(simulation_name)
@@ -359,4 +453,31 @@ classdef emodeconnection
             end
         end
     end
+end
+
+function lines = custom_read(print_path)
+    % Open the file for reading
+    try
+        fid = fopen(print_path, 'r');
+        % Check if file was opened successfully
+        if fid == -1
+            error(['Error opening file: ' print_path]);
+        end
+    catch ME
+        % Handle other potential errors during opening
+        error(['Error: ' ME.message]);
+    end
+    
+    % Read lines
+    lines = cell(0);
+    while true
+        line = fgets(fid);
+        if isequal(line, -1)
+            break
+        end
+        lines{end+1} = line;
+    end
+    
+    fclose(fid); % Close the file
+    % Return the lines as a cell array
 end
