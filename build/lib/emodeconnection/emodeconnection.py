@@ -74,7 +74,7 @@ class EMode:
         # Read EMode port
         t0 = time.perf_counter()
         waiting = True
-        wait_time = 10 # [seconds]
+        wait_time = 30 # [seconds]
         while waiting:
             try:
                 with open(port_path, 'r') as f:

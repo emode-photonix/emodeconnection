@@ -83,7 +83,7 @@ classdef emodeconnection < handle
 
             port_path = fullfile(getenv('APPDATA'), 'EMode', strcat('port_', port_file_ext, '.txt'));
             
-            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext, '-', obj.license_type);
+            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext, ' -', obj.license_type);
             EM_cmd_str = EM_cmd_str{1,1};
             
             if obj.verbose == true
