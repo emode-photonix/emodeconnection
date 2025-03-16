@@ -1,7 +1,15 @@
-import setuptools
+import setuptools, shutil
+from distutils.command.clean import clean as CleanCommand
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
+
+class Clean(CleanCommand):
+    def run(self):
+        super().run()
+        shutil.rmtree('./build', ignore_errors=True)
+        shutil.rmtree('./dist', ignore_errors=True)
+        shutil.rmtree('./emodeconnection.egg-info', ignore_errors=True)
 
 setuptools.setup(
     name="emodeconnection",
@@ -13,6 +21,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/emode-photonix/emodeconnection",
     packages=setuptools.find_packages(),
+    cmdclass={'clean': Clean},
     install_requires=[
         "numpy", "dill", "scipy",
     ],
