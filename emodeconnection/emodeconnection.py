@@ -6,7 +6,7 @@
 ###########################################################
 
 import os, socket, json, pickle, time, atexit, base64, struct, threading
-from subprocess import Popen
+from subprocess import Popen, run
 from datetime import datetime as dt
 import numpy as np
 import scipy.io as sio
@@ -351,6 +351,10 @@ def print_output(print_path, stop):
 def loadmat(filename):
     data = sio.loadmat(filename, struct_as_record=False, squeeze_me=True)
     return _check_keys(data)
+
+def EModeLogin():
+    run("EMode")
+    return
 
 def _check_keys(data):
     force_1D = ['effective_index', 'TE_indices', 'TM_indices']

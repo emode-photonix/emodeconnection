@@ -2,7 +2,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% EMode - MATLAB interface, by EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Copyright (c) 2024 EMode Photonix LLC
+%% Copyright (c) EMode Photonix LLC
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 classdef emodeconnection < handle
@@ -451,6 +451,10 @@ classdef emodeconnection < handle
                 fkeys = 0;
                 error('File does not exist.');
             end
+        end
+
+        function EModeLogin()
+            system('EMode');
         end
     end
 end
