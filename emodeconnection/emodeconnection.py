@@ -2,7 +2,7 @@
 ###########################################################
 ## EMode - Python interface, by EMode Photonix LLC
 ###########################################################
-## Copyright (c) 2024 EMode Photonix LLC
+## Copyright (c) EMode Photonix LLC
 ###########################################################
 
 import os, socket, json, pickle, time, atexit, base64, struct, threading
@@ -305,7 +305,6 @@ def inspect(sim='emode', simulation_name=None):
     fkeys.remove("EMode_simulation_file")
     return fkeys
 
-
 def print_output(print_path, stop):
     while not os.path.exists(print_path):
         continue
@@ -353,6 +352,9 @@ def loadmat(filename):
     return _check_keys(data)
 
 def EModeLogin():
+    '''
+    Runs the EMode Login GUI.
+    '''
     run("EMode")
     return
 

@@ -13,7 +13,7 @@ class Clean(CleanCommand):
 
 setuptools.setup(
     name="emodeconnection",
-    version="1.0.8",
+    version="1.0.9",
     author="EMode Photonix LLC",
     author_email="hello@emodephotonix.com",
     description="Python connection for EMode",
