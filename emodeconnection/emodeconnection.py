@@ -1,388 +1,248 @@
-###########################################################
-###########################################################
-## EMode - Python interface, by EMode Photonix LLC
-###########################################################
-## Copyright (c) EMode Photonix LLC
-###########################################################
-
-import os, socket, json, pickle, time, atexit, base64, struct, threading
-from subprocess import Popen, run
-from datetime import datetime as dt
+from logging.config import dictConfig
+import time
+from typing import Optional, Literal, Union
+from .emodeclient import EModeClient
+from .file_utils import Cache
+from threading import Thread
+from logging import getLogger
+import platform
+from pathlib import Path
+from datetime import datetime, timezone
+from subprocess import Popen, PIPE
+import atexit
 import numpy as np
-import scipy.io as sio
+import os
+import sys
+import shutil
+
+logger = getLogger(__name__)
+
+
+def _forward_stdout(pipe):
+    try:
+        for line in iter(pipe.readline, ""):
+            # print() => IPython captures it into the cell output
+            print(line, end="", flush=True)
+    finally:
+        pipe.close()
+
 
 class EMode:
-    def __init__(self, sim="emode", simulation_name=None, license_type='default', save_path='.', verbose=False, roaming=False, open_existing=False, new_name=False, priority='pN'):
-        '''
-        Initialize defaults and connects to EMode.
-        '''
-        self.status = 'open'
-        atexit.register(self.close_atexit)
-        
-        if (simulation_name != None): sim = simulation_name
-        
-        if not type(sim) == str:
-            raise TypeError("input parameter 'sim' must be a string")
-            return
-        
-        if not type(save_path) == str:
-            raise TypeError("input parameter 'save_path' must be a string")
-            return
-        
-        if not type(license_type) == str:
-            raise TypeError("input parameter 'license_type' must be a string")
-            return
-        
-        if license_type.lower() not in ['default', '2d', '3d']:
-            raise Exception("input for 'license_type' is not an accepted value")
-            return
-        
-        if not type(priority) == str:
-            raise TypeError("input parameter 'priority' must be a string")
-            return
-        
+    def __init__(
+        self,
+        sim: str = "emode",
+        simulation_name: Optional[str] = None,
+        license_type: Literal["2d", "3d", "default"] = "default",
+        save_path: Union[str, Path] = ".",
+        verbose: bool = False,
+        roaming: bool = False,
+        open_existing: bool = False,
+        new_name: bool = False,
+        priority: Literal["pH", "pAN", "pBN", "pI", "pN"] = "pN",
+        emode_cmd: Optional[list[str]] = None,
+    ):
+        """
+        Initialize defaults and create an EMode session.
+
+        parameters:
+        -----
+        simulation_name: str
+            The name of the default simulation to load.
+
+        sim: str
+            Alias for simulation_name.  simulation_name takes precedence.
+
+        license_type: Literal['2d','3d','default'] = 'default'
+            The type of license you wish to check out for this session.
+
+        save_path: str | Path = '.'
+            The path to save results.
+
+        verbose: bool = False
+            Verbose output from EMode.
+
+        roaming: bool = False
+            Enable roaming mode
+
+        open_existing: bool = False
+            open an existing simulation.  If False, and <save_path>/<simulation_name>.eph
+            exists, <save_path>/<simulation_name>_0.eph will be created.
+
+        new_name: bool = False
+            I'm not sure what this does?
+
+        priority: Literal['pH', 'pAN', 'pN', 'pBN', 'pI'] = 'pN'
+            The EMode process priority:
+                'pH': High priority
+                'pAN': Above Normal priority
+                'pN': Normal priority
+                'pBN': Below Normal priority
+                'pI': Idle priority
+
+        emode_cmd: Optional[list[str]] = None
+            The command to use to invoke EMode as a command list.  This shouldn't need to be
+            modified if you installed EMode normally.
+        """
+        self.setup_logging()
+
+        sim = simulation_name or sim
+
+        if not isinstance(sim, str):
+            raise TypeError("parameter 'sim' must be a string")
+
+        if not isinstance(save_path, (str, Path)):
+            raise TypeError("parameter 'save_path' must be a string or pathlib.Path")
+
+        if license_type not in ["2d", "3d", "default"]:
+            raise ValueError(
+                "parameter 'license_type' must be one of ['2d','3d','default']"
+            )
+
+        if priority not in ["pH", "pAN", "pN", "pBN", "pI"]:
+            raise ValueError(
+                "parameter 'priority' must be one of ['pH','pAN','pN','pBN','pI']"
+            )
+
         self.dsim = sim
+        self.priority = priority
+        self.verbose = verbose
+        self.license_type = license_type
+        self.roaming = roaming
         self.ext = ".eph"
-        self.exit_flag = False
-        HOST = '127.0.0.1'
-        PORT_SERVER = 0
-        port_file_ext = dt.utcnow().strftime('%Y%m%d%H%M%S%f')
-        port_path = os.path.join(os.environ['APPDATA'], 'EMode', 'port_%s.txt' % port_file_ext)
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.s.settimeout(60)
-        cmd_lst = ['EMode.exe', 'run', port_file_ext, '-'+license_type]
-        if (verbose == True):
-            cmd_lst.append('-v')
-        if (priority != 'pN'):
-            priority = priority.strip('-')
-            cmd_lst.append('-'+priority)
-        if roaming:
-            cmd_lst.append('-r')
-        
-        self.stop_thread = False
-        try:
-            _ = get_ipython().__class__.__name__
-            conn_msg = "connected with iPython"
-            print_path = os.path.join(os.environ['APPDATA'], 'EMode', 'emode_output_%s.txt' % port_file_ext)
-            self.t = threading.Thread(name='print EMode output', target=print_output, args=[print_path, lambda: self.stop_thread])
-            self.t.start()
-        except NameError:
-            conn_msg = "connected with Python!"
-        
-        self.proc = Popen(cmd_lst, stderr=None)
-        
-        # Read EMode port
-        t0 = time.perf_counter()
-        waiting = True
-        wait_time = 30 # [seconds]
-        while waiting:
-            try:
-                with open(port_path, 'r') as f:
-                    PORT_SERVER = int(f.read())
-            except:
-                pass
-            finally:
-                if os.path.exists(port_path):
-                    try:
-                        os.remove(port_path)
-                    except:
-                        pass
-            if (PORT_SERVER != 0):
-                break
-            elif (time.perf_counter() - t0) > wait_time:
-                waiting = False
-            time.sleep(0.05)
-        
-        if not waiting:
-            self.s.close()
-            raise RuntimeError("EMode connection error!")
-        
-        if any('VSCODE' in name for name in os.environ):
-            ide = '-VSCode'
-        elif any('SPYDER' in name for name in os.environ):
-            ide = '-Spyder'
-        elif any('JPY_' in name for name in os.environ):
-            ide = '-Jupyter'
-        elif any('PYCHARM' in name for name in os.environ):
-            ide = '-PyCharm'
-        elif any('HOME' == name for name in os.environ):
-            ide = '-IDLE'
-        else:
-            ide = '-cmd'
-        
-        conn_msg = conn_msg + ide
-        conn_msg = conn_msg.encode("utf-8")
-        
-        time.sleep(0.1) # wait for EMode to open
-        self.s.connect((HOST, PORT_SERVER))
-        self.s.settimeout(None)
-        self.s.sendall(conn_msg)
-        time.sleep(0.1) # wait for EMode
-        
-        if (open_existing):
-            RV = self.call("EM_open", sim=sim, save_path=save_path, new_simulation_name=new_name)
+        self.port_file_label = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        self.cache = Cache(self.port_file_label)
+
+        self.proc = Popen(
+            self.build_cmd_list(emode_cmd),
+            stdout=PIPE,
+            stderr=None,
+            text=True,
+            bufsize=1,
+        )
+        self.setup_print_thread()
+        self.client = EModeClient(self.cache)
+        atexit.register(self.close_atexit)
+
+        if open_existing:
+            RV = self.call(
+                "EM_open", sim=sim, save_path=save_path, new_simulation_name=new_name
+            )
         else:
             RV = self.call("EM_init", sim=sim, save_path=save_path)
-        
-        if (RV == 'ERROR'):
-            raise RuntimeError("internal EMode error")
-        
-        self.dsim = RV[len("sim:"):]
-        return
-    
-    def call(self, function, **kwargs):
-        '''
-        Send a command to EMode.
-        '''
-        sendset = {}
-        if (isinstance(function, str)):
-            sendset['function'] = function
+
+        self.dsim = RV[len("sim:") :]
+
+    def build_cmd_list(self, emode_cmd):
+        if platform.system() == "Windows":
+            cmd = emode_cmd or ["EMode.exe"]
         else:
-            raise TypeError("input parameter 'function' must be a string")
-        
-        for kw in kwargs:
-            data = kwargs[kw]
-            if (type(data).__module__ == np.__name__):
-                data = np.squeeze(data).tolist()
-            
-            if (isinstance(data, list)):
-                if (len(data) == 1):
-                    data = data[0]
-            
-            sendset[kw] = data
-        
-        if ('sim' not in kwargs) and ('simulation_name' not in kwargs):
-            sendset['simulation_name'] = self.dsim
-        
-        try:
-            sendstr = json.dumps(sendset)
-        except TypeError:
-            raise TypeError("EMode function inputs must have type string, int/float, or list")
-        
-        try:
-            msg = bytes(sendstr, encoding="utf-8")
-            msg = struct.pack('>I', len(msg)) + msg
-            self.s.sendall(msg)
-            
-            recvstr = recv_msg(self.s)
-        except:
-            # Exited due to license checkout
-            self.s.shutdown(socket.SHUT_RDWR)
-            self.s.close()
-            self.exit_flag = True
-        
-        if (self.exit_flag):
-            raise RuntimeError("License checkout error!")
-        
-        recvjson = recvstr.decode("utf-8")
-        result = json.loads(recvjson, object_hook=obj_hook)
-        
-        return result
-    
+            cmd = emode_cmd or ["emode"]
+
+        cmd += ["run", self.port_file_label]
+        if self.license_type != "default":
+            cmd += [f"-{self.license_type}"]
+        if self.verbose:
+            cmd += ["-v"]
+        if self.priority != "pN":
+            cmd += [self.priority]
+        if self.roaming:
+            cmd += ["-r"]
+
+        logger.info(f"emode command list: {cmd}")
+        self.cmd = cmd
+        return cmd
+
+    def setup_logging(self):
+        if log_level := os.getenv("EMODE_LOGGING", "WARNING"):
+            dictConfig(
+                {
+                    "version": 1,
+                    "disable_existing_loggers": False,
+                    "formatters": {
+                        "std": {
+                            "format": "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(funcName)s %(message)s"
+                        }
+                    },
+                    "handlers": {
+                        "console": {
+                            "class": "logging.StreamHandler",
+                            "formatter": "std",
+                            "level": log_level,
+                        }
+                    },
+                    "loggers": {
+                        "": {"handlers": ["console"], "level": log_level},
+                        "matplotlib": {"level": "WARNING"},
+                        "PIL": {"level": "WARNING"},
+                    },
+                }
+            )
+
+    def setup_print_thread(self):
+        # self.print_thread = Thread(
+        #     target=lambda: shutil.copyfileobj(
+        #         self.proc.stdout, sys.stdout.buffer, length=1
+        #     ),
+        #     daemon=True,
+        # )
+        self.print_thread = Thread(
+            name="print EMode output",
+            target=_forward_stdout,
+            args=(self.proc.stdout,),
+            daemon=True,
+        )
+        self.print_thread.start()
+
+    def call(self, function: str, **kwargs):
+        logger.debug(f"calling '{function}' with args: {kwargs}")
+        if not isinstance(function, str):
+            raise TypeError("parameter 'function' must be of type 'str'")
+
+        sendset = kwargs
+        sendset.update({"function": function})
+
+        for kw in sendset:
+            if isinstance(sendset[kw], np.ndarray):
+                sendset[kw] = np.squeeze(sendset[kw]).tolist()
+
+            if isinstance(sendset[kw], list) and len(sendset[kw]) == 1:
+                sendset[kw] = sendset[kw][0]
+
+        if "sim" not in sendset and "simulation_name" not in sendset:
+            sendset["sim"] = self.dsim
+
+        self.client.send(sendset)
+
+        return self.client.recv()
+
     def close(self, **kwargs):
-        '''
-        Send saving options to EMode and close the connection.
-        '''
+        logger.debug(f"closing connection with kwargs {kwargs}")
         try:
             self.call("EM_close", **kwargs)
-            sendstr = json.dumps({'function': 'exit'})
-            msg = bytes(sendstr, encoding="utf-8")
-            msg = struct.pack('>I', len(msg)) + msg
-            self.s.sendall(msg)
+            self.client.close()
+
             while True:
                 time.sleep(0.01)
-                if (self.proc.poll() is None) or (self.proc.poll() is self.proc.returncode):
+                if self.proc.poll() is None or self.proc.poll() is self.proc.returncode:
                     break
-            time.sleep(1.0)
-            self.s.shutdown(socket.SHUT_RDWR)
-        except:
-            pass
-        self.s.close()
-        self.status = 'closed'
-        self.stop_thread = True
+                time.sleep(0.01)
+
+        except Exception:
+            logger.exception("got exception closing client")
+
         return
-    
+
     def __getattr__(self, name):
         def wrapper(*args, **kwargs):
-            try:
-                if args: kwargs['key'] = args[0]
-                result = self.call('EM_'+name, **kwargs)
-                return result
-            except:
-                raise RuntimeError("Unknown function or parameter.")
+            if args:
+                kwargs["key"] = args[0]
+                if len(args) > 1:
+                    raise ValueError("Please pass all arguments as kwargs")
+            return self.call("EM_" + name, **kwargs)
+
         return wrapper
-    
-    def close_atexit(self, **kwargs):
-        if self.status == 'open':
+
+    def close_atexit(self):
+        if self.client.connected:
             self.close()
-        self.stop_thread = True
         return
-
-def recv_msg(sock):
-    raw_msglen = recvall(sock, 4)
-    if not raw_msglen:
-        return None
-    msglen = struct.unpack('>I', raw_msglen)[0]
-    return recvall(sock, msglen)
-
-def recvall(sock, n):
-    data = bytearray()
-    while len(data) < n:
-        packet = sock.recv(n - len(data))
-        if not packet:
-            return None
-        data.extend(packet)
-    return data
-
-def obj_hook(dct):
-    if "__ndarray__" in dct:
-        data = base64.b64decode(dct["__ndarray__"])
-        if dct["dtype"] == "object":
-            return None  # placeholder value
-        else:
-            return np.frombuffer(data, dct["dtype"]).reshape(dct["shape"])
-    return dct
-
-def open_file(sim='emode', simulation_name=None):
-    '''
-    Opens an EMode simulation file with either .eph or .mat extension.
-    '''
-    if (simulation_name != None): sim = simulation_name
-    if (not isinstance(sim, str)):
-        raise TypeError("input parameter 'simulation_name' must be a string")
-    
-    ext = '.eph'
-    mat = '.mat'
-    found = False
-    for file in os.listdir():
-        if ((file == sim+ext) or ((file == sim) and (sim.endswith(ext)))):
-            found = True
-            fl = open(file, 'rb')
-            f = pickle.load(fl)
-            fl.close()
-        elif ((file == sim+mat) or ((file == sim) and (sim.endswith(mat)))):
-            found = True
-            f = loadmat(sim+mat)
-    
-    if (not found):
-        print("ERROR: file not found!")
-        return "ERROR"
-    
-    return f
-
-def get(variable, sim='emode', simulation_name=None):
-    '''
-    Return data from simulation file.
-    '''
-    if (not isinstance(variable, str)):
-        raise TypeError("input parameter 'variable' must be a string")
-    
-    if (simulation_name != None): sim = simulation_name
-    if (not isinstance(sim, str)):
-        raise TypeError("input parameter 'simulation_name' must be a string")
-    
-    f = open_file(sim=sim)
-    
-    if (variable in list(f.keys())):
-        data = f[variable]
-    else:
-        print("Data does not exist.")
-        return
-    
-    return data
-
-def inspect(sim='emode', simulation_name=None):
-    '''
-    Return list of keys from available data in simulation file.
-    '''
-    if (simulation_name != None): sim = simulation_name
-    if (not isinstance(sim, str)):
-        raise TypeError("input parameter 'simulation_name' must be a string")
-    
-    f = open_file(sim=sim)
-    
-    fkeys = list(f.keys())
-    fkeys.remove("EMode_simulation_file")
-    return fkeys
-
-def print_output(print_path, stop):
-    while not os.path.exists(print_path):
-        continue
-    
-    with open(print_path,'r') as f:
-        lines = f.readlines()
-    
-    if len(lines) > 0:
-        lastLine = lines[-1]
-    else:
-        lastLine = ''
-    
-    Nlines = len(lines)
-    while True:
-        try:
-            while True:
-                with open(print_path,'r') as f:
-                    lines = f.readlines()
-                
-                with open(print_path,'r') as f:
-                    lines2 = f.readlines()
-                
-                if lines == lines2: break
-            
-            Nnewlines = len(lines) - Nlines
-            Nlines += Nnewlines
-            Ncheck = Nnewlines + 1
-            for kk in range(Ncheck):
-                line = lines[-Ncheck + kk]
-                if line != lastLine:
-                    if line.startswith(lastLine) and (not lastLine.endswith('\n')):
-                        print(line[len(lastLine):], flush=True, end='')
-                    else:
-                        print(line, flush=True, end='')
-                    
-                    lastLine = line
-        except:
-            pass
-        
-        if stop():
-            break
-
-def loadmat(filename):
-    data = sio.loadmat(filename, struct_as_record=False, squeeze_me=True)
-    return _check_keys(data)
-
-def EModeLogin():
-    '''
-    Runs the EMode Login GUI.
-    '''
-    run("EMode")
-    return
-
-def _check_keys(data):
-    force_1D = ['effective_index', 'TE_indices', 'TM_indices']
-    force_3D = ['Fx', 'Fy', 'Ex', 'Ey', 'Ez', 'Hx', 'Hy', 'Hz']
-    for key in data:
-        if isinstance(data[key], sio.matlab.mio5_params.mat_struct):
-            data[key] = _todict(data[key])
-    
-        if key in force_1D:
-            if (not isinstance(data[key], list)) and (not isinstance(data[key], np.ndarray)):
-                data[key] = np.expand_dims(data[key], axis=0)
-        
-        if key in force_3D:
-            if len(np.shape(data[key])) < 3:
-                data[key] = np.expand_dims(data[key], axis=0)
-    
-    return data
-
-def _todict(matobj):
-    ddict = {}
-    for strg in matobj._fieldnames:
-        elem = matobj.__dict__[strg]
-        if isinstance(elem, sio.matlab.mio5_params.mat_struct):
-            ddict[strg] = _todict(elem)
-        if isinstance(elem, str):
-            ddict[strg] = elem.strip()
-        else:
-            ddict[strg] = elem
-    return ddict

@@ -1,0 +1,114 @@
+from typing import Any, Type, TypeVar
+from enum import Enum
+
+
+class LicenseType(Enum):
+    _2D = "2d"
+    _3D = "3d"
+    default = "default"
+
+    def to_dict(self):
+        return {"__type__": "LicenseType", "value": self.value}
+
+    def __str__(self):
+        return self.value
+
+
+T = TypeVar("T")
+
+_TYPE_REGISTRY = {}
+
+
+def register_type(cls: Type[T]) -> Type[T]:
+    """Class decorator to register an Exception subclass."""
+    name = cls.__name__
+    if name in _TYPE_REGISTRY:
+        raise ValueError(f"{name} already registered")
+    _TYPE_REGISTRY[name] = cls
+    return cls
+
+
+def get_type(name: str) -> Type:
+    try:
+        return _TYPE_REGISTRY[name]
+    except KeyError:
+        raise KeyError(f"Unknown exception type: {name}")
+
+
+def object_from_dict(data: dict[str, Any]) -> Any:
+    """
+    Reconstructs an exception from its serialized form.
+    Expects data["type"] to be the class name.
+    """
+    name = data.pop("__type__")
+    if not name:
+        raise KeyError("Missing 'type' in exception data")
+
+    ExcClass = get_type(name)
+
+    # Option A: if your exceptions all accept (**data) in __init__:
+    try:
+        return ExcClass(**data)
+    except TypeError:
+        # Option B: fall back to a generic payload constructor
+        exc = ExcClass(data.get("message", ""))
+        for k, v in data.items():
+            if k in ("type", "message"):
+                continue
+            setattr(exc, k, v)
+        return exc
+
+
+@register_type
+class EModeError(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._custom_fields = []
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name != "_custom_fields":
+            self._custom_fields.append(name)
+        return super().__setattr__(name, value)
+
+    def to_dict(self) -> dict:
+        d: dict[str, Any] = {
+            "__type__": self.__class__.__name__,
+        }
+        for f in self._custom_fields:
+            d[f] = getattr(self, f, None)
+
+        return d
+
+
+@register_type
+class ArgumentError(EModeError):
+    def __init__(self, msg: str, function: str, argument: str):
+        super().__init__(msg)
+        self.msg = msg
+        self.function = function
+        self.argument = argument
+
+    def __str__(self):
+        return f"ArgumentError: the argument: ({self.argument}) to function: ({self.function}) had error: {self.msg}"
+
+
+@register_type
+class FileError(EModeError):
+    def __init__(self, msg: str, filename: str):
+        super().__init__(msg)
+        self.msg = msg
+        self.filename = filename
+
+    def __str__(self):
+        return f"FileError: the file: {self.filename} had error: {self.msg}"
+
+
+@register_type
+class LicenseError(EModeError):
+    def __init__(self, msg: str, license_type: LicenseType):
+        super().__init__(msg, license_type)
+        self.msg = msg
+        self.license_type = license_type
+
+    def __str__(self):
+        return f"LicenseError: you are using license: {self.license_type!s}, {self.msg}"
