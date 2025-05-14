@@ -93,6 +93,18 @@ class ArgumentError(EModeError):
 
 
 @register_type
+class EPSKeyError(EModeError):
+    def __init__(self, msg: str, filename: str, key: str):
+        super().__init__(msg)
+        self.msg = msg
+        self.filename = filename
+        self.key = key
+
+    def __str__(self):
+        return f"EPSKeyError: the key: ({self.key}) doesn't exist in the file: ({self.filename}), {self.msg}"
+
+
+@register_type
 class FileError(EModeError):
     def __init__(self, msg: str, filename: str):
         super().__init__(msg)
