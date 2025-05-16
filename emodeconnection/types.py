@@ -1,5 +1,7 @@
-from typing import Any, Type, TypeVar
+from typing import Any, Type, TypeVar, Optional, Union
 from enum import Enum
+from pydantic import BaseModel
+import numpy as np
 
 
 class LicenseType(Enum):
@@ -12,6 +14,25 @@ class LicenseType(Enum):
 
     def __str__(self):
         return self.value
+
+
+TensorType = Union[float, list[float], list[list[float]], np.ndarray]
+DTensorType = Union[list[list[float]], np.ndarray]
+
+
+class MaterialProperties(BaseModel):
+    n: Optional[TensorType] = None
+    eps: Optional[TensorType] = None
+    mu: TensorType = 1
+    d: Optional[DTensorType] = None
+
+
+class MaterialSpec(BaseModel):
+    material: Union[str, MaterialProperties]
+    theta: float = 0
+    phi: float = 0
+    x: float = 0
+    loss: float = 0
 
 
 T = TypeVar("T")
@@ -124,3 +145,14 @@ class LicenseError(EModeError):
 
     def __str__(self):
         return f"LicenseError: you are using license: {self.license_type!s}, {self.msg}"
+
+
+@register_type
+class ShapeError(EModeError):
+    def __init__(self, msg: str, shape_name: str):
+        super().__init__(msg)
+        self.msg = msg
+        self.shape_name = shape_name
+
+    def __str__(self):
+        return f"ShapeError: error: {self.msg} with shape: {self.shape_name}"

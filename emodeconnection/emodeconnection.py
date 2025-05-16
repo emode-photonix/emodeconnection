@@ -12,8 +12,6 @@ from subprocess import Popen, PIPE
 import atexit
 import numpy as np
 import os
-import sys
-import shutil
 
 logger = getLogger(__name__)
 
@@ -112,14 +110,20 @@ class EMode:
         self.port_file_label = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
         self.cache = Cache(self.port_file_label)
 
-        self.proc = Popen(
-            self.build_cmd_list(emode_cmd),
-            stdout=PIPE,
-            stderr=None,
-            text=True,
-            bufsize=1,
-        )
-        self.setup_print_thread()
+        if self.in_ipython():
+            self.proc = Popen(
+                self.build_cmd_list(emode_cmd),
+                stdout=PIPE,
+                stderr=None,
+                text=True,
+                bufsize=1,
+            )
+            self.setup_print_thread()
+        else:
+            self.proc = Popen(
+                self.build_cmd_list(emode_cmd),
+                stderr=None,
+            )
         self.client = EModeClient(self.cache)
         atexit.register(self.close_atexit)
 
@@ -192,6 +196,13 @@ class EMode:
             daemon=True,
         )
         self.print_thread.start()
+
+    def in_ipython(self):
+        try:
+            _ = get_ipython()  # type: ignore
+            self.ipython = True
+        except NameError:
+            self.ipython = False
 
     def call(self, function: str, **kwargs):
         logger.debug(f"calling '{function}' with args: {kwargs}")

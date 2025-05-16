@@ -8,6 +8,7 @@ dependencies = [
   "numpy",
   "dill",
   "scipy",
+  "pydantic>=2.11.4",
 ]
 authors = [
   { name = "EMode Photonix LLC", email = "hello@emodephotonix.com" },
