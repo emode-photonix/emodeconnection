@@ -1,6 +1,6 @@
 from typing import Any, Type, TypeVar, Optional, Union
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import numpy as np
 
 
@@ -21,18 +21,21 @@ DTensorType = Union[list[list[float]], np.ndarray]
 
 
 class MaterialProperties(BaseModel):
-    n: Optional[TensorType] = None
+    n: Union[Optional[TensorType], str] = None
     eps: Optional[TensorType] = None
     mu: TensorType = 1
     d: Optional[DTensorType] = None
 
+    # this is necessary to support np.ndarrays here...
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
 
 class MaterialSpec(BaseModel):
     material: Union[str, MaterialProperties]
-    theta: float = 0
-    phi: float = 0
-    x: float = 0
-    loss: float = 0
+    theta: Optional[float] = None
+    phi: Optional[float] = None
+    x: Optional[float] = None
+    loss: Optional[float] = None
 
 
 T = TypeVar("T")
@@ -103,7 +106,7 @@ class EModeError(Exception):
 
 @register_type
 class ArgumentError(EModeError):
-    def __init__(self, msg: str, function: str, argument: str):
+    def __init__(self, msg: str, function: Optional[str], argument: Optional[str]):
         super().__init__(msg)
         self.msg = msg
         self.function = function
@@ -114,7 +117,7 @@ class ArgumentError(EModeError):
 
 
 @register_type
-class EPSKeyError(EModeError):
+class EPHKeyError(EModeError):
     def __init__(self, msg: str, filename: str, key: str):
         super().__init__(msg)
         self.msg = msg
@@ -122,7 +125,7 @@ class EPSKeyError(EModeError):
         self.key = key
 
     def __str__(self):
-        return f"EPSKeyError: the key: ({self.key}) doesn't exist in the file: ({self.filename}), {self.msg}"
+        return f"EPHKeyError: the key: ({self.key}) doesn't exist in the file: ({self.filename}), {self.msg}"
 
 
 @register_type
