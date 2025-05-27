@@ -8,8 +8,7 @@ def open_file(sim="emode", simulation_name=None):
     """
     Opens an EMode simulation file with either .eph or .mat extension.
     """
-    if simulation_name is not None:
-        sim = simulation_name
+    sim = simulation_name or sim
     if not isinstance(sim, str):
         raise TypeError("input parameter 'simulation_name' must be a string")
 

@@ -23,7 +23,7 @@ DTensorType = Union[list[list[float]], np.ndarray]
 class MaterialProperties(BaseModel):
     n: Union[Optional[TensorType], str] = None
     eps: Optional[TensorType] = None
-    mu: TensorType = 1
+    mu: Optional[TensorType] = None
     d: Optional[DTensorType] = None
 
     # this is necessary to support np.ndarrays here...
