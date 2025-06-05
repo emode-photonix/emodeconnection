@@ -122,7 +122,9 @@ class EMode:
         else:
             self.proc = Popen(
                 self.build_cmd_list(emode_cmd),
+                stdout=None,
                 stderr=None,
+                # stderr=None,
             )
         self.client = EModeClient(self.cache)
         atexit.register(self.close_atexit)
@@ -204,6 +206,8 @@ class EMode:
         except NameError:
             self.ipython = False
 
+        return self.ipython
+
     def call(self, function: str, **kwargs):
         logger.debug(f"calling '{function}' with args: {kwargs}")
         if not isinstance(function, str):
@@ -256,4 +260,5 @@ class EMode:
     def close_atexit(self):
         if self.client.connected:
             self.close()
+
         return

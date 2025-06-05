@@ -159,3 +159,17 @@ class ShapeError(EModeError):
 
     def __str__(self):
         return f"ShapeError: error: {self.msg} with shape: {self.shape_name}"
+
+
+@register_type
+class NameError(EModeError):
+    def __init__(self, msg: str, type: str, name: str):
+        super().__init__(msg)
+        self.msg = msg
+        self.type = type
+        self.name = name
+
+    def __str__(self):
+        return (
+            f"NameError: error: {self.msg} for type: {self.type} and name: {self.name}"
+        )
