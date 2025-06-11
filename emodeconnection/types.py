@@ -113,7 +113,7 @@ class ArgumentError(EModeError):
         self.argument = argument
 
     def __str__(self):
-        return f"ArgumentError: the argument: ({self.argument}) to function: ({self.function}) had error: {self.msg}"
+        return f'ArgumentError: the argument: ({self.argument}) to function: ({self.function}) had error: "{self.msg}"'
 
 
 @register_type
@@ -125,7 +125,7 @@ class EPHKeyError(EModeError):
         self.key = key
 
     def __str__(self):
-        return f"EPHKeyError: the key: ({self.key}) doesn't exist in the file: ({self.filename}), {self.msg}"
+        return f'EPHKeyError: the key: ({self.key}) doesn\'t exist in the file: ({self.filename}), "{self.msg}"'
 
 
 @register_type
@@ -136,7 +136,7 @@ class FileError(EModeError):
         self.filename = filename
 
     def __str__(self):
-        return f"FileError: the file: {self.filename} had error: {self.msg}"
+        return f'FileError: the file: "{self.filename}" had error: "{self.msg}"'
 
 
 @register_type
@@ -147,7 +147,7 @@ class LicenseError(EModeError):
         self.license_type = license_type
 
     def __str__(self):
-        return f"LicenseError: you are using license: {self.license_type!s}, {self.msg}"
+        return f'LicenseError: you are using license: {self.license_type!s}, error msg: "{self.msg}"'
 
 
 @register_type
@@ -158,7 +158,7 @@ class ShapeError(EModeError):
         self.shape_name = shape_name
 
     def __str__(self):
-        return f"ShapeError: error: {self.msg} with shape: {self.shape_name}"
+        return f'ShapeError: error: "{self.msg}" with shape: {self.shape_name}'
 
 
 @register_type
@@ -170,6 +170,4 @@ class NameError(EModeError):
         self.name = name
 
     def __str__(self):
-        return (
-            f"NameError: error: {self.msg} for type: {self.type} and name: {self.name}"
-        )
+        return f'NameError: error: "{self.msg}" for type: {self.type} and name: {self.name}'
