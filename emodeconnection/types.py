@@ -1,7 +1,14 @@
 from typing import Any, Type, TypeVar, Optional, Union
 from enum import Enum
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 import numpy as np
+
+
+class TaggedModel(BaseModel):
+    @computed_field(repr=False)
+    @property
+    def __data_type__(self) -> str:
+        return self.__class__.__name__
 
 
 class LicenseType(Enum):
@@ -20,7 +27,7 @@ TensorType = Union[float, list[float], list[list[float]], np.ndarray]
 DTensorType = Union[list[list[float]], np.ndarray]
 
 
-class MaterialProperties(BaseModel):
+class MaterialProperties(TaggedModel):
     n: Union[Optional[TensorType], str] = None
     eps: Optional[TensorType] = None
     mu: Optional[TensorType] = None
@@ -30,7 +37,7 @@ class MaterialProperties(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class MaterialSpec(BaseModel):
+class MaterialSpec(TaggedModel):
     material: Union[str, MaterialProperties]
     theta: Optional[float] = None
     phi: Optional[float] = None
@@ -40,7 +47,10 @@ class MaterialSpec(BaseModel):
 
 T = TypeVar("T")
 
-_TYPE_REGISTRY = {}
+_TYPE_REGISTRY = {
+    "MaterialSpec": MaterialSpec,
+    "MaterialProperties": MaterialProperties,
+}
 
 
 def register_type(cls: Type[T]) -> Type[T]:
@@ -62,25 +72,15 @@ def get_type(name: str) -> Type:
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
     Reconstructs an exception from its serialized form.
-    Expects data["type"] to be the class name.
+    Expects data["__data_type__"] to be the class name.
     """
-    name = data.pop("__type__")
+    name = data.pop("__data_type__")
     if not name:
         raise KeyError("Missing 'type' in exception data")
 
     ExcClass = get_type(name)
 
-    # Option A: if your exceptions all accept (**data) in __init__:
-    try:
-        return ExcClass(**data)
-    except TypeError:
-        # Option B: fall back to a generic payload constructor
-        exc = ExcClass(data.get("message", ""))
-        for k, v in data.items():
-            if k in ("type", "message"):
-                continue
-            setattr(exc, k, v)
-        return exc
+    return ExcClass(**data)
 
 
 @register_type
@@ -96,7 +96,7 @@ class EModeError(Exception):
 
     def to_dict(self) -> dict:
         d: dict[str, Any] = {
-            "__type__": self.__class__.__name__,
+            "__data_type__": self.__class__.__name__,
         }
         for f in self._custom_fields:
             d[f] = getattr(self, f, None)

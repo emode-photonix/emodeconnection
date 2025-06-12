@@ -216,13 +216,6 @@ class EMode:
         sendset = kwargs
         sendset.update({"function": function})
 
-        for kw in sendset:
-            if isinstance(sendset[kw], np.ndarray):
-                sendset[kw] = np.squeeze(sendset[kw]).tolist()
-
-            if isinstance(sendset[kw], list) and len(sendset[kw]) == 1:
-                sendset[kw] = sendset[kw][0]
-
         if "sim" not in sendset and "simulation_name" not in sendset:
             sendset["sim"] = self.dsim
 
