@@ -224,7 +224,7 @@ class EMode:
                 sendset[kw] = sendset[kw][0]
 
         if "sim" not in sendset and "simulation_name" not in sendset:
-            sendset["sim"] = self.dsim
+            sendset["simulation_name"] = self.dsim
 
         self.client.send(sendset)
 
