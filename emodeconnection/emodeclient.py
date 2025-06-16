@@ -157,7 +157,7 @@ class EModeClient:
                     try:
                         o = object_from_dict(json_data)
                     except KeyError:
-                        return o
+                        return json_data
 
                     if isinstance(o, EModeError):
                         raise o
@@ -166,6 +166,7 @@ class EModeClient:
         return json_data
 
     def send(self, data):
+        logger.debug(f"sending {data=}")
         for kw in data:
             if isinstance(data[kw], np.ndarray):
                 data[kw] = np.squeeze(data[kw]).tolist()
@@ -175,7 +176,7 @@ class EModeClient:
 
             if isinstance(data[kw], TaggedModel):
                 data[kw] = data[kw].model_dump()
-
+        logger.debug(f"serialized {data=}")
         sendjson = json.dumps(data)
         self._send_raw(sendjson)
 

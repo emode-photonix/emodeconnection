@@ -171,3 +171,13 @@ class NameError(EModeError):
 
     def __str__(self):
         return f'NameError: error: "{self.msg}" for type: {self.type} and name: {self.name}'
+
+
+@register_type
+class NotImplementedError(EModeError):
+    def __init__(self, msg: str):
+        super().__init__(msg)
+        self.msg = msg
+
+    def __str__(self):
+        return f"NotImplementedError: {self.msg}"
