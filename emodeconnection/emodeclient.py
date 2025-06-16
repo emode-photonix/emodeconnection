@@ -10,7 +10,7 @@ import platform
 from typing import Any, Optional, Union
 from logging import getLogger
 from .file_utils import Cache
-from .types import EModeError, object_from_dict
+from .types import EModeError, object_from_dict, TaggedModel
 
 logger = getLogger(__name__)
 
@@ -154,7 +154,11 @@ class EModeClient:
         if isinstance(json_data, dict):
             if version := json_data.pop("__version__", None):
                 if version == 1:
-                    o = object_from_dict(json_data)
+                    try:
+                        o = object_from_dict(json_data)
+                    except KeyError:
+                        return o
+
                     if isinstance(o, EModeError):
                         raise o
                     else:
@@ -162,6 +166,16 @@ class EModeClient:
         return json_data
 
     def send(self, data):
+        for kw in data:
+            if isinstance(data[kw], np.ndarray):
+                data[kw] = np.squeeze(data[kw]).tolist()
+
+            if isinstance(data[kw], list) and len(data[kw]) == 1:
+                data[kw] = data[kw][0]
+
+            if isinstance(data[kw], TaggedModel):
+                data[kw] = data[kw].model_dump()
+
         sendjson = json.dumps(data)
         self._send_raw(sendjson)
 
