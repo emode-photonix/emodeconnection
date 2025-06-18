@@ -1,17 +1,16 @@
+import atexit
+from datetime import datetime, timezone
+from logging import getLogger
 from logging.config import dictConfig
+import os
+from pathlib import Path
+import platform
+from subprocess import Popen, PIPE
+from threading import Thread
 import time
 from typing import Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
-from threading import Thread
-from logging import getLogger
-import platform
-from pathlib import Path
-from datetime import datetime, timezone
-from subprocess import Popen, PIPE
-import atexit
-import numpy as np
-import os
 
 logger = getLogger(__name__)
 
@@ -24,12 +23,11 @@ def _forward_stdout(pipe):
     finally:
         pipe.close()
 
-
 class EMode:
     def __init__(
         self,
-        sim: str = "emode",
-        simulation_name: Optional[str] = None,
+        sim: Optional[str] = None,
+        simulation_name: Optional[str] = "emode",
         license_type: Literal["2d", "3d", "default"] = "default",
         save_path: Union[str, Path] = ".",
         verbose: bool = False,
@@ -83,6 +81,9 @@ class EMode:
         """
         self.setup_logging()
 
+        if sim:
+            logger.warning("The `sim` argument in the `EMode` class is depreciated, use `simulation_name` instead.")
+        
         sim = simulation_name or sim
 
         if not isinstance(sim, str):
