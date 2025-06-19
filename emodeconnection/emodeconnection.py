@@ -84,10 +84,10 @@ class EMode:
         if sim:
             logger.warning("The `sim` argument in the `EMode` class is depreciated, use `simulation_name` instead.")
         
-        sim = simulation_name or sim
+        simulation_name = simulation_name or sim
 
-        if not isinstance(sim, str):
-            raise TypeError("parameter 'sim' must be a string")
+        if not isinstance(simulation_name, str):
+            raise TypeError("parameter 'simulation_name' must be a string")
 
         if not isinstance(save_path, (str, Path)):
             raise TypeError("parameter 'save_path' must be a string or pathlib.Path")
@@ -102,7 +102,7 @@ class EMode:
                 "parameter 'priority' must be one of ['pH','pAN','pN','pBN','pI']"
             )
 
-        self.dsim = sim
+        self.dsim = simulation_name
         self.priority = priority
         self.verbose = verbose
         self.license_type = license_type
@@ -132,10 +132,10 @@ class EMode:
 
         if open_existing:
             RV = self.call(
-                "EM_open", sim=sim, save_path=save_path, new_simulation_name=new_name
+                "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name
             )
         else:
-            RV = self.call("EM_init", sim=sim, save_path=save_path)
+            RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
 
         self.dsim = RV[len("sim:") :]
 

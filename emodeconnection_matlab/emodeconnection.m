@@ -10,6 +10,21 @@ classdef emodeconnection < handle
         endian, dsim, ext, exit_flag, s;
         sim, simulation_name, license_type, save_path;
         verbose, roaming, open_existing, new_name, priority;
+        MaterialSpec = struct(...
+            '__data_type__', 'MaterialSpec',
+            'material', [],
+            'theta', [],
+            'phi', [],
+            'x', [],
+            'loss', [],
+        );
+        MaterialProperties = struct(...
+            '__data_type__', 'MaterialProperties',
+            'n', [],
+            'eps', [],
+            'mu', [],
+            'd', [],
+        );
         print_timer, print_path;
         stop_thread = false;
         lastLine = '';
@@ -109,7 +124,7 @@ classdef emodeconnection < handle
             % Read EMode port
             t1 = datetime('now');
             waiting = true;
-            wait_time = seconds(10); % [seconds]
+            wait_time = seconds(60); % [seconds]
             while waiting
                 try
                     file = fopen(port_path, 'r');
@@ -132,7 +147,7 @@ classdef emodeconnection < handle
             
             pause(0.1) % wait for EMode to open
             obj.s = tcpclient(HOST, PORT_SERVER, "Timeout", 60);
-            write(obj.s, native2unicode('connected with MATLAB!', 'UTF-8'));
+            write(obj.s, native2unicode('connected with MATLAB', 'UTF-8'));
             pause(0.1); % wait for EMode to recv
             
             if obj.open_existing
@@ -297,7 +312,7 @@ classdef emodeconnection < handle
                 end
                 write(obj.s, msg_L, 'uint32');
                 write(obj.s, msg);
-                pause(1.0);
+                pause(0.5);
             catch
                 % continue
             end
@@ -455,245 +470,6 @@ classdef emodeconnection < handle
 
         function EModeLogin()
             system('EMode');
-        end
-    end
-end
-
-classdef MaterialSpec < TaggedModel
-    % MaterialSpec defines a material specification, including
-    % material properties or a material name.
-    % Inherits from TaggedModel for the dataType property.
-
-    properties
-        material    % Can be a string or a MaterialProperties object
-        theta       % Optional: float
-        phi         % Optional: float
-        x           % Optional: float
-        loss        % Optional: float
-    end
-
-    methods
-        function obj = MaterialSpec(namedArgs)
-            % Constructor for MaterialSpec.
-            % Uses an arguments block for flexible input with default values.
-
-            arguments
-                namedArgs.material % Required: can be string or MaterialProperties object
-                namedArgs.theta = [] % Optional: double
-                namedArgs.phi   = [] % Optional: double
-                namedArgs.x     = [] % Optional: double
-                namedArgs.loss  = [] % Optional: double
-            end
-
-            % Call superclass constructor
-            obj = obj@TaggedModel();
-
-            % Assign 'material' property with type checking
-            if ischar(namedArgs.material) || isstring(namedArgs.material)
-                obj.material = string(namedArgs.material); % Ensure it's a string type
-            elseif isa(namedArgs.material, 'MaterialProperties')
-                obj.material = namedArgs.material;
-            else
-                error('MaterialSpec:InvalidMaterial', 'Property "material" must be a string or a MaterialProperties object.');
-            end
-
-            % Assign optional numeric properties with type checking
-            if ~isempty(namedArgs.theta)
-                if isnumeric(namedArgs.theta) && isscalar(namedArgs.theta)
-                    obj.theta = namedArgs.theta;
-                else
-                    error('MaterialSpec:InvalidTheta', 'Property "theta" must be a scalar numeric value.');
-                end
-            end
-
-            if ~isempty(namedArgs.phi)
-                if isnumeric(namedArgs.phi) && isscalar(namedArgs.phi)
-                    obj.phi = namedArgs.phi;
-                else
-                    error('MaterialSpec:InvalidPhi', 'Property "phi" must be a scalar numeric value.');
-                end
-            end
-
-            if ~isempty(namedArgs.x)
-                if isnumeric(namedArgs.x) && isscalar(namedArgs.x)
-                    obj.x = namedArgs.x;
-                else
-                    error('MaterialSpec:InvalidX', 'Property "x" must be a scalar numeric value.');
-                end
-            end
-
-            if ~isempty(namedArgs.loss)
-                if isnumeric(namedArgs.loss) && isscalar(namedArgs.loss)
-                    obj.loss = namedArgs.loss;
-                else
-                    error('MaterialSpec:InvalidLoss', 'Property "loss" must be a scalar numeric value.');
-                end
-            end
-        end
-    end
-end
-
-classdef MaterialProperties < TaggedModel
-    % MaterialProperties defines the properties of a material.
-    % Inherits from TaggedModel for the dataType property.
-
-    properties
-        n           % Refractive index (can be numeric or string)
-        eps         % Permittivity
-        mu          % Permeability
-        d           % D-matrix
-    end
-
-    methods
-        function obj = MaterialProperties(namedArgs)
-            % Constructor for MaterialProperties.
-            % Uses an arguments block for flexible input with default values.
-
-            arguments
-                namedArgs.n   = [] % Optional: Can be numeric or string
-                namedArgs.eps = [] % Optional: Numeric (e.g., double)
-                namedArgs.mu  = [] % Optional: Numeric (e.g., double)
-                namedArgs.d   = [] % Optional: Numeric (e.g., double)
-            end
-
-            % Call superclass constructor
-            obj = obj@TaggedModel();
-
-            % Assign properties with basic type checking.
-            % MATLAB's property validation can be used for more strict typing.
-            if ~isempty(namedArgs.n)
-                % Allow 'n' to be numeric or string
-                if isnumeric(namedArgs.n) || ischar(namedArgs.n) || isstring(namedArgs.n)
-                    obj.n = namedArgs.n;
-                else
-                    error('MaterialProperties:InvalidN', 'Property "n" must be numeric or a string.');
-                end
-            end
-
-            if ~isempty(namedArgs.eps)
-                if isnumeric(namedArgs.eps)
-                    obj.eps = namedArgs.eps;
-                else
-                    error('MaterialProperties:InvalidEps', 'Property "eps" must be numeric.');
-                end
-            end
-
-            if ~isempty(namedArgs.mu)
-                if isnumeric(namedArgs.mu)
-                    obj.mu = namedArgs.mu;
-                else
-                    error('MaterialProperties:InvalidMu', 'Property "mu" must be numeric.');
-                end
-            end
-
-            if ~isempty(namedArgs.d)
-                if isnumeric(namedArgs.d)
-                    obj.d = namedArgs.d;
-                else
-                    error('MaterialProperties:InvalidD', 'Property "d" must be numeric.');
-                end
-            end
-        end
-    end
-end
-
-classdef TaggedModel
-    % TaggedModel is a base class that provides a __data_type__ property
-    % and a model_dump method for serialization.
-
-    properties (Dependent)
-        dataType % Mimics __data_type__
-    end
-
-    methods
-        function obj = TaggedModel()
-            % Constructor for TaggedModel (does nothing specific for this base class)
-        end
-
-        function value = get.dataType(obj)
-            % Getter for the dependent property dataType
-            % Returns the name of the actual class instance.
-            value = class(obj);
-        end
-
-        function s = model_dump(obj, varargin)
-            % model_dump converts the model instance to a struct.
-            % Nested TaggedModel instances will be recursively dumped.
-            %
-            % Usage:
-            %   s = obj.model_dump();
-            %   s = obj.model_dump('include', {'prop1', 'prop2'});
-            %   s = obj.model_dump('exclude', {'prop3'});
-
-            p = inputParser;
-            addParameter(p, 'include', {}, @(x) iscell(x) || ischar(x) || isstring(x));
-            addParameter(p, 'exclude', {}, @(x) iscell(x) || ischar(x) || isstring(x));
-            parse(p, varargin{:});
-
-            include_props = p.Results.include;
-            exclude_props = p.Results.exclude;
-
-            if ischar(include_props), include_props = {include_props}; end
-            if isstring(include_props), include_props = cellstr(include_props); end
-            if ischar(exclude_props), exclude_props = {exclude_props}; end
-            if isstring(exclude_props), exclude_props = cellstr(exclude_props); end
-
-            s = struct();
-
-            % Get all public properties of the object
-            mc = metaclass(obj);
-            properties = mc.PropertyList;
-
-            for i = 1:length(properties)
-                prop = properties(i);
-
-                % Only consider public properties that are not Hidden or Dependent (unless it's dataType)
-                % Pydantic's model_dump includes computed_fields (dependent properties)
-                if strcmp(prop.GetAccess, 'public') && ~prop.Hidden && ...
-                   (~prop.Dependent || strcmp(prop.Name, 'dataType'))
-
-                    prop_name = prop.Name;
-
-                    % Apply include/exclude logic
-                    if ~isempty(include_props) && ~ismember(prop_name, include_props)
-                        continue;
-                    end
-                    if ismember(prop_name, exclude_props)
-                        continue;
-                    end
-
-                    prop_value = obj.(prop_name);
-
-                    % Recursively dump nested TaggedModel instances
-                    if isa(prop_value, 'TaggedModel')
-                        s.(prop_name) = prop_value.model_dump(); % Recursive call
-                    else
-                        % Handle cell arrays and arrays of objects
-                        if iscell(prop_value)
-                            % Iterate through cell array elements
-                            cell_dump = cell(size(prop_value));
-                            for j = 1:numel(prop_value)
-                                if isa(prop_value{j}, 'TaggedModel')
-                                    cell_dump{j} = prop_value{j}.model_dump();
-                                else
-                                    cell_dump{j} = prop_value{j};
-                                end
-                            end
-                            s.(prop_name) = cell_dump;
-                        elseif isobject(prop_value) && ~isa(prop_value, 'TaggedModel')
-                            % If it's another type of object, try to convert it or handle specifically
-                            % For simplicity, we'll try to convert to struct, otherwise keep as is
-                            try
-                                s.(prop_name) = struct(prop_value);
-                            catch
-                                s.(prop_name) = prop_value; % Keep as object if cannot convert to struct
-                            end
-                        else
-                            s.(prop_name) = prop_value;
-                        end
-                    end
-                end
-            end
         end
     end
 end
