@@ -10,6 +10,21 @@ classdef emodeconnection < handle
         endian, dsim, ext, exit_flag, s;
         sim, simulation_name, license_type, save_path;
         verbose, roaming, open_existing, new_name, priority;
+        MaterialSpec = struct(...
+            'data_type', 'MaterialSpec', ...
+            'material', [], ...
+            'theta', [], ...
+            'phi', [], ...
+            'x', [], ...
+            'loss', [] ...
+        );
+        MaterialProperties = struct(...
+            'data_type', 'MaterialProperties', ...
+            'n', [], ...
+            'eps', [], ...
+            'mu', [], ...
+            'd', [] ...
+        );
         print_timer, print_path;
         stop_thread = false;
         lastLine = '';
@@ -109,7 +124,7 @@ classdef emodeconnection < handle
             % Read EMode port
             t1 = datetime('now');
             waiting = true;
-            wait_time = seconds(10); % [seconds]
+            wait_time = seconds(60); % [seconds]
             while waiting
                 try
                     file = fopen(port_path, 'r');
@@ -132,7 +147,7 @@ classdef emodeconnection < handle
             
             pause(0.1) % wait for EMode to open
             obj.s = tcpclient(HOST, PORT_SERVER, "Timeout", 60);
-            write(obj.s, native2unicode('connected with MATLAB!', 'UTF-8'));
+            write(obj.s, native2unicode('connected with MATLAB', 'UTF-8'));
             pause(0.1); % wait for EMode to recv
             
             if obj.open_existing
@@ -297,7 +312,7 @@ classdef emodeconnection < handle
                 end
                 write(obj.s, msg_L, 'uint32');
                 write(obj.s, msg);
-                pause(1.0);
+                pause(0.5);
             catch
                 % continue
             end

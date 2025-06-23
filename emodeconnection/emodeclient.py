@@ -95,7 +95,7 @@ class EModeClient:
         self.sock.settimeout(60)
 
         t = time.perf_counter()
-        wait_time = 120
+        wait_time = 60
         while wait_time:
             try:
                 with open(cache.port_path, "r") as f:
@@ -129,7 +129,7 @@ class EModeClient:
             conn_msg = "connected with iPython"
             self.ipython = True
         except NameError:
-            conn_msg = "connected with Python!"
+            conn_msg = "connected with Python"
             self.ipython = False
 
         if any("VSCODE" in name for name in os.environ):
