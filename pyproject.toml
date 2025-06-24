@@ -1,0 +1,27 @@
+[project]
+name = "emodeconnection"
+version = "1.0.10"
+description = "Python connection for EMode"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+dependencies = [
+  "numpy",
+  "dill",
+  "scipy",
+  "pydantic>=2.11.4",
+]
+authors = [
+  { name = "EMode Photonix LLC", email = "hello@emodephotonix.com" },
+]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: OS Independent",
+  "Development Status :: 3 - Alpha",
+]
+[project.urls]
+Homepage = "https://github.com/emode-photonix/emodeconnection"
+
+[build-system]
+requires = ["hatchling>=1.11.0"]
+build-backend = "hatchling.build"
