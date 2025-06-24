@@ -241,8 +241,16 @@ classdef emodeconnection < handle
         function data = convert_data(obj, raw_data)
             if isstruct(raw_data)
                 fnames = fieldnames(raw_data);
+
+                if isfield(raw_data, '__data_type__')
+                    dataTypeValue = raw_data.__data_type__;
+                    if ischar(dataTypeValue) && contains(dataTypeValue, 'Error')
+                        errorIdentifier = ['PythonDataConverter:PythonError:', strrep(dataTypeValue, ' ', '')];
+                        error(errorIdentifier, raw_data.msg);
+                    end
+                end
+                
                 fnamecell = strfind(fnames, '__ndarray__');
-        
                 nd_logic = false;
                 for mm = 1:length(fnamecell)
                     if fnamecell{mm} > 0
