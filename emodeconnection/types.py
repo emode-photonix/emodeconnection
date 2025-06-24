@@ -23,12 +23,12 @@ class LicenseType(Enum):
         return self.value
 
 
-TensorType = Union[float, list[float], list[list[float]], np.ndarray]
-DTensorType = Union[list[list[float]], np.ndarray]
+TensorType = Union[float, list[float], list[list[float]]]
+DTensorType = Union[list[list[float]]]
 
 
 class MaterialProperties(TaggedModel):
-    n: Union[Optional[TensorType], str] = None
+    n: Optional[TensorType] = None
     eps: Optional[TensorType] = None
     mu: Optional[TensorType] = None
     d: Optional[DTensorType] = None
@@ -42,7 +42,7 @@ class MaterialSpec(TaggedModel):
     theta: Optional[float] = None
     phi: Optional[float] = None
     x: Optional[float] = None
-    loss: Optional[float] = None
+    loss: Optional[float] = None  # dB/m
 
 
 T = TypeVar("T")
