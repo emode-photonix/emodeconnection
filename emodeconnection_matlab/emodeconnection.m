@@ -96,11 +96,15 @@ classdef emodeconnection < handle
             
             port_file_ext = string(datetime('now', 'TimeZone', 'Europe/London'), 'yyyyMMddHHmmssSSS');
 
-            port_path = fullfile(getenv('APPDATA'), 'EMode', strcat('port_', port_file_ext, '.txt'));
+            port_path = fullfile(getenv('LOCALAPPDATA'), 'emode', strcat('port_', port_file_ext, '.txt'));
             
-            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext, ' -', obj.license_type);
+            EM_cmd_str = strcat('EMode.exe run', {' '}, port_file_ext);
             EM_cmd_str = EM_cmd_str{1,1};
             
+            if ~strcmp(obj.license_type, 'default')
+                EM_cmd_str = strcat(EM_cmd_str, ' -', obj.license_type);
+            end
+
             if obj.verbose == true
                 EM_cmd_str = strcat(EM_cmd_str, ' -v');
             end
@@ -115,7 +119,7 @@ classdef emodeconnection < handle
             end
             
             % Run printing process
-            obj.print_path = fullfile(getenv('APPDATA'), 'EMode', strcat('emode_output_', port_file_ext, '.txt'));
+            obj.print_path = fullfile(getenv('LOCALAPPDATA'), 'emode', strcat('emode_output_', port_file_ext, '.txt'));
             obj.start_printing();
             
             % Open EMode
@@ -199,13 +203,14 @@ classdef emodeconnection < handle
             end
             
             try
-                msg = native2unicode(sendstr, 'UTF-8');
+                msg = uint8(native2unicode(sendstr, 'UTF-8'));
                 msg_L = uint32([length(msg)]);
                 if (obj.endian == 'L')
-                    msg_L = swapbytes(msg_L);
+                    msg_L_unint8 = typecast(msg_L, 'uint8');
+                    msg_L = msg_L_unint8(end:-1:1);
                 end
-                write(obj.s, msg_L, 'uint32');
-                write(obj.s, msg);
+
+                write(obj.s, [msg_L, msg]);
                 
                 while true
                     if obj.s.NumBytesAvailable > 0
@@ -243,7 +248,7 @@ classdef emodeconnection < handle
                 fnames = fieldnames(raw_data);
 
                 if isfield(raw_data, '__data_type__')
-                    dataTypeValue = raw_data.__data_type__;
+                    dataTypeValue = raw_data.x__data_type__;
                     if ischar(dataTypeValue) && contains(dataTypeValue, 'Error')
                         errorIdentifier = ['PythonDataConverter:PythonError:', strrep(dataTypeValue, ' ', '')];
                         error(errorIdentifier, raw_data.msg);
@@ -309,17 +314,19 @@ classdef emodeconnection < handle
                 else
                     obj.call('EM_close', 'save', true, 'file_type', obj.ext(2:end));
                 end
-                s = struct();
-                s.('function') = 'exit';
-                sendstr = jsonencode(s);
-                msg = native2unicode(sendstr, 'UTF-8');
+                st = struct();
+                st.('function') = 'exit';
+                sendstr = jsonencode(st);
+
+                msg = uint8(native2unicode(sendstr, 'UTF-8'));
                 msg_L = uint32([length(msg)]);
-                [~,~,endian] = computer;
-                if (endian == 'L')
-                    msg_L = swapbytes(msg_L);
+                if (obj.endian == 'L')
+                    msg_L_unint8 = typecast(msg_L, 'uint8');
+                    msg_L = msg_L_unint8(end:-1:1);
                 end
-                write(obj.s, msg_L, 'uint32');
-                write(obj.s, msg);
+
+                write(obj.s, [msg_L, msg]);
+
                 pause(0.5);
             catch
                 % continue
