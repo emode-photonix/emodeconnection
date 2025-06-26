@@ -209,7 +209,10 @@ class EModeClient:
         return data
 
     def close(self):
-        self.send({"function": "exit"})
-        self.sock.shutdown(socket.SHUT_RDWR)
-        self.sock.close()
+        try:
+            self.send({"function": "exit"})
+            self.sock.shutdown(socket.SHUT_RDWR)
+            self.sock.close()
+        except Exception:
+            pass
         self.connected = False

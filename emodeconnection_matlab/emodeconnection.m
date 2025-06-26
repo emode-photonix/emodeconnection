@@ -212,9 +212,12 @@ classdef emodeconnection < handle
 
                 write(obj.s, [msg_L, msg]);
                 
-                while true
+                while obj.s.Connected
+                
                     if obj.s.NumBytesAvailable > 0
                         break
+                    else
+                        pause(0.01);
                     end
                 end
                 pause(0.1);
