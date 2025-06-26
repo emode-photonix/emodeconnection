@@ -247,7 +247,7 @@ classdef emodeconnection < handle
             if isstruct(raw_data)
                 fnames = fieldnames(raw_data);
 
-                if isfield(raw_data, '__data_type__')
+                if isfield(raw_data, 'x__data_type__')
                     dataTypeValue = raw_data.x__data_type__;
                     if ischar(dataTypeValue) && contains(dataTypeValue, 'Error')
                         errorIdentifier = ['PythonDataConverter:PythonError:', strrep(dataTypeValue, ' ', '')];
