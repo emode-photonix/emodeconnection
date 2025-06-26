@@ -11,6 +11,7 @@ import time
 from typing import Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
+from .types import EModeError
 
 logger = getLogger(__name__)
 
@@ -137,6 +138,8 @@ class EMode:
         else:
             RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
 
+        if RV == "failed":
+            raise EModeError("EMode failed to launch.")
         self.dsim = RV[len("sim:") :]
 
     def build_cmd_list(self, emode_cmd):
@@ -222,7 +225,12 @@ class EMode:
 
         self.client.send(sendset)
 
-        return self.client.recv()
+        try:
+            return self.client.recv()
+        except ConnectionResetError:
+            logger.debug("connection reset from EMode, shutting down")
+            self.client.close()
+            return "failed"
 
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")
