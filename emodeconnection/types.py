@@ -128,6 +128,7 @@ class EModeError(Exception):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._custom_fields = []
+        self.msg = args[0]
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_custom_fields":
