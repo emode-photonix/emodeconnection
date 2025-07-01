@@ -12,6 +12,7 @@ classdef emodeconnection < handle
         endian char               % Host endianness ("L" or "B")
         lhOut     event.listener  % stdout listener
         lhErr     event.listener  % stderr listener
+        lhExit  event.listener   % flush stdout/err on process exit
    
         print_timer timer
         stop_thread logical = false
@@ -169,6 +170,8 @@ classdef emodeconnection < handle
             proc = Process(); proc.StartInfo=psi; if ~proc.Start(), error('Failed to start %s',exe); end
             obj.lhOut = addlistener(proc,'OutputDataReceived',@(~,ev)obj.handleStdout(ev)); proc.BeginOutputReadLine();
             obj.lhErr = addlistener(proc,'ErrorDataReceived', @(~,ev)obj.handleStderr(ev)); proc.BeginErrorReadLine();
+            proc.EnableRaisingEvents = true;
+            obj.lhExit = addlistener(proc,'Exited',@(src,~)obj.flushOutput(src));
         end
         function handleStdout(obj,ev)
             if ~isempty(ev.Data)
@@ -252,64 +255,28 @@ classdef emodeconnection < handle
                 return;
             end
         end
-        % function tf = obj.isTimeoutErr(~,ME)
-            % id = lower(ME.identifier); msg = lower(ME.message);
-            % tf = contains(id,'timeout') || contains(msg,'timed out');
-        % end
-        
-        % ---------------- full NumPy ndarray → MATLAB conversion ----------
-        % function data = convert_data(~, raw)
-            % if isstruct(raw)
-                % fn = fieldnames(raw);
-                % % propagate Python‑side exceptions if present -------------
-                % if isfield(raw,'x__data_type__') && contains(raw.x__data_type__,'Error')
-                    % errorIdentifier = ['EMode:PythonError:' strrep(raw.x__data_type__,' ','')];
-                    % error(errorIdentifier, raw.msg);
-                % end
-
-                % nd_idx = find(contains(fn,'__ndarray__'),1);
-                % if ~isempty(nd_idx)   % base64‑encoded ndarray  ----------
-                    % dtype  = raw.dtype;
-                    % shape  = raw.shape; if numel(shape)==1, shape=[1 shape]; end
-                    % if size(shape,1) > 1, shape = shape.'; end
-                    % bytes  = matlab.net.base64decode(raw.(fn{nd_idx}));
-                    % switch dtype
-                        % case {'int8','int16','int32','int64', ...
-                              % 'uint8','uint16','uint32','uint64'}
-                            % arr = typecast(bytes, dtype);
-                        % case {'float16','float32','float64','double'}
-                            % arr = typecast(bytes,'double');
-                        % case {'complex64','complex128'}
-                            % d   = typecast(bytes,'double');
-                            % arr = complex(d(1:2:end), d(2:2:end));
-                        % case 'bool'
-                            % arr = logical(typecast(bytes,'uint8'));
-                        % otherwise
-                            % arr = typecast(bytes,'double');
-                    % end
-                    % data = reshape(arr, fliplr(shape));
-                % else                % recurse down struct  --------------
-                    % data = struct();
-                    % for i = 1:numel(fn)
-                        % data.(fn{i}) = convert_data([], raw.(fn{i})); %#ok<AGROW>
-                    % end
-                % end
-            % elseif iscell(raw)
-                % data = cellfun(@(x)convert_data([],x), raw, 'UniformOutput',false);
-            % else
-                % data = raw;         % primitive ➜ as‑is
-            % end
-        % end
+        function flushOutput(obj, procHandle)
+            if nargin<2 || isempty(procHandle)
+                procHandle = obj.proc;
+            end
+            if isempty(procHandle) || ~isvalid(procHandle); return; end
+            try
+                remOut = char(procHandle.StandardOutput.ReadToEnd());
+                if ~isempty(remOut)
+                    fprintf('%s\\n', remOut);
+                    obj.stdoutLog = obj.stdoutLog + string(remOut) + newline;
+                end
+            catch, end
+            try
+                remErr = char(procHandle.StandardError.ReadToEnd());
+                if ~isempty(remErr)
+                    fprintf('%s\\n', remErr);
+                    obj.stderrLog = obj.stderrLog + string(remErr) + newline;
+                end
+            catch, end
+        end
         
         function data = convert_data(obj, raw_data)
-            % Recursive decoder for EMode → MATLAB data, mirroring the
-            % original Python client behaviour.
-            %   • Detects Python-side exceptions via x__data_type__ == *Error*
-            %   • Converts base‑64 NumPy ndarrays to MATLAB arrays, with
-            %     shape reversed so that column‑major MATLAB matches the
-            %     row‑major Python view.
-            %   • Recreates nested structs so users can chain dots, e.g.
-            %       em.get('shape_core').metadata.scattering_sum
             if isstruct(raw_data)
                 fnames = fieldnames(raw_data);
 
@@ -321,7 +288,7 @@ classdef emodeconnection < handle
                         if isfield(raw_data, 'msg')
                             error(errorIdentifier, raw_data.msg);
                         else
-                            error(errorIdentifier, raw_data);
+                            error(errorIdentifier, 'unspecified');
                         end
                     end
                 end
@@ -371,12 +338,16 @@ classdef emodeconnection < handle
     %% ---------------------------------------------------------------------
     % Cleanup & destructor
     %% ---------------------------------------------------------------------
-%    methods(Access = private)
         function cleanup(obj)
             if ~isempty(obj.sock) && isvalid(obj.sock) && strcmp(obj.sock.Status,'open'); clear obj.sock; end
             if ~isempty(obj.lhOut); delete(obj.lhOut); end
             if ~isempty(obj.lhErr); delete(obj.lhErr); end
             if ~isempty(obj.proc) && isvalid(obj.proc) && ~obj.proc.HasExited; obj.proc.Kill(); end
+            if ~isempty(obj.lhExit); delete(obj.lhExit); end
+            if ~isempty(obj.proc) && isvalid(obj.proc) && ~obj.proc.HasExited
+                obj.flushOutput(obj.proc);
+                obj.proc.Kill();
+            end
         end
     end
     methods(Access = private, Static = true)
@@ -469,4 +440,3 @@ classdef emodeconnection < handle
         end
     end
 end
-
