@@ -1,7 +1,31 @@
-from typing import Any, Type, TypeVar, Optional, Union
+from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, computed_field
-import numpy as np
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationInfo,
+    computed_field,
+    field_validator,
+)
+import math
+
+
+def _allows_none(tp: Any) -> bool:
+    """
+    Return True iff the type annotation *explicitly* admits `None`.
+    Handles Optional[T], Union[..., None], and Annotated[…].
+    """
+    if tp is None or tp is type(None):
+        return True
+
+    origin = get_origin(tp)
+    if origin is Union:  # Optional[T] is just Union[T, None]
+        return type(None) in get_args(tp)
+    if origin is getattr(__import__("typing"), "Annotated", None):
+        # drill into Annotated[T, ...]  (first arg is the real annotation)
+        return _allows_none(get_args(tp)[0])
+
+    return False
 
 
 class TaggedModel(BaseModel):
@@ -9,6 +33,22 @@ class TaggedModel(BaseModel):
     @property
     def __data_type__(self) -> str:
         return self.__class__.__name__
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _nan_to_none(cls, v: Any, info: ValidationInfo):
+        # this is necessary because matlab doesn't support None, so they are all
+        # changed to NaNs in serialization.
+        if not (isinstance(v, float) and math.isnan(v)):
+            return v  # nothing to do
+        if info.field_name is None:
+            # this should never happen...
+            return v
+
+        field_type = cls.model_fields[info.field_name].annotation
+        if _allows_none(field_type):
+            return None  # safe to coerce
+        return v  # leave `nan` as-is
 
 
 class LicenseType(Enum):
