@@ -61,7 +61,7 @@ classdef emodeconnection < handle
                 namedArgs.new_name            string  = ""
                 namedArgs.priority            string = "pN"   % pN / pL / pH
             end
-            assert(~verLessThan('matlab','9.1'),"EMode requires R2016b+");
+            assert(~verLessThan('matlab','9.10'),"EMode requires R2021a+");
             [~, ~, obj.endian] = computer;
 
             % ---- launch EMode -------------------------------------------------
@@ -77,10 +77,12 @@ classdef emodeconnection < handle
             % ---- wait for server port + connect -------------------------------
             port = obj.waitForPortFile(port_file);
             obj.sock = obj.openSocket('127.0.0.1',port);
-            write(obj.sock,native2unicode('connected with MATLA','UTF-8'));
+            write(obj.sock,native2unicode('connected with MATLAB','UTF-8'));
 
             % ---- init / open sim ---------------------------------------------
-            if namedArgs.open_existing
+            if namedArgs.open_existing && strcmp(namedArgs.new_name,'')
+                rv = obj.call('EM_open','simulation_name',namedArgs.simulation_name,'save_path',namedArgs.save_path);
+            elseif namedArgs.open_existing
                 rv = obj.call('EM_open','simulation_name',namedArgs.simulation_name,'save_path',namedArgs.save_path,'new_simulation_name',namedArgs.new_name);
             else
                 rv = obj.call('EM_init','simulation_name',namedArgs.simulation_name,'save_path',namedArgs.save_path);
@@ -275,6 +277,60 @@ classdef emodeconnection < handle
                 end
             catch, end
         end
+
+        function data = decode_ndarray_list(obj, raw_data, nd_fname)
+        % raw_data  : struct array (1×N or N×1) with fields .(nd_fname) .shape .dtype
+        % nd_fname  : e.g.  'x__ndarray__'
+        % RETURNS   : cell array of decoded MATLAB arrays (or a single array if N==1)
+
+            % ---------- nested helper ------------------------------------------------
+            function arr = decode_one(dtype, dshape, b64str)
+
+                % normalise shape to row-vector with at least two dims
+                if numel(dshape) == 1, dshape = [1 dshape]; end
+                if size(dshape,1) > 1, dshape = dshape.'; end
+
+                bytes = matlab.net.base64decode(b64str);
+
+                switch dtype
+                    case {'int8','int16','int32','int64', ...
+                          'uint8','uint16','uint32','uint64'}
+                        tmp = typecast(bytes, dtype);
+
+                    case {'float16','float32','float64'}
+                        % MATLAB has no float16; cast to double for everything.
+                        tmp = typecast(bytes, 'double');
+
+                    case {'complex64','complex128'}
+                        d   = typecast(bytes, 'double');
+                        tmp = complex(d(1:2:end), d(2:2:end));
+
+                    case 'bool'
+                        tmp = logical(typecast(bytes, 'uint8'));
+
+                    otherwise
+                        tmp = typecast(bytes, 'double');
+                end
+
+                arr = reshape(tmp, flip(dshape));
+            end
+            % -------------------------------------------------------------------------
+
+            n     = numel(raw_data);
+            data  = cell(n,1);
+
+            for k = 1:n                                   % iterate over struct array
+                rk       = raw_data(k);                   % one element of the struct
+                data{k}  = decode_one(rk.dtype, ...
+                                      rk.shape, ...
+                                      rk.(nd_fname));
+            end
+
+            % keep old behaviour when there's only one element
+            if n == 1
+                data = data{1};
+            end
+        end
         
         function data = convert_data(obj, raw_data)
             if isstruct(raw_data)
@@ -301,27 +357,7 @@ classdef emodeconnection < handle
                 end
 
                 if nd_logic
-                    dtype  = raw_data.dtype;
-                    dshape = raw_data.shape;
-                    if numel(dshape) == 1, dshape = [1 dshape]; end
-                    if size(dshape,1) > 1, dshape = dshape.'; end
-
-                    data_bytes = matlab.net.base64decode(raw_data.(nd_fname));
-                    switch dtype
-                        case {'int8','int16','int32','int64', ...
-                              'uint8','uint16','uint32','uint64'}
-                            data_ = typecast(data_bytes, dtype);
-                        case {'float16','float32','float64'}
-                            data_ = typecast(data_bytes, 'double');
-                        case {'complex64','complex128'}
-                            d = typecast(data_bytes, 'double');
-                            data_ = complex(d(1:2:end), d(2:2:end));
-                        case 'bool'
-                            data_ = logical(typecast(data_bytes,'uint8'));
-                        otherwise
-                            data_ = typecast(data_bytes,'double');
-                    end
-                    data = reshape(data_, flip(dshape));
+                    data = obj.decode_ndarray_list(raw_data, nd_fname);
                 else
                     % ---------- recurse into subfields ----------------
                     data = struct();
@@ -440,3 +476,4 @@ classdef emodeconnection < handle
         end
     end
 end
+
