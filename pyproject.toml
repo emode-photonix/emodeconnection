@@ -25,3 +25,19 @@ Homepage = "https://github.com/emode-photonix/emodeconnection"
 [build-system]
 requires = ["hatchling>=1.11.0"]
 build-backend = "hatchling.build"
+
+[tool.pyright]
+pythonVersion = "3.9"
+strictParameterNoneValue = false
+reportMissingTypeArgument = false
+reportAny = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownMemberType = false
+reportMissingParameterType = false
+reportUnusedCallResult = false
+reportMissingTypeStubs = false
+enableTypeIgnoreComments = true
+reportImplicitOverride = false
+reportUnnecessaryIsInstance = false
