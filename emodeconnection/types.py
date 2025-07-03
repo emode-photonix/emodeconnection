@@ -125,10 +125,10 @@ def object_from_dict(data: dict[str, Any]) -> Any:
 
 @register_type
 class EModeError(Exception):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, msg: str = '', *args, **kwargs):
+        super().__init__(msg, *args, **kwargs)
         self._custom_fields = []
-        self.msg = args[0]
+        self.msg = msg
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_custom_fields":
