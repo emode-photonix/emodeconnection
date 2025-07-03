@@ -8,7 +8,33 @@ from pydantic import (
     field_validator,
 )
 import math
+import numpy as np
 
+def serialize(data: Any):
+    if isinstance(data, dict):
+        for key, value in data.items():
+            data[key] = serialize(value)
+        return data
+    elif isinstance(data, list):
+        if len(data) == 1:
+            return serialize(data[0])
+        return [serialize(item) for item in data]
+    elif isinstance(data, np.floating):
+        return float(data)
+    elif isinstance(data, np.integer):
+        return int(data)
+    elif isinstance(data, np.bool_):
+        return bool(data)
+    elif isinstance(data, np.ndarray):
+        return serialize(np.squeeze(data).tolist())
+    elif isinstance(data, TaggedModel):
+        return data.model_dump()
+    if type(data).__module__ == np.__name__:
+        # final catchall
+        data = np.squeeze(data).tolist()
+    else:
+        return data
+        
 
 def _allows_none(tp: Any) -> bool:
     """
