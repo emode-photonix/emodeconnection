@@ -10,7 +10,7 @@ import platform
 from typing import Any, Optional, Union
 from logging import getLogger
 from .file_utils import Cache
-from .types import EModeError, object_from_dict, TaggedModel
+from .types import EModeError, object_from_dict, TaggedModel, serialize
 
 logger = getLogger(__name__)
 
@@ -167,15 +167,7 @@ class EModeClient:
 
     def send(self, data):
         logger.debug(f"sending {data=}")
-        for kw in data:
-            if isinstance(data[kw], np.ndarray):
-                data[kw] = np.squeeze(data[kw]).tolist()
-
-            if isinstance(data[kw], list) and len(data[kw]) == 1:
-                data[kw] = data[kw][0]
-
-            if isinstance(data[kw], TaggedModel):
-                data[kw] = data[kw].model_dump()
+        data = serialize(data)
         logger.debug(f"serialized {data=}")
         sendjson = json.dumps(data)
         self._send_raw(sendjson)

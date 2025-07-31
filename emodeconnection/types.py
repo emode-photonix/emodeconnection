@@ -1,7 +1,57 @@
-from typing import Any, Type, TypeVar, Optional, Union
+from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationInfo,
+    computed_field,
+    field_validator,
+)
+import math
 import numpy as np
+
+def serialize(data: Any):
+    if isinstance(data, dict):
+        for key, value in data.items():
+            data[key] = serialize(value)
+        return data
+    elif isinstance(data, list):
+        if len(data) == 1:
+            return serialize(data[0])
+        return [serialize(item) for item in data]
+    elif isinstance(data, np.floating):
+        return float(data)
+    elif isinstance(data, np.integer):
+        return int(data)
+    elif isinstance(data, np.bool_):
+        return bool(data)
+    elif isinstance(data, np.ndarray):
+        return serialize(np.squeeze(data).tolist())
+    elif isinstance(data, TaggedModel):
+        return data.model_dump()
+    if type(data).__module__ == np.__name__:
+        # final catchall
+        data = np.squeeze(data).tolist()
+    else:
+        return data
+        
+
+def _allows_none(tp: Any) -> bool:
+    """
+    Return True iff the type annotation *explicitly* admits `None`.
+    Handles Optional[T], Union[..., None], and Annotated[…].
+    """
+    if tp is None or tp is type(None):
+        return True
+
+    origin = get_origin(tp)
+    if origin is Union:  # Optional[T] is just Union[T, None]
+        return type(None) in get_args(tp)
+    if origin is getattr(__import__("typing"), "Annotated", None):
+        # drill into Annotated[T, ...]  (first arg is the real annotation)
+        return _allows_none(get_args(tp)[0])
+
+    return False
 
 
 class TaggedModel(BaseModel):
@@ -9,6 +59,22 @@ class TaggedModel(BaseModel):
     @property
     def __data_type__(self) -> str:
         return self.__class__.__name__
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _nan_to_none(cls, v: Any, info: ValidationInfo):
+        # this is necessary because matlab doesn't support None, so they are all
+        # changed to NaNs in serialization.
+        if not (isinstance(v, float) and math.isnan(v)):
+            return v  # nothing to do
+        if info.field_name is None:
+            # this should never happen...
+            return v
+
+        field_type = cls.model_fields[info.field_name].annotation
+        if _allows_none(field_type):
+            return None  # safe to coerce
+        return v  # leave `nan` as-is
 
 
 class LicenseType(Enum):
@@ -85,9 +151,10 @@ def object_from_dict(data: dict[str, Any]) -> Any:
 
 @register_type
 class EModeError(Exception):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, msg: str = '', *args, **kwargs):
+        super().__init__(msg, *args, **kwargs)
         self._custom_fields = []
+        self.msg = msg
 
     def __setattr__(self, name: str, value: Any) -> None:
         if name != "_custom_fields":
