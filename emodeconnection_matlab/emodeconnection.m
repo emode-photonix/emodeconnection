@@ -62,17 +62,24 @@ classdef emodeconnection < handle
                 namedArgs.priority            string = "pN"   % pN / pL / pH
             end
             assert(~verLessThan('matlab','9.10'),"EMode requires R2021a+");
-            [~, ~, obj.endian] = computer;
+            [platform,~,obj.endian] = computer;
+
+            if contains(platform, 'MAC')
+                setenv('PATH', [getenv('PATH') pathsep '/usr/local/bin/']);
+                localAppData = fullfile(getenv('HOME'), 'Library', 'Caches');
+            else
+                localAppData = getenv('LOCALAPPDATA');
+            end
 
             % ---- launch EMode -------------------------------------------------
             token     = datestr(now,'yyyymmddHHMMSSFFF');
-            port_file = fullfile(getenv('LOCALAPPDATA'),'emode',sprintf('port_%s.txt',token));
+            port_file = fullfile(localAppData,'emode',sprintf('port_%s.txt',token));
             cmd = "run " + token;
             if namedArgs.license_type ~= "default", cmd = cmd + " -"+namedArgs.license_type; end
             if namedArgs.verbose,                cmd = cmd + " -v"; end
             if namedArgs.priority ~= "pN",       cmd = cmd + " -"+erase(namedArgs.priority,'-'); end
             if namedArgs.roaming,                cmd = cmd + " -r"; end
-            obj.proc = obj.startProcess('EMode.exe',cmd);
+            obj.proc = obj.startProcess('emode',cmd);
 
             % ---- wait for server port + connect -------------------------------
             port = obj.waitForPortFile(port_file);
@@ -476,4 +483,3 @@ classdef emodeconnection < handle
         end
     end
 end
-
