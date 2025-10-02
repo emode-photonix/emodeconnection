@@ -10,6 +10,7 @@ from pydantic import (
 import math
 import numpy as np
 
+
 def serialize(data: Any):
     if isinstance(data, dict):
         for key, value in data.items():
@@ -34,7 +35,6 @@ def serialize(data: Any):
         data = np.squeeze(data).tolist()
     else:
         return data
-        
 
 def _allows_none(tp: Any) -> bool:
     """
@@ -52,7 +52,6 @@ def _allows_none(tp: Any) -> bool:
         return _allows_none(get_args(tp)[0])
 
     return False
-
 
 class TaggedModel(BaseModel):
     @computed_field(repr=False)
@@ -76,7 +75,6 @@ class TaggedModel(BaseModel):
             return None  # safe to coerce
         return v  # leave `nan` as-is
 
-
 class LicenseType(Enum):
     _2D = "2d"
     _3D = "3d"
@@ -88,10 +86,8 @@ class LicenseType(Enum):
     def __str__(self):
         return self.value
 
-
 TensorType = Union[float, list[float], list[list[float]]]
 DTensorType = Union[list[list[float]]]
-
 
 class MaterialProperties(TaggedModel):
     n: Optional[TensorType] = None
@@ -102,7 +98,6 @@ class MaterialProperties(TaggedModel):
     # this is necessary to support np.ndarrays here...
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
 class MaterialSpec(TaggedModel):
     material: Union[str, MaterialProperties]
     theta: Optional[float] = None
@@ -110,14 +105,12 @@ class MaterialSpec(TaggedModel):
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
-
 T = TypeVar("T")
 
 _TYPE_REGISTRY = {
     "MaterialSpec": MaterialSpec,
     "MaterialProperties": MaterialProperties,
 }
-
 
 def register_type(cls: Type[T]) -> Type[T]:
     """Class decorator to register an Exception subclass."""
@@ -127,13 +120,11 @@ def register_type(cls: Type[T]) -> Type[T]:
     _TYPE_REGISTRY[name] = cls
     return cls
 
-
 def get_type(name: str) -> Type:
     try:
         return _TYPE_REGISTRY[name]
     except KeyError:
         raise KeyError(f"Unknown exception type: {name}")
-
 
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
@@ -147,7 +138,6 @@ def object_from_dict(data: dict[str, Any]) -> Any:
     ExcClass = get_type(name)
 
     return ExcClass(**data)
-
 
 @register_type
 class EModeError(Exception):
@@ -170,7 +160,6 @@ class EModeError(Exception):
 
         return d
 
-
 @register_type
 class ArgumentError(EModeError):
     def __init__(self, msg: str, function: Optional[str], argument: Optional[str]):
@@ -181,7 +170,6 @@ class ArgumentError(EModeError):
 
     def __str__(self):
         return f'ArgumentError: the argument: ({self.argument}) to function: ({self.function}) had error: "{self.msg}"'
-
 
 @register_type
 class EPHKeyError(EModeError):
@@ -194,7 +182,6 @@ class EPHKeyError(EModeError):
     def __str__(self):
         return f'EPHKeyError: the key: ({self.key}) doesn\'t exist in the file: ({self.filename}), "{self.msg}"'
 
-
 @register_type
 class FileError(EModeError):
     def __init__(self, msg: str, filename: str):
@@ -204,7 +191,6 @@ class FileError(EModeError):
 
     def __str__(self):
         return f'FileError: the file: "{self.filename}" had error: "{self.msg}"'
-
 
 @register_type
 class LicenseError(EModeError):
@@ -216,7 +202,6 @@ class LicenseError(EModeError):
     def __str__(self):
         return f'LicenseError: you are using license: {self.license_type!s}, error msg: "{self.msg}"'
 
-
 @register_type
 class ShapeError(EModeError):
     def __init__(self, msg: str, shape_name: str):
@@ -226,7 +211,6 @@ class ShapeError(EModeError):
 
     def __str__(self):
         return f'ShapeError: error: "{self.msg}" with shape: {self.shape_name}'
-
 
 @register_type
 class NameError(EModeError):
@@ -238,7 +222,6 @@ class NameError(EModeError):
 
     def __str__(self):
         return f'NameError: error: "{self.msg}" for type: {self.type} and name: {self.name}'
-
 
 @register_type
 class NotImplementedError(EModeError):
