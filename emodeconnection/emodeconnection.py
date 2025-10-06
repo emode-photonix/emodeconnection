@@ -34,7 +34,7 @@ class EMode:
         verbose: bool = False,
         roaming: bool = False,
         open_existing: bool = False,
-        new_name: bool = False,
+        new_name: Union[bool, str] = False,
         priority: Literal["pH", "pAN", "pBN", "pI", "pN"] = "pN",
         emode_cmd: Optional[list[str]] = None,
     ):
