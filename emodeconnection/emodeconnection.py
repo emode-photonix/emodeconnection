@@ -34,7 +34,7 @@ class EMode:
         verbose: bool = False,
         roaming: bool = False,
         open_existing: bool = False,
-        new_name: bool = False,
+        new_name: Union[bool, str] = False,
         priority: Literal["pH", "pAN", "pBN", "pI", "pN"] = "pN",
         emode_cmd: Optional[list[str]] = None,
     ):
@@ -212,7 +212,7 @@ class EMode:
 
         return self.ipython
 
-    def call(self, function: str, **kwargs):
+    def call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list]:
         logger.debug(f"calling '{function}' with args: {kwargs}")
         if not isinstance(function, str):
             raise TypeError("parameter 'function' must be of type 'str'")
