@@ -1,6 +1,6 @@
 # emodeconnection
 
-This package provides an interface to the EMode software from EMode Photonix LLC.
+This package provides an interface to the EMode software from EMode Photonix.
 
 ## Installation
 
