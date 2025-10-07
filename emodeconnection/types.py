@@ -200,7 +200,11 @@ class LicenseError(EModeError):
         self.license_type = license_type
 
     def __str__(self):
-        return f'LicenseError: you are using license: {self.license_type!s}, error msg: "{self.msg}"'
+        if self.license_type['value'].lower() == '3d':
+            emLicense = 'EMode3D'
+        else:
+            emLicense = 'EMode2D'
+        return f'LicenseError: current license: "{emLicense}", error msg: "{self.msg}"'
 
 @register_type
 class ShapeError(EModeError):
