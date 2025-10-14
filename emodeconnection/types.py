@@ -105,11 +105,29 @@ class MaterialSpec(TaggedModel):
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
+class Grid(TaggedModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    x: np.ndarray
+    y: np.ndarray
+
+    is_pml: bool = False
+    is_expanded: bool = False
+    is_bc: bool = False
+
+class Field(TaggedModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    field: np.ndarray
+    field_names: list[str]
+    num_modes: int
+    grid: Grid
+
 T = TypeVar("T")
 
 _TYPE_REGISTRY = {
     "MaterialSpec": MaterialSpec,
     "MaterialProperties": MaterialProperties,
+    "Field": Field,
+    "Grid": Grid,
 }
 
 def register_type(cls: Type[T]) -> Type[T]:
@@ -194,13 +212,17 @@ class FileError(EModeError):
 
 @register_type
 class LicenseError(EModeError):
-    def __init__(self, msg: str, license_type: LicenseType):
+    def __init__(self, msg: str, license_type: LicenseType | None):
         super().__init__(msg, license_type)
         self.msg = msg
         self.license_type = license_type
 
     def __str__(self):
-        if self.license_type['value'].lower() == '3d':
+        if isinstance(self.license_type, LicenseType):
+            lt = self.license_type['value'].lower()  # type: ignore
+        else:
+            lt = str(self.license_type)  # guard against None
+        if lt == '3d':
             emLicense = 'EMode3D'
         else:
             emLicense = 'EMode2D'
