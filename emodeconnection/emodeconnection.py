@@ -37,6 +37,7 @@ class EMode:
         new_name: Union[bool, str] = False,
         priority: Literal["pH", "pAN", "pBN", "pI", "pN"] = "pN",
         emode_cmd: Optional[list[str]] = None,
+        force_open: bool = False,
     ):
         """
         Initialize defaults and create an EMode session.
@@ -133,7 +134,7 @@ class EMode:
 
         if open_existing:
             RV = self.call(
-                "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name
+                "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name, force=force_open
             )
         else:
             RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
