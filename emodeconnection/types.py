@@ -1,4 +1,11 @@
 from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
+import sys
+
+if sys.version_info >= (3, 10):
+    from types import UnionType
+else:
+    UnionType = None
+
 from enum import Enum
 from pydantic import (
     BaseModel,
@@ -45,7 +52,7 @@ def _allows_none(tp: Any) -> bool:
         return True
 
     origin = get_origin(tp)
-    if origin is Union:  # Optional[T] is just Union[T, None]
+    if origin is Union or origin is UnionType:  # Optional[T] is just Union[T, None]
         return type(None) in get_args(tp)
     if origin is getattr(__import__("typing"), "Annotated", None):
         # drill into Annotated[T, ...]  (first arg is the real annotation)
