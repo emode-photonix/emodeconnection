@@ -219,7 +219,7 @@ class FileError(EModeError):
 
 @register_type
 class LicenseError(EModeError):
-    def __init__(self, msg: str, license_type: LicenseType | None):
+    def __init__(self, msg: str, license_type: Union[LicenseType, None]):
         super().__init__(msg, license_type)
         self.msg = msg
         self.license_type = license_type
