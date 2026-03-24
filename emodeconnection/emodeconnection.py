@@ -30,6 +30,7 @@ class EMode:
         sim: Optional[str] = None,
         simulation_name: Optional[str] = "emode",
         license_type: Literal["2d", "3d", "default"] = "default",
+        clear: Literal["none", "all", "latest", "oldest"] = "none",
         save_path: Union[str, Path] = ".",
         verbose: bool = False,
         roaming: bool = False,
@@ -52,6 +53,14 @@ class EMode:
 
         license_type: Literal['2d','3d','default'] = 'default'
             The type of license you wish to check out for this session.
+
+        clear: Literal['none', 'all', 'latest', 'oldest'] = 'none'
+            Whether to clear old EMode sessions (thus kill previous sessions).
+            Clearing is only supported for sessions launched from the same computer.
+                'none': Do not clear any old sessions.
+                'all': Clear all non-roaming sessions.
+                'latest': Clear the latest non-roaming session.
+                'oldest': Clear the oldest non-roaming session.
 
         save_path: str | Path = '.'
             The path to save results.
@@ -85,7 +94,7 @@ class EMode:
 
         if sim:
             logger.warning("The `sim` argument in the `EMode` class is depreciated, use `simulation_name` instead.")
-        
+
         simulation_name = simulation_name or sim
 
         if not isinstance(simulation_name, str):
@@ -99,6 +108,11 @@ class EMode:
                 "parameter 'license_type' must be one of ['2d','3d','default']"
             )
 
+        if clear not in ["none", "all", "latest", "oldest"]:
+            raise ValueError(
+                "parameter 'clear' must be one of ['none', 'all', 'latest', 'oldest']"
+            )
+
         if priority not in ["pH", "pAN", "pN", "pBN", "pI"]:
             raise ValueError(
                 "parameter 'priority' must be one of ['pH','pAN','pN','pBN','pI']"
@@ -108,10 +122,12 @@ class EMode:
         self.priority = priority
         self.verbose = verbose
         self.license_type = license_type
+        self.clear = clear
         self.roaming = roaming
         self.ext = ".eph"
         self.port_file_label = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
         self.cache = Cache(self.port_file_label)
+        self.running = True
 
         if self.in_ipython():
             self.proc = Popen(
@@ -132,15 +148,16 @@ class EMode:
         self.client = EModeClient(self.cache)
         atexit.register(self.close_atexit)
 
-        if open_existing:
-            RV = self.call(
-                "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name, force=force_open
-            )
-        else:
-            RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
-
-        if RV == "failed":
+        try:
+            if open_existing:
+                RV = self.call(
+                    "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name, force=force_open
+                )
+            else:
+                RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
+        except ConnectionResetError or ConnectionError:
             raise EModeError("EMode failed to launch.")
+
         self.dsim = RV[len("sim:") :]
 
     def build_cmd_list(self, emode_cmd):
@@ -152,6 +169,8 @@ class EMode:
         cmd += ["run", self.port_file_label]
         if self.license_type != "default":
             cmd += [f"-{self.license_type}"]
+        if self.clear != "none":
+            cmd += [f"-{self.clear}"]
         if self.verbose:
             cmd += ["-v"]
         if self.priority != "pN":
@@ -228,10 +247,11 @@ class EMode:
 
         try:
             return self.client.recv()
-        except ConnectionResetError:
-            logger.debug("connection reset from EMode, shutting down")
+        except ConnectionResetError or ConnectionError:
+            logger.debug("connection closed by EMode, shutting down")
             self.client.close()
-            return "failed"
+            self.running = False
+            raise
 
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")
@@ -241,14 +261,13 @@ class EMode:
 
             while True:
                 time.sleep(0.01)
-                if self.proc.poll() is None or self.proc.poll() is self.proc.returncode:
+                if self.proc.poll() == 0:
                     break
-                time.sleep(0.01)
 
         except Exception:
             logger.exception("got exception closing client")
 
-        return
+        self.running = False
 
     def __getattr__(self, name):
         def wrapper(*args, **kwargs):
@@ -261,7 +280,7 @@ class EMode:
         return wrapper
 
     def close_atexit(self):
-        if self.client.connected:
+        if self.client.connected and self.running:
             self.close()
 
         return
