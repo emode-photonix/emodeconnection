@@ -19,8 +19,12 @@ classifiers = [
   "Operating System :: OS Independent",
   "Development Status :: 3 - Alpha",
 ]
+
 [project.urls]
 Homepage = "https://github.com/emode-photonix/emodeconnection"
+
+[project.scripts]
+emode-install = "emodeconnection.installer:main"
 
 [build-system]
 requires = ["hatchling>=1.11.0"]
