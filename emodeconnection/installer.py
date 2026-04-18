@@ -539,10 +539,23 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
         exe_member = exe_members[0]
 
         if os_name == 'Windows':
-            # Extract the Inno Setup installer to a temp directory and run it
-            tmp_dir = zip_path.parent / '.emode_install_tmp'
+            # Find any .exe in the zip — the Inno Setup installer
+            # is named with the version e.g. EMode-0.2.5-Windows.exe
+            exe_members = [
+                n for n in names
+                if n.endswith('.exe')
+                and not n.startswith('__MACOSX')
+            ]
+            if not exe_members:
+                print("Error: Could not find an .exe installer inside the downloaded archive.")
+                print(f"Archive contents: {names}")
+                sys.exit(1)
+
+            exe_member     = exe_members[0]
+            installer_name = Path(exe_member).name
+            tmp_dir        = zip_path.parent / '.emode_install_tmp'
             tmp_dir.mkdir(exist_ok=True)
-            installer_path = tmp_dir / exe_name
+            installer_path = tmp_dir / installer_name
 
             with zf.open(exe_member) as src, open(installer_path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
