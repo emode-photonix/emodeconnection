@@ -11,7 +11,7 @@ dependencies = [
   "pydantic>=2.11.4",
 ]
 authors = [
-  { name = "EMode Photonix LLC", email = "hello@emodephotonix.com" },
+  { name = "EMode Photonix", email = "hello@emodephotonix.com" },
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
