@@ -511,36 +511,12 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
     """
     import zipfile
 
-    exe_name = EXECUTABLE_NAMES[os_name]
-
     with zipfile.ZipFile(zip_path, 'r') as zf:
         names = zf.namelist()
 
-        # Find the target executable inside the zip
-        # For Linux: look for 'emode' binary specifically, not install.sh
-        exe_members = [
-            n for n in names
-            if Path(n).name == exe_name
-            and not n.startswith('__MACOSX')
-        ]
-        if not exe_members:
-            # Fallback: match by suffix
-            exe_members = [
-                n for n in names
-                if n.endswith(exe_name)
-                and not n.startswith('__MACOSX')
-                and not n.endswith('.sh')   # never treat .sh as the executable
-            ]
-        if not exe_members:
-            print(f"Error: Could not find '{exe_name}' inside the downloaded archive.")
-            print(f"Archive contents: {names}")
-            sys.exit(1)
-
-        exe_member = exe_members[0]
-
         if os_name == 'Windows':
-            # Find any .exe in the zip — the Inno Setup installer
-            # is named with the version e.g. EMode-0.2.5-Windows.exe
+            # The installer is versioned (e.g. EMode-0.2.5-Windows.exe)
+            # so search for any .exe rather than a fixed name
             exe_members = [
                 n for n in names
                 if n.endswith('.exe')
@@ -578,7 +554,27 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
             return get_executable_path(get_default_install_dir('Windows'), 'Windows')
 
         else:
-            # Linux: extract the binary directly into install_dir
+            # Linux: find the 'emode' binary, ignoring install.sh
+            exe_name = EXECUTABLE_NAMES[os_name]
+
+            exe_members = [
+                n for n in names
+                if Path(n).name == exe_name
+                and not n.startswith('__MACOSX')
+            ]
+            if not exe_members:
+                exe_members = [
+                    n for n in names
+                    if n.endswith(exe_name)
+                    and not n.startswith('__MACOSX')
+                    and not n.endswith('.sh')
+                ]
+            if not exe_members:
+                print(f"Error: Could not find '{exe_name}' inside the downloaded archive.")
+                print(f"Archive contents: {names}")
+                sys.exit(1)
+
+            exe_member = exe_members[0]
             install_dir.mkdir(parents=True, exist_ok=True)
             dest = install_dir / exe_name
 
