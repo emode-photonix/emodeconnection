@@ -372,7 +372,7 @@ def download_release(
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / filename
 
-    print(f"\nDownloading EMode {version} for {platform_key}...")
+    print(f"\nDownloading EMode {version} for {platform_key.capitalize()}...")
 
     try:
         req = Request(url, headers={'Accept': 'application/octet-stream'})
