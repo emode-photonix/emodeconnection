@@ -15,6 +15,8 @@ Environment variables:
 EMODE_EULA_ACCEPTED=1    # Accept EULA non-interactively (CI/headless)
 EMODE_EMAIL              # Pre-fill email address
 EMODE_PASSWORD           # Pre-fill password (use with caution)
+EMODE_INTERACTIVE=1      # Use interactive installer GUI
+UNINSTALL_EMODE=y        # Accept the uninstallation non-interactively
 """
 
 from __future__ import annotations
@@ -231,15 +233,16 @@ def handle_eula() -> bool:
     print("EMode End User License Agreement")
     print("=" * 60)
     print(f"\n  {EULA_URL}\n")
+
+    if os.environ.get('EMODE_EULA_ACCEPTED') == '1':
+        print("\nEULA accepted via EMODE_EULA_ACCEPTED=1 environment variable.")
+        return True
+
     print("Please review the EULA at the link above before continuing.")
     print("=" * 60)
-
     _try_open_eula()
 
     if not sys.stdin.isatty():
-        if os.environ.get('EMODE_EULA_ACCEPTED') == '1':
-            print("\nEULA accepted via EMODE_EULA_ACCEPTED=1 environment variable.")
-            return True
         print("\nNon-interactive environment detected.")
         print("Set EMODE_EULA_ACCEPTED=1 to accept the EULA non-interactively.")
         return False
@@ -323,29 +326,6 @@ def login(email: str, password: str) -> str:
     if name:
         print(f"Logged in as {name}.")
     return token
-
-
-def get_token_via_emode_binary(install_dir: Path, os_name: str) -> Optional[str]:
-    """
-    If the emode executable is already installed, call it with
-    --get-download-token to retrieve a token using stored credentials.
-    Returns the token string, or None if unavailable.
-    """
-    exe = get_executable_path(install_dir, os_name)
-    if not exe.exists():
-        return None
-    try:
-        result = subprocess.run(
-            [str(exe), '--get-download-token'],
-            capture_output=True, text=True, timeout=30,
-        )
-        token = result.stdout.strip()
-        if result.returncode == 0 and token:
-            print("Using stored credentials from existing EMode installation.")
-            return token
-    except Exception:
-        pass
-    return None
 
 
 # ---------------------------------------------------------------
@@ -470,7 +450,7 @@ def install_pkg(pkg_path: Path, install_dir: Path) -> Path:
         or sys.stdin.isatty()
     )
 
-    if has_display:
+    if has_display and os.environ.get('EMODE_INTERACTIVE', '').strip():
         # GUI install — opens the familiar macOS Installer wizard
         print("Opening macOS Installer — follow the prompts to complete installation.")
         print("You may be asked for your administrator password.")
@@ -482,8 +462,8 @@ def install_pkg(pkg_path: Path, install_dir: Path) -> Path:
             print(f"Installer exited with code {result.returncode}.")
             sys.exit(1)
     else:
-        # Headless install — SSH session, CI, cloud environment
-        print("Headless environment detected. Installing via sudo installer...")
+        # Headless install — Terminal, SSH session, CI, cloud environment
+        print("Installing via sudo installer...")
         result = subprocess.run(
             ['sudo', 'installer', '-pkg', str(pkg_path), '-target', '/'],
             timeout=300,
@@ -648,10 +628,8 @@ def install(
         sys.exit(0)
 
     # Authentication
-    token = get_token_via_emode_binary(install_dir, os_name)
-    if token is None:
-        email, password = prompt_credentials()
-        token = login(email, password)
+    email, password = prompt_credentials()
+    token = login(email, password)
 
     # Download to a temp directory
     with tempfile.TemporaryDirectory(prefix='emode_install_') as tmp_dir:
@@ -757,7 +735,12 @@ def uninstall(install_dir: Optional[Path] = None) -> None:
 
     if sys.stdin.isatty():
         try:
-            response = input("Are you sure? [y/N]: ").strip().lower()
+            UNINSTALL_EMODE = os.environ.get('UNINSTALL_EMODE', '').strip()
+            if UNINSTALL_EMODE == 'y':
+                print("Uninstall accepted via UNINSTALL_EMODE=y environment variable.")
+                response = UNINSTALL_EMODE
+            else:
+                response = input("Are you sure? [y/N]: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             sys.exit(0)
