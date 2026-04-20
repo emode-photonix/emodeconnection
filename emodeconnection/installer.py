@@ -545,8 +545,8 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
     Extract and install EMode from a zip archive.
 
     Windows: extracts the Inno Setup .exe and runs it silently.
-             The installer handles PATH registration — install_dir is ignored.
-             Returns the default Windows install path.
+             The installer used the install_dir.
+             Returns the Windows install path.
 
     Linux:   extracts only the 'emode' binary from the zip into install_dir.
              Ignores install.sh and other files — the Python installer handles
@@ -580,16 +580,16 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
             with zf.open(exe_member) as src, open(installer_path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
 
-            # print("Running installer — follow the prompts to complete installation.")
-            # result = subprocess.run(
-            #     [str(installer_path), '/SILENT'],
-            #     timeout=300,
-            # )
-            print("Installing EMode...")
-            result = subprocess.run(
-                [str(installer_path), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
-                timeout=300,
-            )
+            cmd = [
+                str(installer_path),
+                '/VERYSILENT',
+                '/SUPPRESSMSGBOXES',
+                '/NORESTART',
+            ]
+            if install_dir != get_default_install_dir('Windows'):
+                cmd.append(f'/DIR={install_dir}')
+
+            result = subprocess.run(cmd, timeout=300)
 
             try:
                 shutil.rmtree(tmp_dir)
@@ -600,7 +600,7 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
                 print(f"Installer exited with code {result.returncode}.")
                 sys.exit(1)
 
-            return get_executable_path(get_default_install_dir('Windows'), 'Windows')
+            return get_executable_path(install_dir, 'Windows')
 
         else:
             # Linux: find the 'emode' binary, ignoring install.sh
