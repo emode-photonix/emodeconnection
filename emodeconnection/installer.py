@@ -436,33 +436,36 @@ def install_pkg(pkg_path: Path, install_dir: Path) -> Path:
     """
     Install a macOS .pkg file.
 
-    Tries the native macOS Installer app first (GUI, shows progress).
-    Falls back to headless `sudo installer -pkg` for SSH/CI environments.
+    If install_dir matches the default (/usr/local/bin), run the .pkg
+    installer normally via sudo installer or GUI.
+
+    If a custom install_dir is specified, extract the binary directly
+    from the .pkg payload — the pkg installer can't install to
+    arbitrary locations.
+
     Returns the expected executable path after installation.
     """
-    exe_path = install_dir / EXECUTABLE_NAMES['Darwin']
+    default_dir = get_default_install_dir('Darwin')
+    exe_path    = install_dir / EXECUTABLE_NAMES['Darwin']
 
-    # Check if we have a display session (i.e. not headless)
-    has_display = bool(
-        os.environ.get('DISPLAY')
-        or os.environ.get('WAYLAND_DISPLAY')
-        or os.environ.get('TERM_PROGRAM')  # Terminal.app, iTerm2, etc.
-        or sys.stdin.isatty()
-    )
+    if install_dir != default_dir:
+        # Custom install directory — extract binary directly from pkg payload
+        print(f"Custom install directory: {install_dir}")
+        _install_pkg_custom_dir(pkg_path, install_dir)
+        return exe_path
 
-    if has_display and os.environ.get('EMODE_INTERACTIVE', '').strip():
-        # GUI install — opens the familiar macOS Installer wizard
+    # Standard install location — run the .pkg installer normally
+    if os.environ.get('EMODE_INTERACTIVE', '').strip():
         print("Opening macOS Installer — follow the prompts to complete installation.")
         print("You may be asked for your administrator password.")
         result = subprocess.run(
-            ['open', '-W', str(pkg_path)],  # -W waits for the app to exit
+            ['open', '-W', str(pkg_path)],
             timeout=600,
         )
         if result.returncode != 0:
             print(f"Installer exited with code {result.returncode}.")
             sys.exit(1)
     else:
-        # Headless install — Terminal, SSH session, CI, cloud environment
         print("Installing via sudo installer...")
         result = subprocess.run(
             ['sudo', 'installer', '-pkg', str(pkg_path), '-target', '/'],
@@ -474,6 +477,67 @@ def install_pkg(pkg_path: Path, install_dir: Path) -> Path:
             sys.exit(1)
 
     return exe_path
+
+
+def _install_pkg_custom_dir(pkg_path: Path, install_dir: Path) -> None:
+    """
+    Extract the emode binary from a .pkg payload and place it in install_dir.
+    Used when a custom install location is requested on macOS.
+    A .pkg is an xar archive whose Payload is a gzipped cpio archive.
+    """
+    print(f"Extracting binary to {install_dir}...")
+    install_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory(prefix='emode_pkg_') as tmp:
+        tmp_path     = Path(tmp)
+        expanded_dir = tmp_path / 'expanded'
+
+        # Expand the pkg structure using pkgutil
+        result = subprocess.run(
+            ['pkgutil', '--expand', str(pkg_path), str(expanded_dir)],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            print(f"Error expanding .pkg: {result.stderr}")
+            sys.exit(1)
+
+        # Find the Payload file inside the expanded pkg
+        payload_files = list(expanded_dir.rglob('Payload'))
+        if not payload_files:
+            print("Error: Could not find Payload inside .pkg archive.")
+            sys.exit(1)
+
+        payload      = payload_files[0]
+        extract_dir  = tmp_path / 'payload_contents'
+        extract_dir.mkdir()
+
+        # The Payload is a gzipped cpio archive — extract with tar
+        result = subprocess.run(
+            ['tar', '-xzf', str(payload), '-C', str(extract_dir)],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            print(f"Error extracting payload: {result.stderr}")
+            sys.exit(1)
+
+        # Find the emode binary in the extracted payload
+        emode_files = list(extract_dir.rglob('emode'))
+        if not emode_files:
+            print("Error: Could not find 'emode' binary in .pkg payload.")
+            sys.exit(1)
+
+        dst = install_dir / 'emode'
+        shutil.copy2(emode_files[0], dst)
+        dst.chmod(dst.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+        # Remove quarantine on the extracted binary
+        subprocess.run(
+            ['xattr', '-dr', 'com.apple.quarantine', str(dst)],
+            timeout=10,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+    print(f"EMode installed to {install_dir}")
 
 
 def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
@@ -516,9 +580,14 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
             with zf.open(exe_member) as src, open(installer_path, 'wb') as dst:
                 shutil.copyfileobj(src, dst)
 
-            print("Running installer — follow the prompts to complete installation.")
+            # print("Running installer — follow the prompts to complete installation.")
+            # result = subprocess.run(
+            #     [str(installer_path), '/SILENT'],
+            #     timeout=300,
+            # )
+            print("Installing EMode...")
             result = subprocess.run(
-                [str(installer_path), '/SILENT'],
+                [str(installer_path), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
                 timeout=300,
             )
 
@@ -592,7 +661,7 @@ def check_path(install_dir: Path) -> None:
         if os_name == 'Windows':
             print("  Add it via: System Properties → Environment Variables → Path")
         else:
-            print(f"  Add to your shell profile (~/.zshrc or ~/.bashrc):")
+            print("  Add to your shell profile (~/.zshrc or ~/.bashrc):")
             print(f"    export PATH=\"{install_dir}:$PATH\"")
 
 
@@ -649,7 +718,6 @@ def install(
             # permissions internally, so we skip those steps here
             exe_path = install_pkg(downloaded_path, install_dir)
             check_path(install_dir)
-
         else:
             # Windows and Linux: extract from zip
             try:
@@ -731,7 +799,7 @@ def uninstall(install_dir: Optional[Path] = None) -> None:
         print(f"EMode is not installed at {exe_path}")
         sys.exit(0)
 
-    print(f"This will remove: {exe_path}")
+    print(f"This will remove EMode from {install_dir}")
 
     if sys.stdin.isatty():
         try:
@@ -748,11 +816,42 @@ def uninstall(install_dir: Optional[Path] = None) -> None:
             print("Uninstall cancelled.")
             sys.exit(0)
 
-    try:
-        exe_path.unlink()
-        print(f"EMode removed from {exe_path}")
-    except PermissionError:
-        if os_name != 'Windows':
+    if os_name == 'Windows':
+        # Use Inno Setup's uninstaller to properly deregister from
+        # Programs & Features and remove all installed files
+        uninstaller = install_dir / 'unins000.exe'
+        if not uninstaller.exists():
+            # Fall back to searching for any unins*.exe in the install dir
+            uninstallers = list(install_dir.glob('unins*.exe'))
+            if uninstallers:
+                uninstaller = uninstallers[0]
+            else:
+                print(f"Warning: Could not find Inno Setup uninstaller in {install_dir}")
+                print("Falling back to manual file removal...")
+                try:
+                    exe_path.unlink()
+                    print(f"EMode removed from {exe_path}")
+                except PermissionError:
+                    print("Error: Permission denied. Try running as Administrator.")
+                    sys.exit(1)
+                return
+
+        print(f"Running uninstaller: {uninstaller}")
+        result = subprocess.run(
+            [str(uninstaller), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'],
+            timeout=120,
+        )
+        if result.returncode != 0:
+            print(f"Uninstaller exited with code {result.returncode}.")
+            sys.exit(1)
+        print("EMode uninstalled successfully.")
+
+    else:
+        # Mac/Linux: remove the binary directly
+        try:
+            exe_path.unlink()
+            print(f"EMode removed from {exe_path}")
+        except PermissionError:
             print("Permission denied. Trying with sudo...")
             result = subprocess.run(['sudo', 'rm', str(exe_path)], timeout=30)
             if result.returncode == 0:
@@ -760,18 +859,6 @@ def uninstall(install_dir: Optional[Path] = None) -> None:
             else:
                 print("Error: sudo rm failed.")
                 sys.exit(1)
-        else:
-            print("Error: Permission denied. Try running as Administrator.")
-            sys.exit(1)
-
-    # On Windows, remove the install directory if it's the default and now empty
-    if os_name == 'Windows':
-        try:
-            if install_dir == get_default_install_dir('Windows') and not any(install_dir.iterdir()):
-                install_dir.rmdir()
-                print(f"Removed empty directory: {install_dir}")
-        except Exception:
-            pass
 
 
 # ---------------------------------------------------------------
