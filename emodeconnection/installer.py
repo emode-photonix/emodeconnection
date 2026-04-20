@@ -764,15 +764,19 @@ def _install_with_sudo(zip_path: Path, install_dir: Path, os_name: str) -> None:
                 shutil.copyfileobj(src, dst)
         tmp_exe.chmod(tmp_exe.stat().st_mode | stat.S_IEXEC)
 
-        result = subprocess.run(['sudo', 'mkdir', '-p', str(install_dir)], timeout=30)
+        result = subprocess.run(
+            ['sudo', 'mkdir', '-p', str(install_dir)], timeout=30
+        )
         if result.returncode != 0:
             print("Error: sudo mkdir failed.")
             sys.exit(1)
 
+        # Make directory owned by current user so future updates don't need sudo
         result = subprocess.run(
-            ['sudo', 'mv', str(tmp_exe), str(install_dir / exe_name)],
-            timeout=30,
+            ['sudo', 'chown', f'{os.getenv("USER", os.getlogin())}', str(install_dir)],
+            timeout=10,
         )
+
         if result.returncode != 0:
             print("Error: sudo mv failed.")
             sys.exit(1)
