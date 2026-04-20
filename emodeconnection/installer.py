@@ -604,20 +604,16 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
 
         else:
             # Linux: find the 'emode' binary, ignoring install.sh
+            # Handle both flat zips (emode) and zips with a subdirectory
+            # (EMode-0.2.5-Linux/emode) for robustness
             exe_name = EXECUTABLE_NAMES[os_name]
 
             exe_members = [
                 n for n in names
                 if Path(n).name == exe_name
                 and not n.startswith('__MACOSX')
+                and not n.endswith('.sh')
             ]
-            if not exe_members:
-                exe_members = [
-                    n for n in names
-                    if n.endswith(exe_name)
-                    and not n.startswith('__MACOSX')
-                    and not n.endswith('.sh')
-                ]
             if not exe_members:
                 print(f"Error: Could not find '{exe_name}' inside the downloaded archive.")
                 print(f"Archive contents: {names}")
