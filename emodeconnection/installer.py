@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import getpass
-import json
 import os
 import platform
 import shutil
@@ -33,12 +32,11 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
-from urllib.request import urlopen, Request
-from urllib.error import HTTPError, URLError
+import requests as http_requests
+
 
 API_BASE     = 'https://emodephotonix.com/wp-json/custom/v1'
 EULA_URL     = 'https://emodephotonix.com/legal/eula.pdf'
-EULA_VERSION = '1.0'
 
 # Default install locations per platform
 DEFAULT_INSTALL_DIRS = {
@@ -110,50 +108,46 @@ def print_progress(downloaded: int, total: int, width: int = 40) -> None:
     print(f"\r  [{bar}] {pct:.1f}%  {mb_done:.1f}/{mb_total:.1f} MB",
           end='', flush=True)
 
-
 # ---------------------------------------------------------------
-# API calls (urllib only — no requests dependency)
+# API calls
 # ---------------------------------------------------------------
 
 def api_get(path: str) -> dict:
     """GET request, returns parsed JSON or raises RuntimeError."""
     url = f"{API_BASE}/{path.lstrip('/')}"
     try:
-        req = Request(url, headers={'Accept': 'application/json'})
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except HTTPError as e:
-        body = e.read().decode(errors='replace')
+        resp = http_requests.get(url, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except http_requests.exceptions.HTTPError as e:
         try:
-            data = json.loads(body)
+            data = e.response.json()
             raise RuntimeError(data.get('error') or data.get('message') or str(e))
-        except (json.JSONDecodeError, KeyError):
-            raise RuntimeError(f"HTTP {e.code}: {body[:200]}")
-    except URLError as e:
-        raise RuntimeError(f"Network error: {e.reason}")
+        except (ValueError, AttributeError):
+            raise RuntimeError(f"HTTP {e.response.status_code}")
+    except http_requests.exceptions.ConnectionError as e:
+        raise RuntimeError(f"Network error: {e}")
+    except http_requests.exceptions.Timeout:
+        raise RuntimeError("Request timed out.")
 
 
 def api_post(path: str, payload: dict) -> dict:
     """POST request with JSON body, returns parsed JSON or raises RuntimeError."""
-    url  = f"{API_BASE}/{path.lstrip('/')}"
-    data = json.dumps(payload).encode()
+    url = f"{API_BASE}/{path.lstrip('/')}"
     try:
-        req = Request(
-            url, data=data,
-            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
-            method='POST',
-        )
-        with urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except HTTPError as e:
-        body = e.read().decode(errors='replace')
+        resp = http_requests.post(url, json=payload, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except http_requests.exceptions.HTTPError as e:
         try:
-            data_parsed = json.loads(body)
-            raise RuntimeError(data_parsed.get('error') or data_parsed.get('message') or str(e))
-        except (json.JSONDecodeError, KeyError):
-            raise RuntimeError(f"HTTP {e.code}: {body[:200]}")
-    except URLError as e:
-        raise RuntimeError(f"Network error: {e.reason}")
+            data = e.response.json()
+            raise RuntimeError(data.get('error') or data.get('message') or str(e))
+        except (ValueError, AttributeError):
+            raise RuntimeError(f"HTTP {e.response.status_code}")
+    except http_requests.exceptions.ConnectionError as e:
+        raise RuntimeError(f"Network error: {e}")
+    except http_requests.exceptions.Timeout:
+        raise RuntimeError("Request timed out.")
 
 
 # ---------------------------------------------------------------
@@ -339,12 +333,6 @@ def download_release(
     filename: str,
     dest_dir: Path,
 ) -> Path:
-    """
-    Stream the release file from the server to a temp file,
-    then move it to dest_dir/filename.
-    Returns the final Path.
-    Handles error responses before writing to disk.
-    """
     url = (
         f"{API_BASE}/download/"
         f"?token={token}&platform={platform_key}&version={version}"
@@ -352,43 +340,45 @@ def download_release(
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / filename
 
-    print(f"\nDownloading EMode {version} for {platform_key.capitalize()}...")
+    print(f"\nDownloading EMode {version} for {platform_key}...")
 
     try:
-        req = Request(url, headers={'Accept': 'application/octet-stream'})
-        with urlopen(req, timeout=120) as resp:
+        with http_requests.get(
+            url,
+            headers={'Accept': 'application/octet-stream'},
+            stream=True,
+            timeout=120,
+        ) as resp:
             content_type = resp.headers.get('Content-Type', '')
 
-            # If the server returns JSON it's an error — read it before
-            # writing to disk so we never save an error message as a file
+            # JSON response means an error from the server
             if 'application/json' in content_type or 'text/' in content_type:
-                body = resp.read().decode(errors='replace')
                 try:
-                    data = json.loads(body)
+                    data = resp.json()
                     msg = (
                         data.get('error')
                         or (data.get('data') or {}).get('error')
                         or data.get('message')
-                        or body[:200]
+                        or resp.text[:200]
                     )
-                except (json.JSONDecodeError, AttributeError):
-                    msg = body[:200]
+                except (ValueError, AttributeError):
+                    msg = resp.text[:200]
                 print(f"\nError from server: {msg}")
                 sys.exit(1)
 
             total      = int(resp.headers.get('Content-Length', 0))
             downloaded = 0
 
-            tmp_fd, tmp_path = tempfile.mkstemp(dir=dest_dir, prefix='.emode_dl_')
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=dest_dir, prefix='.emode_dl_'
+            )
             try:
                 with os.fdopen(tmp_fd, 'wb') as f:
-                    while True:
-                        chunk = resp.read(65536)  # 64 KB chunks
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        print_progress(downloaded, total)
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            print_progress(downloaded, total)
 
                 print()  # newline after progress bar
 
@@ -406,27 +396,28 @@ def download_release(
                     pass
                 raise
 
-    except HTTPError as e:
-        body = e.read().decode(errors='replace')
-        try:
-            data = json.loads(body)
-            msg  = data.get('error') or (data.get('data') or {}).get('error') or str(e)
-        except (json.JSONDecodeError, AttributeError):
-            msg = f"HTTP {e.code}"
-        if e.code == 401:
-            print(f"\nError: Authentication failed — token may have expired. "
-                  f"Please run emode-install again.")
-        elif e.code == 503:
+    except http_requests.exceptions.HTTPError as e:
+        code = e.response.status_code
+        if code == 401:
+            print("\nError: Authentication failed — token may have expired. "
+                  "Please run emode-install again.")
+        elif code == 503:
+            try:
+                msg = e.response.json().get('error', str(e))
+            except ValueError:
+                msg = str(e)
             print(f"\nError: {msg}")
         else:
-            print(f"\nDownload failed: {msg}")
+            print(f"\nDownload failed: HTTP {code}")
         sys.exit(1)
-    except URLError as e:
-        print(f"\nNetwork error during download: {e.reason}")
+    except http_requests.exceptions.ConnectionError as e:
+        print(f"\nNetwork error during download: {e}")
+        sys.exit(1)
+    except http_requests.exceptions.Timeout:
+        print("\nDownload timed out. Please try again.")
         sys.exit(1)
 
     return dest_path
-
 
 # ---------------------------------------------------------------
 # Post-install
