@@ -39,6 +39,7 @@ class EMode:
         priority: Literal["pH", "pAN", "pBN", "pI", "pN"] = "pN",
         emode_cmd: Optional[list[str]] = None,
         force_open: bool = False,
+        save: bool = True,
     ):
         """
         Initialize defaults and create an EMode session.
@@ -127,6 +128,7 @@ class EMode:
         self.ext = ".eph"
         self.port_file_label = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
         self.cache = Cache(self.port_file_label)
+        self.save = save
         self.running = True
 
         if self.in_ipython():
@@ -158,7 +160,7 @@ class EMode:
         except ConnectionResetError or ConnectionError:
             raise EModeError("EMode failed to launch.")
 
-        self.dsim = RV[len("sim:") :]
+        self.dsim = RV[len("sim:") :]  # type: ignore
 
     def build_cmd_list(self, emode_cmd):
         if platform.system() == "Windows":
@@ -209,12 +211,6 @@ class EMode:
             )
 
     def setup_print_thread(self):
-        # self.print_thread = Thread(
-        #     target=lambda: shutil.copyfileobj(
-        #         self.proc.stdout, sys.stdout.buffer, length=1
-        #     ),
-        #     daemon=True,
-        # )
         self.print_thread = Thread(
             name="print EMode output",
             target=_forward_stdout,
@@ -256,6 +252,7 @@ class EMode:
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")
         try:
+            kwargs.setdefault('save', self.save)
             self.call("EM_close", **kwargs)
             self.client.close()
 
@@ -281,6 +278,4 @@ class EMode:
 
     def close_atexit(self):
         if self.client.connected and self.running:
-            self.close()
-
-        return
+            self.close(save=self.save)

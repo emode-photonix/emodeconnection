@@ -1,9 +1,20 @@
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% EMode - MATLAB interface, by EMode Photonix LLC
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Copyright (c) EMode Photonix LLC
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% EMode - MATLAB interface, by EMode Photonix
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Copyright (c) EMode, Inc.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% =========================================================================
+% NOTICE: emodeconnection.m is no longer officially supported as of EMode
+% version 0.2.5. The recommended interface is the Python emodeconnection
+% package (https://github.com/emode-photonix/emodeconnection).
+%
+% This file is provided as-is for users who wish to continue using MATLAB
+% with earlier versions of EMode. It may work with newer versions, but
+% compatibility is not guaranteed and no support will be provided.
+%
+% For questions, see https://emodephotonix.com/contact/
+% =========================================================================
 classdef emodeconnection < handle
 
     properties(Access = private)
@@ -13,7 +24,7 @@ classdef emodeconnection < handle
         lhOut     event.listener  % stdout listener
         lhErr     event.listener  % stderr listener
         lhExit  event.listener   % flush stdout/err on process exit
-   
+
         print_timer timer
         stop_thread logical = false
         lastLine  char = ''
@@ -26,7 +37,7 @@ classdef emodeconnection < handle
         exit_flag logical = false
         stdoutLog string = ""   % captured stdout
         stderrLog string = ""   % captured stderr
-        
+
         % --- canonical MATLAB versions of EMode typed structs ------------
         MaterialSpec = struct( ...
             'x__data_type__', 'MaterialSpec', ...
@@ -106,12 +117,12 @@ classdef emodeconnection < handle
     methods
         function rv = call(obj, func_name, varargin)
             st = struct('function',func_name);
-            
+
             % ---- legacy shorthand for EM_get ---------------------------
             if strcmp(func_name, 'EM_get') && numel(varargin) == 1
                 varargin = {'key', varargin{1}};
             end
-            
+
             if mod(numel(varargin),2), error('Arguments must be name/value pairs'); end
             for k = 1:2:numel(varargin); st.(varargin{k}) = varargin{k+1}; end
             if ~isfield(st,'simulation_name'), st.simulation_name = obj.dsim; end
@@ -133,9 +144,9 @@ classdef emodeconnection < handle
                 rv = recv;
                 return;
             end
-                
+
             % Convert / propagate Python side errors
-            
+
             rv = obj.convert_data(parsed);
         end
 
@@ -206,7 +217,7 @@ classdef emodeconnection < handle
                 pause(back); back=min(0.5,back*1.4);
             end
         end
-        
+
         function s = openSocket(obj,host,port)
             while true
                 try
@@ -338,7 +349,7 @@ classdef emodeconnection < handle
                 data = data{1};
             end
         end
-        
+
         function data = convert_data(obj, raw_data)
             if isstruct(raw_data)
                 fnames = fieldnames(raw_data);
@@ -400,21 +411,21 @@ classdef emodeconnection < handle
             tf = contains(id,'timeout') || contains(msg,'timed out');
         end
     end
-    
+
     methods (Static = true)
         function f = open_file(simulation_name)
             % Return an EMode simulation file name with .mat extension.
-            
+
             if nargin == 0
                 simulation_name = 'emode';
             end
-            
+
             mat = '.mat';
-            
+
             if (strfind(simulation_name, mat) == length(simulation_name)-length(mat)+1)
                 simulation_name = simulation_name(1:end-length(mat));
             end
-            
+
             try
                 f = sprintf('%s%s', simulation_name, mat);
             catch
@@ -425,25 +436,25 @@ classdef emodeconnection < handle
 
         function data = get_(variable, simulation_name)
             % Return data from simulation file.
-            
+
             if nargin == 1
                 simulation_name = 'emode';
             end
-            
+
             if (~ischar(variable))
                 error('Input parameter "variable" must be a string.');
             end
-            
+
             if (~ischar(simulation_name))
                 error('Input parameter "simulation_name" must be a string.');
             end
-            
+
             mat = '.mat';
-            
+
             if (strfind(simulation_name, mat) == length(simulation_name)-length(mat)+1)
                 simulation_name = simulation_name(1:end-length(mat));
             end
-            
+
             try
                 data_load = load(sprintf('%s%s', simulation_name, mat), variable);
                 data = data_load.(variable);
@@ -455,21 +466,21 @@ classdef emodeconnection < handle
 
         function fkeys = inspect_(simulation_name)
             % Return list of keys from available data in simulation file.
-            
+
             if nargin == 0
                 simulation_name = 'emode';
             end
-            
+
             if (~ischar(simulation_name))
                 error('Input parameter "simulation_name" must be a string.');
             end
-            
+
             mat = '.mat';
-            
+
             if (strfind(simulation_name, mat) == length(simulation_name)-length(mat)+1)
                 simulation_name = simulation_name(1:end-length(mat));
             end
-            
+
             try
                 fkeys = who('-file',sprintf('%s%s', simulation_name, mat));
             catch
