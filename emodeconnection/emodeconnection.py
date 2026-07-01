@@ -5,6 +5,7 @@ from logging.config import dictConfig
 import os
 from pathlib import Path
 import platform
+import signal
 from subprocess import Popen, PIPE
 from threading import Thread
 import time
@@ -149,6 +150,10 @@ class EMode:
             )
         self.client = EModeClient(self.cache)
         atexit.register(self.close_atexit)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, self._signal_handler)
 
         try:
             if open_existing:
@@ -275,6 +280,11 @@ class EMode:
             return self.call("EM_" + name, **kwargs)
 
         return wrapper
+
+    def _signal_handler(self, signum, frame):
+        self.close_atexit()
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
 
     def close_atexit(self):
         if self.client.connected and self.running:
