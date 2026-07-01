@@ -1,6 +1,6 @@
 # emodeconnection
 
-Python interface for [EMode](https://emodephotonix.com) — a photonics simulation
+Python interface for [EMode](https://emodephotonix.com), a photonics simulation
 platform for waveguide mode solving, propagation, and analysis.
 
 ## Requirements
