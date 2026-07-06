@@ -164,6 +164,26 @@ def object_from_dict(data: dict[str, Any]) -> Any:
 
     return ExcClass(**data)
 
+def reconstruct(data: Any) -> Any:
+    """
+    Recursively rebuild registered wire types anywhere in a decoded payload.
+
+    Any dict carrying a known "__data_type__" tag becomes an instance of the
+    registered class; dicts with an unknown tag are left as plain dicts.
+    Containers are walked bottom-up so nested tagged objects are rebuilt
+    before their parent.
+    """
+    if isinstance(data, dict):
+        data = {key: reconstruct(value) for key, value in data.items()}
+        name = data.get("__data_type__")
+        if name in _TYPE_REGISTRY:
+            fields = {key: value for key, value in data.items() if key != "__data_type__"}
+            return _TYPE_REGISTRY[name](**fields)
+        return data
+    if isinstance(data, list):
+        return [reconstruct(item) for item in data]
+    return data
+
 @register_type
 class EModeError(Exception):
     def __init__(self, msg: str = '', *args, **kwargs):

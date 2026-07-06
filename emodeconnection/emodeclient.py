@@ -10,7 +10,7 @@ import platform
 from typing import Any, Optional, Union
 from logging import getLogger
 from .file_utils import Cache
-from .types import EModeError, object_from_dict, TaggedModel, serialize
+from .types import EModeError, reconstruct, serialize
 
 logger = getLogger(__name__)
 
@@ -154,11 +154,7 @@ class EModeClient:
         if isinstance(json_data, dict):
             if version := json_data.pop("__version__", None):
                 if version == 1:
-                    try:
-                        o = object_from_dict(json_data)
-                    except KeyError:
-                        return json_data
-
+                    o = reconstruct(json_data)
                     if isinstance(o, EModeError):
                         raise o
                     else:
