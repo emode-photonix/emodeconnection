@@ -3,6 +3,8 @@ import pickle
 import numpy as np
 import scipy.io as sio
 
+from .types import reconstruct
+
 
 def open_file(sim="emode", simulation_name=None):
     """
@@ -51,7 +53,9 @@ def get(variable, sim="emode", simulation_name=None):
         print("Data does not exist.")
         return
 
-    return data
+    # Simulation files store registered wire types (e.g. SMatrix) as tagged
+    # dicts; rebuild them the same way the live socket client does on recv().
+    return reconstruct(data)
 
 
 def inspect(sim="emode", simulation_name=None):
