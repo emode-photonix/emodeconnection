@@ -8,7 +8,6 @@ import platform
 import signal
 from subprocess import Popen, PIPE
 from threading import Thread
-import time
 from typing import Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
@@ -131,6 +130,7 @@ class EMode:
         self.cache = Cache(self.port_file_label)
         self.save = save
         self.running = True
+        self._in_flight = False
 
         if self.in_ipython():
             self.proc = Popen(
@@ -162,7 +162,7 @@ class EMode:
                 )
             else:
                 RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
-        except ConnectionResetError or ConnectionError:
+        except ConnectionError:
             raise EModeError("EMode failed to launch.")
 
         self.dsim = RV[len("sim:") :]  # type: ignore
@@ -245,26 +245,38 @@ class EMode:
             sendset["simulation_name"] = self.dsim
 
         self.client.send(sendset)
+        self._in_flight = True
 
         try:
-            return self.client.recv()
-        except ConnectionResetError or ConnectionError:
+            rv = self.client.recv()
+        except EModeError:
+            # an error reply is still a complete reply
+            self._in_flight = False
+            raise
+        except ConnectionError:
             logger.debug("connection closed by EMode, shutting down")
             self.client.close()
             self.running = False
             raise
 
+        self._in_flight = False
+        return rv
+
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")
         try:
             kwargs.setdefault('save', self.save)
+            if self._in_flight:
+                # A call was interrupted mid-flight (e.g. by Ctrl-C): the server
+                # answers it before it can see EM_close, so drain that reply first.
+                try:
+                    self.client.recv()
+                except EModeError:
+                    pass
+                self._in_flight = False
             self.call("EM_close", **kwargs)
             self.client.close()
-
-            while True:
-                time.sleep(0.01)
-                if self.proc.poll() == 0:
-                    break
+            self.proc.wait(timeout=60)
 
         except Exception:
             logger.exception("got exception closing client")
