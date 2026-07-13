@@ -30,7 +30,7 @@ class EMode:
         sim: Optional[str] = None,
         simulation_name: Optional[str] = "emode",
         license_type: Literal["2d", "3d", "default"] = "default",
-        clear: Literal["none", "all", "latest", "oldest"] = "none",
+        clear: Literal["none", "all", "latest", "oldest", "mine", "others"] = "none",
         save_path: Union[str, Path] = ".",
         verbose: bool = False,
         roaming: bool = False,
@@ -55,13 +55,15 @@ class EMode:
         license_type: Literal['2d','3d','default'] = 'default'
             The type of license you wish to check out for this session.
 
-        clear: Literal['none', 'all', 'latest', 'oldest'] = 'none'
+        clear: Literal['none', 'all', 'latest', 'oldest', 'mine', 'others'] = 'none'
             Whether to clear old EMode sessions (thus kill previous sessions).
             Clearing is only supported for sessions launched from the same computer.
                 'none': Do not clear any old sessions.
                 'all': Clear all non-roaming sessions.
                 'latest': Clear the latest non-roaming session.
                 'oldest': Clear the oldest non-roaming session.
+                'mine': Clear only sessions launched by the current user.
+                'others': Clear sessions owned by the current user but launched by other users.
 
         save_path: str | Path = '.'
             The path to save results.
@@ -109,9 +111,9 @@ class EMode:
                 "parameter 'license_type' must be one of ['2d','3d','default']"
             )
 
-        if clear not in ["none", "all", "latest", "oldest"]:
+        if clear not in ["none", "all", "latest", "oldest", "mine", "others"]:
             raise ValueError(
-                "parameter 'clear' must be one of ['none', 'all', 'latest', 'oldest']"
+                "parameter 'clear' must be one of ['none', 'all', 'latest', 'oldest', 'mine', 'others']"
             )
 
         if priority not in ["pH", "pAN", "pN", "pBN", "pI"]:
