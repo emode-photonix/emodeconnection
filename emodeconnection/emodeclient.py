@@ -121,7 +121,24 @@ class EModeClient:
         self.sock.settimeout(None)
         self.sock.sendall(self.get_connection_string().encode("utf-8"))
         time.sleep(0.1)
-        self.connected = True
+        self._connected = True
+
+    @property
+    def connected(self) -> bool:
+        if not self._connected:
+            return False
+        try:
+            self.sock.setblocking(False)
+            peek = self.sock.recv(1, socket.MSG_PEEK)
+            if peek == b"":
+                self._connected = False  # peer sent FIN (orderly close)
+        except BlockingIOError:
+            pass  # no data waiting -- still alive, just idle
+        except OSError:
+            self._connected = False  # e.g. connection reset
+        finally:
+            self.sock.setblocking(True)  # restore blocking mode (settimeout(None) equiv.)
+        return self._connected
 
     def get_connection_string(self):
         try:
@@ -203,4 +220,4 @@ class EModeClient:
             self.sock.close()
         except Exception:
             pass
-        self.connected = False
+        self._connected = False
