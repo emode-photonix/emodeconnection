@@ -82,6 +82,24 @@ class TaggedModel(BaseModel):
             return None  # safe to coerce
         return v  # leave `nan` as-is
 
+T = TypeVar("T")
+
+_TYPE_REGISTRY = {}
+
+def register_type(cls: Type[T]) -> Type[T]:
+    """Class decorator to register a wire type by class name."""
+    name = cls.__name__
+    if name in _TYPE_REGISTRY:
+        raise ValueError(f"{name} already registered")
+    _TYPE_REGISTRY[name] = cls
+    return cls
+
+def get_type(name: str) -> Type:
+    try:
+        return _TYPE_REGISTRY[name]
+    except KeyError:
+        raise KeyError(f"Unknown exception type: {name}")
+
 class LicenseType(Enum):
     _2D = "2d"
     _3D = "3d"
@@ -112,6 +130,11 @@ class MaterialSpec(TaggedModel):
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
+# Not decorated with @register_type for historical reasons (predates the decorator).
+_TYPE_REGISTRY["MaterialSpec"] = MaterialSpec
+_TYPE_REGISTRY["MaterialProperties"] = MaterialProperties
+
+@register_type
 class Grid(TaggedModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     x: np.ndarray
@@ -121,6 +144,7 @@ class Grid(TaggedModel):
     is_expanded: bool = False
     is_bc: bool = False
 
+@register_type
 class Field(TaggedModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     field: np.ndarray
@@ -128,28 +152,67 @@ class Field(TaggedModel):
     num_modes: int
     grid: Grid
 
-T = TypeVar("T")
+@register_type
+class GridSet(TaggedModel):
+    """A `Grid` for each wavelength of a multi-wavelength profile."""
 
-_TYPE_REGISTRY = {
-    "MaterialSpec": MaterialSpec,
-    "MaterialProperties": MaterialProperties,
-    "Field": Field,
-    "Grid": Grid,
-}
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    grids: dict[float, Grid]
 
-def register_type(cls: Type[T]) -> Type[T]:
-    """Class decorator to register an Exception subclass."""
-    name = cls.__name__
-    if name in _TYPE_REGISTRY:
-        raise ValueError(f"{name} already registered")
-    _TYPE_REGISTRY[name] = cls
-    return cls
+    def __getitem__(self, wavelength: float) -> Grid:
+        return self.grids[wavelength]
 
-def get_type(name: str) -> Type:
-    try:
-        return _TYPE_REGISTRY[name]
-    except KeyError:
-        raise KeyError(f"Unknown exception type: {name}")
+    def __iter__(self):
+        return iter(self.grids)
+
+    def __len__(self) -> int:
+        return len(self.grids)
+
+    def __contains__(self, wavelength: float) -> bool:
+        return wavelength in self.grids
+
+    def keys(self):
+        return self.grids.keys()
+
+    def values(self):
+        return self.grids.values()
+
+    def items(self):
+        return self.grids.items()
+
+    def get(self, wavelength: float, default=None):
+        return self.grids.get(wavelength, default)
+
+@register_type
+class FieldSet(TaggedModel):
+    """A `Field` for each wavelength of a multi-wavelength profile."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    fields: dict[float, Field]
+
+    def __getitem__(self, wavelength: float) -> Field:
+        return self.fields[wavelength]
+
+    def __iter__(self):
+        return iter(self.fields)
+
+    def __len__(self) -> int:
+        return len(self.fields)
+
+    def __contains__(self, wavelength: float) -> bool:
+        return wavelength in self.fields
+
+    def keys(self):
+        return self.fields.keys()
+
+    def values(self):
+        return self.fields.values()
+
+    def items(self):
+        return self.fields.items()
+
+    def get(self, wavelength: float, default=None):
+        return self.fields.get(wavelength, default)
 
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
