@@ -55,6 +55,20 @@ class Port(TaggedModel):
     `[Port('left', None, 'left'), Port('right', None, 'right')]`. Supplying
     a port in `EM_<x>_section(ports=[...])` replaces every existing port on
     the same `side`; multiple ports may share a side.
+
+    A `Port` carries two offsets that mean different things, and mixing them
+    up is easy:
+
+    - `window.offset` locates the sub-window *inside this section's own
+      cross-section*. It selects which material the port exposes; it does not
+      move the section relative to anything.
+    - `offset` (below) is a **content displacement**: it says where this
+      section's cross-section sits relative to whatever the port is connected
+      to. Connecting two ports pins their origins together (the point
+      `(x_center, y_min)` of each port's cross-section), and `offset` shifts
+      this side's content off that shared origin.
+
+    So `window` answers "which part of me?" and `offset` answers "where am I?".
     """
     model_config = ConfigDict(frozen=True)
 
@@ -62,6 +76,10 @@ class Port(TaggedModel):
     window: Bounds | None = None
     side: Literal['left', 'right']
     basis_transform: BasisTransform | None = None
+    # Content displacement of this section relative to the port it connects
+    # to, in nm: `offset=(1300, 0)` moves this section's cross-section +1300
+    # in x from the connection's shared origin.
+    offset: tuple[float, float] = (0.0, 0.0)
 
 
 def make_angled_facet_port(
