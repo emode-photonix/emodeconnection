@@ -6,7 +6,7 @@ addressable globally as `"<section_name>.<port_name>"` (see
 modal transform; `AngledFacetMap` (a per-mode linear phase ramp about a
 hinge line, modeling an angled facet) is the first thing that can go in it.
 """
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from pydantic import ConfigDict
 
@@ -42,9 +42,11 @@ class AngledFacetMap(TaggedModel):
 
 
 # v1 has exactly one member. A plain alias (not yet a real union) keeps it
-# trivially extensible later: `type BasisTransform = AngledFacetMap | ModeSelectMap | ...`
-# without ever changing Port's type signature.
-type BasisTransform = AngledFacetMap
+# trivially extensible later: `BasisTransform: TypeAlias = AngledFacetMap | ModeSelectMap | ...`
+# without ever changing Port's type signature. `typing.TypeAlias` (PEP 613,
+# not the PEP 695 `type` statement) -- this package supports Python 3.10+,
+# and `type X = ...` is 3.12-only syntax.
+BasisTransform: TypeAlias = AngledFacetMap
 
 
 @register_type
