@@ -24,8 +24,6 @@ def serialize(data: Any):
             data[key] = serialize(value)
         return data
     elif isinstance(data, list):
-        if len(data) == 1:
-            return serialize(data[0])
         return [serialize(item) for item in data]
     elif isinstance(data, np.floating):
         return float(data)
