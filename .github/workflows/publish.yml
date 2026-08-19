@@ -1,0 +1,79 @@
+name: Publish to PyPI
+
+# Publishes on a version tag via PyPI Trusted Publishing (OIDC) -- no API token
+# stored anywhere, which is what retires the token that was committed in
+# emode's docs/emode_deployment.md.
+#
+# One-time setup on pypi.org, under the emodeconnection project's
+# Publishing settings, before this can work:
+#   Owner:        emode-photonix
+#   Repository:   emodeconnection
+#   Workflow:     publish.yml
+#   Environment:  pypi
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build
+        run: uv build
+
+      - name: Check the tag matches the packaged version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ github.ref_name }}'
+          VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          if [ "$TAG" != "v${VERSION}" ]; then
+            echo "error: tag ${TAG} does not match pyproject version ${VERSION}" >&2
+            exit 1
+          fi
+          echo "Publishing ${TAG}"
+
+      - name: Upload the distributions
+        uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    # The environment PyPI's trusted publisher is scoped to.
+    environment: pypi
+
+    permissions:
+      # Required for OIDC; this is what replaces the API token.
+      id-token: write
+
+    steps:
+      - name: Download the distributions
+        uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
