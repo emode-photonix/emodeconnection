@@ -88,7 +88,7 @@ class JunctionOverride(TaggedModel):
     reverse_incidence: Literal['reciprocity', 'solve'] | None = None
     # True unitarizes the junction S-matrix, False leaves it raw, 'gain' keeps
     # the raw matrix but clips singular values at 1.
-    junction_normalization: "bool | Literal['gain'] | None" = None
+    junction_normalization: bool | Literal['gain'] | None = None
 
     def is_empty(self) -> bool:
         """True when nothing is overridden, i.e. this is inert."""
