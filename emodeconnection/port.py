@@ -50,6 +50,66 @@ BasisTransform: TypeAlias = AngledFacetMap
 
 
 @register_type
+class JunctionOverride(TaggedModel):
+    """Per-junction settings, attached to one of the junction's two ports.
+
+    Every field defaults to `None`, meaning "inherit". Setting one overrides
+    only that field, so `JunctionOverride(projection='square')` switches the
+    mode-matching algebra for the junctions this port takes part in and leaves
+    everything else alone.
+
+    This is the innermost of three levels, outermost first:
+
+    1. `EM_EME_settings(projection=...)` — the whole simulation.
+    2. `EM_<x>_section(settings={'projection': ...})` — one section, including
+       the internal staircase a taper or GDS section refines into.
+    3. this object on a `Port` — the individual junctions that port is an
+       endpoint of.
+
+    A port is where the per-junction level lives because a junction *is* its
+    two ports and has no other durable name: the staircase junctions inside a
+    refined section are created and discarded as refinement bisects, so no
+    index or count survives a solve, whereas a named port does.
+
+    Attach it to either side. If both ports of one junction set the same field
+    to different values the solver raises rather than picking a winner -- which
+    of the two the chain calls "left" is an internal detail.
+    """
+    model_config = ConfigDict(frozen=True)
+
+    # 'ctcr' is the thesis Ct/Cr reduction; 'square' is the direct square
+    # projection, which conserves power at a regular<->PWD junction where
+    # 'ctcr' loses ~3.7%. 'ctcr' is the default until a z-staircase reference
+    # settles which one is right about reflection at a real width step.
+    projection: Literal['ctcr', 'square'] | None = None
+    # 'square' only: take the right-incidence transmission block from the solve
+    # ('solve') or impose it from the left block by reciprocity
+    # ('reciprocity'). Ignored under 'ctcr', which imposes it structurally.
+    reverse_incidence: Literal['reciprocity', 'solve'] | None = None
+    # True unitarizes the junction S-matrix, False leaves it raw, 'gain' keeps
+    # the raw matrix but clips singular values at 1.
+    junction_normalization: "bool | Literal['gain'] | None" = None
+
+    def is_empty(self) -> bool:
+        """True when nothing is overridden, i.e. this is inert."""
+        return all(getattr(self, f) is None for f in type(self).model_fields)
+
+    def key(self) -> tuple:
+        """Hashable identity, for the server's junction cache key.
+
+        Only fields that are actually set appear, so a default-constructed
+        override keys identically to no override at all and cannot split the
+        cache. Every field is a `str`/`bool`/`None`, so the values are already
+        hashable as-is.
+        """
+        return tuple(
+            (f, getattr(self, f))
+            for f in sorted(type(self).model_fields)
+            if getattr(self, f) is not None
+        )
+
+
+@register_type
 class Port(TaggedModel):
     """A named port on a section, addressable as `"<section_name>.<port_name>"`.
 
@@ -82,6 +142,10 @@ class Port(TaggedModel):
     # to, in nm: `offset=(1300, 0)` moves this section's cross-section +1300
     # in x from the connection's shared origin.
     offset: tuple[float, float] = (0.0, 0.0)
+    # Per-junction settings overrides for the junctions this port is an
+    # endpoint of; `None` inherits the section's (and thus the simulation's)
+    # values. See `JunctionOverride`.
+    junction_settings: JunctionOverride | None = None
 
 
 def make_angled_facet_port(
