@@ -51,29 +51,34 @@ BasisTransform: TypeAlias = AngledFacetMap
 
 @register_type
 class JunctionOverride(TaggedModel):
-    """Per-junction settings, attached to one of the junction's two ports.
+    """Settings for one junction, passed as the third element of an
+    `EM_connect_ports` entry:
+
+        em.connect_ports([('wg.right', 'gap.left', JunctionOverride(...))])
 
     Every field defaults to `None`, meaning "inherit". Setting one overrides
     only that field, so `JunctionOverride(projection='square')` switches the
-    mode-matching algebra for the junctions this port takes part in and leaves
-    everything else alone.
+    mode-matching algebra for that junction and leaves everything else alone.
 
     This is the innermost of three levels, outermost first:
 
     1. `EM_EME_settings(projection=...)` — the whole simulation.
     2. `EM_<x>_section(settings={'projection': ...})` — one section, including
        the internal staircase a taper or GDS section refines into.
-    3. this object on a `Port` — the individual junctions that port is an
-       endpoint of.
+    3. this object on a connection — that one junction.
 
-    A port is where the per-junction level lives because a junction *is* its
-    two ports and has no other durable name: the staircase junctions inside a
-    refined section are created and discarded as refinement bisects, so no
-    index or count survives a solve, whereas a named port does.
+    It belongs to the *connection* rather than to either port because every
+    field here describes the **interface**, not one side of it: which algebra
+    joins the two mode sets, and how the resulting S-matrix is normalized. One
+    declaration site per junction also means two sides can never disagree, so
+    there is no left/right precedence rule to learn.
 
-    Attach it to either side. If both ports of one junction set the same field
-    to different values the solver raises rather than picking a winner -- which
-    of the two the chain calls "left" is an internal detail.
+    Only explicitly connected junctions can carry one. Junctions formed by
+    default left/right adjacency have no declaration site -- name the pair in
+    `EM_connect_ports` to configure it, which supersedes the adjacency. The
+    staircase junctions inside a refined taper/GDS section are governed by that
+    section's `settings` (level 2); they are created and discarded as
+    refinement bisects, so they have no stable identity to address.
     """
     model_config = ConfigDict(frozen=True)
 
@@ -142,10 +147,6 @@ class Port(TaggedModel):
     # to, in nm: `offset=(1300, 0)` moves this section's cross-section +1300
     # in x from the connection's shared origin.
     offset: tuple[float, float] = (0.0, 0.0)
-    # Per-junction settings overrides for the junctions this port is an
-    # endpoint of; `None` inherits the section's (and thus the simulation's)
-    # values. See `JunctionOverride`.
-    junction_settings: JunctionOverride | None = None
 
 
 def make_angled_facet_port(
