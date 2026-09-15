@@ -5,6 +5,7 @@ from .geometry import Pose, Line, Arc, BSpline, Path, Curve
 from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_facet_port
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
+from .free_space import FreeSpaceProjection
 from .traceback_filter import install as _install_traceback_filter
 from subprocess import Popen
 from platform import system
@@ -18,6 +19,7 @@ __all__ = [
     "Chi2Process", "SHGProcess", "SFGProcess", "DFGProcess",
     "Source", "Excitation", "CircuitResponse",
     "SMatrix",
+    "FreeSpaceProjection",
     "EModeLogin",
 ]
 

@@ -57,40 +57,42 @@ class JunctionOverride(TaggedModel):
         em.connect_ports([('wg.right', 'gap.left', JunctionOverride(...))])
 
     Every field defaults to `None`, meaning "inherit". Setting one overrides
-    only that field, so `JunctionOverride(projection='square')` switches the
-    mode-matching algebra for that junction and leaves everything else alone.
+    only that field, so `JunctionOverride(junction_normalization=True)`
+    switches the S-matrix normalization for that junction and leaves
+    everything else alone.
 
-    This is the innermost of three levels, outermost first:
+    This is the inner level of two, outermost first:
 
-    1. `EM_EME_settings(projection=...)` — the whole simulation.
-    2. `EM_<x>_section(settings={'projection': ...})` — one section, including
-       the internal staircase a taper or GDS section refines into.
-    3. this object on a connection — that one junction.
+    1. `EM_<x>_section(settings={'junction_normalization': ...})` — one
+       section, including the internal staircase a taper or GDS section
+       refines into.
+    2. this object on a connection — that one junction.
 
-    It belongs to the *connection* rather than to either port because every
-    field here describes the **interface**, not one side of it: which algebra
-    joins the two mode sets, and how the resulting S-matrix is normalized. One
-    declaration site per junction also means two sides can never disagree, so
-    there is no left/right precedence rule to learn.
+    It belongs to the *connection* rather than to either port because the
+    field here describes the **interface**, not one side of it: how the
+    resulting S-matrix is normalized. One declaration site per junction also
+    means two sides can never disagree, so there is no left/right precedence
+    rule to learn.
 
     Only explicitly connected junctions can carry one. Junctions formed by
     default left/right adjacency have no declaration site -- name the pair in
     `EM_connect_ports` to configure it, which supersedes the adjacency. The
     staircase junctions inside a refined taper/GDS section are governed by that
-    section's `settings` (level 2); they are created and discarded as
+    section's `settings` (level 1); they are created and discarded as
     refinement bisects, so they have no stable identity to address.
+
+    `projection` and `reverse_incidence` -- selecting between the `'ctcr'` and
+    `'square'` junction mode-matching kernels -- were removed 2026-09-15 when
+    `'square'` itself was removed from the server: a validation survey found
+    `'ctcr'`, with its backward trace made explicit, matched or beat `'square'`
+    on every case, so there was no longer a real choice to expose. A script
+    still passing either field is silently unaffected rather than broken --
+    `TaggedModel`'s default `extra='ignore'` drops an unrecognized keyword
+    instead of raising, on this class and on the server's own copy alike --
+    but it no longer does anything.
     """
     model_config = ConfigDict(frozen=True)
 
-    # 'ctcr' is the thesis Ct/Cr reduction; 'square' is the direct square
-    # projection, which conserves power at a regular<->PWD junction where
-    # 'ctcr' loses ~3.7%. 'ctcr' is the default until a z-staircase reference
-    # settles which one is right about reflection at a real width step.
-    projection: Literal['ctcr', 'square'] | None = None
-    # 'square' only: take the right-incidence transmission block from the solve
-    # ('solve') or impose it from the left block by reciprocity
-    # ('reciprocity'). Ignored under 'ctcr', which imposes it structurally.
-    reverse_incidence: Literal['reciprocity', 'solve'] | None = None
     # True unitarizes the junction S-matrix, False leaves it raw, 'gain' keeps
     # the raw matrix but clips singular values at 1.
     junction_normalization: bool | Literal['gain'] | None = None
