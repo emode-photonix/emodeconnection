@@ -1,16 +1,23 @@
 """Public wire types for chi(2) nonlinear processes (SHG/SFG/DFG) declared
 on a section via `EM_straight_section(nonlinear=...)` /
-`EM_taper_section(nonlinear=...)`.
+`EM_taper_section(nonlinear=...)`, plus the CW excitation (`Source`) and
+driven-solve result (`CircuitResponse`) types for
+`EM_settings(excitation=...)` / `EM_get('response')`.
 
 See the server's `em_types/nonlinear/section.py` (the `Chi2Section` family)
 and `em_types/nonlinear/chi2.py` (`chi2Params`/`QPMSpec`) for the internal
-counterparts these cross the wire into.
+counterparts `Chi2Process` crosses the wire into, and
+`em_types/source.py`/`em_types/section/circuit.py::CircuitSection.respond`
+for `Source`/`CircuitResponse`'s counterparts.
 """
 
-from typing import Literal
+import cmath
+from typing import Literal, TypeAlias
 
+import numpy as np
 from pydantic import ConfigDict, model_validator
 
+from .smatrix import PortIndexed
 from .types import ArgumentError, TaggedModel, register_type
 
 
@@ -170,3 +177,118 @@ class DFGProcess(Chi2Process):
     @property
     def derived_wavelength(self) -> float:
         return 1.0 / (1.0 / self.pump_wavelength - 1.0 / self.signal_wavelength)
+
+
+@register_type
+class Source(TaggedModel):
+    """A CW excitation at one port/wavelength/mode, declared via
+    `EM_settings(excitation=Source(...))`. `|amplitude|**2 == power` [W].
+
+    `port` is a bare side ('left'/'right') or a qualified
+    `'<section>.<port>'` name, resolved against the built circuit at
+    `EM_EME()` time -- same convention as `EM_connect_ports`. `wavelength`
+    is matched against the circuit's own wavelengths within
+    `wavelength_tolerance`, same as `Chi2Process`.
+
+    A future `PulsedSource` (for chi(3)/Raman work) is meant to be a
+    sibling of this class, not extra fields bolted onto it -- see
+    `Excitation` below.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    port: str = 'left'
+    wavelength: float
+    mode: int = 0
+    power: float = 1.0  # W
+    phase: float = 0.0  # rad
+    wavelength_tolerance: float = 0.01  # nm
+
+    @model_validator(mode='after')
+    def _validate_source(self) -> 'Source':
+        if self.power < 0:
+            raise ArgumentError('power must be >= 0', 'Source', 'power')
+        if self.mode < 0:
+            raise ArgumentError('mode must be >= 0', 'Source', 'mode')
+        if self.wavelength <= 0:
+            raise ArgumentError('wavelength must be > 0', 'Source', 'wavelength')
+        if self.wavelength_tolerance <= 0:
+            raise ArgumentError(
+                'wavelength_tolerance must be > 0', 'Source', 'wavelength_tolerance'
+            )
+        return self
+
+    @property
+    def amplitude(self) -> complex:
+        """sqrt(power) * exp(j*phase), in sqrt(W)."""
+        return cmath.sqrt(self.power) * cmath.exp(1j * self.phase)
+
+    @property
+    def key(self) -> tuple[str, float, int]:
+        """(port, wavelength, mode) -- two Sources sharing a key both drive
+        the same mode; their amplitudes sum."""
+        return (self.port, self.wavelength, self.mode)
+
+
+# v1 has exactly one member. A plain alias (not yet a real union) keeps it
+# trivially extensible for a future PulsedSource (chi(3)/Raman work) without
+# ever changing EM_settings's/EM_EME's signature -- see port.py's
+# BasisTransform for the same pattern. `typing.TypeAlias` (PEP 613), not the
+# PEP 695 `type` statement -- this package supports Python 3.10+.
+Excitation: TypeAlias = Source
+
+
+@register_type
+class CircuitResponse(TaggedModel, PortIndexed):
+    """The driven (power-dependent) response at one operating point,
+    returned by `EM_get('response')` after `EM_EME()` with a declared
+    excitation. Port layout (`port_sizes`/`port_names`/`wavelengths`) matches
+    `SMatrix`'s -- same `port_index`/`amplitude`/`power` accessors.
+
+    `input`/`output` are complex mode amplitudes (sqrt(W)) in port order,
+    `input` the driven incoming wave and `output` the driven outgoing wave --
+    for a `linear` response, `output == SMatrix.data @ input`.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    port_sizes: tuple[int, ...]
+    port_names: tuple[str, ...] | None = None
+    wavelengths: tuple[float, ...] | None = None
+    input: np.ndarray  # complex, shape (total_modes,)
+    output: np.ndarray  # complex, shape (total_modes,)
+    converged: bool
+    iterations: int
+    residual: float
+    radiated_power: dict[float, float] | None = None  # wavelength -> total W
+    sources: tuple[Source, ...] = ()
+    linear: bool
+
+    def amplitude(
+        self,
+        port: int | str,
+        wavelength: float | None = None,
+        *,
+        direction: Literal['out', 'in'] = 'out',
+    ) -> np.ndarray:
+        """Per-mode complex amplitude at `port` (index or name, optionally
+        disambiguated by `wavelength`)."""
+        idx = self._resolve_port(port) if wavelength is None else self.port_index(port, wavelength)
+        s = self.port_slices[idx]
+        data = self.output if direction == 'out' else self.input
+        return data[s]
+
+    def power(
+        self,
+        port: int | str,
+        wavelength: float | None = None,
+        *,
+        direction: Literal['out', 'in'] = 'out',
+    ) -> float:
+        """Total power (W) at `port`, summed over its modes."""
+        return float(np.sum(np.abs(self.amplitude(port, wavelength, direction=direction)) ** 2))
+
+    def total_power(self, direction: Literal['out', 'in'] = 'out') -> float:
+        """Total power (W) across every external port."""
+        data = self.output if direction == 'out' else self.input
+        return float(np.sum(np.abs(data) ** 2))

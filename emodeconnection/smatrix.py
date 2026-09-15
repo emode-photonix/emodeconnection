@@ -14,23 +14,21 @@ from pydantic import ConfigDict
 from .types import TaggedModel, register_type
 
 
-@register_type
-class SMatrix(TaggedModel):
-    """Dense, port-structured scattering matrix returned by EME results.
+class PortIndexed:
+    """Shared port name/wavelength indexing for the wire types that expose
+    'external ports of a solved circuit': `SMatrix` (port_sizes/data) and
+    `CircuitResponse` (port_sizes/input/output). Both carry the same
+    port_sizes/port_names/wavelengths triple, so port_index/_resolve_port/
+    _gather_indices live once here rather than two copies that could drift.
 
-    Ports are indexed 0..num_ports-1. Port i spans a contiguous range of
-    modes whose count is port_sizes[i]. When available, port_names and
-    wavelengths carry one entry per port (parallel to port_sizes) so ports
-    can be addressed by name instead of bare index, e.g.
-    ``S.transmission(from_port='left', to_port='right')``.
+    Consumers declare `port_sizes: tuple[int, ...]`, `port_names:
+    tuple[str, ...] | None`, `wavelengths: tuple[float, ...] | None` as
+    their own fields; this mixin only reads them.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     port_sizes: tuple[int, ...]
-    data: np.ndarray  # complex, shape (total_modes, total_modes)
-    port_names: tuple[str, ...] | None = None
-    wavelengths: tuple[float, ...] | None = None
+    port_names: tuple[str, ...] | None
+    wavelengths: tuple[float, ...] | None
 
     @property
     def num_ports(self) -> int:
@@ -54,12 +52,12 @@ class SMatrix(TaggedModel):
         """Resolve a port name (optionally disambiguated by wavelength) to its integer index."""
         if self.port_names is None:
             raise ValueError(
-                f'this SMatrix has no port_names metadata; use an integer port index instead of {name!r}'
+                f'this object has no port_names metadata; use an integer port index instead of {name!r}'
             )
         matches = [i for i, n in enumerate(self.port_names) if n == name]
         if wavelength is not None:
             if self.wavelengths is None:
-                raise ValueError('this SMatrix has no wavelength metadata; cannot disambiguate by wavelength')
+                raise ValueError('this object has no wavelength metadata; cannot disambiguate by wavelength')
             matches = [i for i in matches if self.wavelengths[i] == wavelength]
         if not matches:
             suffix = f' at wavelength {wavelength}' if wavelength is not None else ''
@@ -89,6 +87,25 @@ class SMatrix(TaggedModel):
             s = self.port_slices[resolved]
             indices.extend(range(s.start, s.stop))
         return np.array(indices, dtype=np.intp)
+
+
+@register_type
+class SMatrix(TaggedModel, PortIndexed):
+    """Dense, port-structured scattering matrix returned by EME results.
+
+    Ports are indexed 0..num_ports-1. Port i spans a contiguous range of
+    modes whose count is port_sizes[i]. When available, port_names and
+    wavelengths carry one entry per port (parallel to port_sizes) so ports
+    can be addressed by name instead of bare index, e.g.
+    ``S.transmission(from_port='left', to_port='right')``.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    port_sizes: tuple[int, ...]
+    data: np.ndarray  # complex, shape (total_modes, total_modes)
+    port_names: tuple[str, ...] | None = None
+    wavelengths: tuple[float, ...] | None = None
 
     def block(
         self,
