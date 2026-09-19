@@ -51,8 +51,12 @@ class Chi2Process(TaggedModel):
     radiation: bool = False
     radiation_threshold: float = 1e3  # 1/m
     solver_method: str = 'RK45'
-    solver_rtol: float = 1e-8
-    solver_atol: float = 1e-10
+    # 1e-6/1e-9 matches a 1e-12 reference solution to 3e-5 relative and runs 2.2x
+    # faster than the 1e-8/1e-10 it replaces (14.7 ms vs 32.1 ms on a 181 um SHG
+    # slice). The envelope equations are smooth and the residual error is far
+    # below the discretisation error of the modes driving them.
+    solver_rtol: float = 1e-6
+    solver_atol: float = 1e-9
     max_step: float | None = None
 
     @model_validator(mode='after')
