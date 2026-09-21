@@ -12,7 +12,7 @@ dependencies = [
   "requests",
 ]
 authors = [
-  { name = "EMode Photonix", email = "hello@emodephotonix.com" },
+  { name = "EMode, Inc.", email = "hello@emodephotonix.com" },
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
