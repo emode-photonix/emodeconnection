@@ -109,6 +109,27 @@ class LicenseType(Enum):
     def __str__(self):
         return self.value
 
+    @classmethod
+    def coerce(cls, value: Any) -> Optional["LicenseType"]:
+        """A LicenseType from whichever form of one turned up.
+
+        The server holds live members; the wire carries `to_dict()`'s
+        `{"__type__": "LicenseType", "value": ...}`, and `reconstruct` does not
+        rebuild it -- it only knows the `__data_type__` tag -- so the client
+        side sees that dict. Normalizing at the one place a license type
+        enters means holders have a single declared type to reason about
+        rather than three: `LicenseError.__str__` had a branch for each and
+        got both of them wrong.
+        """
+        if value is None or isinstance(value, cls):
+            return value
+        if isinstance(value, dict):
+            value = value.get("value")
+        try:
+            return cls(value)
+        except ValueError:
+            return None
+
 TensorType = Union[float, list[float], list[list[float]]]
 DTensorType = Union[list[list[float]]]
 
@@ -300,20 +321,17 @@ class FileError(EModeError):
 
 @register_type
 class LicenseError(EModeError):
-    def __init__(self, msg: str, license_type: Union[LicenseType, None]):
+    def __init__(self, msg: str, license_type: Any):
+        # Coerced here, so `self.license_type` is a LicenseType (or None) no
+        # matter which side built this error -- the server passes a live
+        # member, `reconstruct` passes the wire dict.
+        license_type = LicenseType.coerce(license_type)
         super().__init__(msg, license_type)
         self.msg = msg
         self.license_type = license_type
 
     def __str__(self):
-        if isinstance(self.license_type, LicenseType):
-            lt = self.license_type['value'].lower()  # type: ignore
-        else:
-            lt = str(self.license_type)  # guard against None
-        if lt == '3d':
-            emLicense = 'EMode3D'
-        else:
-            emLicense = 'EMode2D'
+        emLicense = 'EMode3D' if self.license_type is LicenseType._3D else 'EMode2D'
         return f'LicenseError: current license: "{emLicense}", error msg: "{self.msg}"'
 
 @register_type

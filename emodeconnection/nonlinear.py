@@ -51,9 +51,18 @@ class Chi2Process(TaggedModel):
     radiation: bool = False
     radiation_threshold: float = 1e3  # 1/m
     solver_method: str = 'RK45'
-    solver_rtol: float = 1e-8
-    solver_atol: float = 1e-10
+    # 1e-6/1e-9 matches a 1e-12 reference solution to 3e-5 relative and runs 2.2x
+    # faster than the 1e-8/1e-10 it replaces (14.7 ms vs 32.1 ms on a 181 um SHG
+    # slice). The envelope equations are smooth and the residual error is far
+    # below the discretisation error of the modes driving them.
+    solver_rtol: float = 1e-6
+    solver_atol: float = 1e-9
     max_step: float | None = None
+    # Forward mode amplitudes are sampled this many times along each chi(2)
+    # slice after the driven solve converges, and reach the caller as
+    # `CircuitResponse.trajectories`. A refined taper is many slices, so this
+    # is per slice, not per section. 0 disables the sampling entirely.
+    z_samples: int = 100
 
     @model_validator(mode='after')
     def _validate_chi2_process(self) -> 'Chi2Process':
@@ -83,6 +92,8 @@ class Chi2Process(TaggedModel):
             raise ArgumentError(
                 'solver_rtol/solver_atol must be > 0', name, 'solver_rtol'
             )
+        if self.z_samples < 0:
+            raise ArgumentError('z_samples must be >= 0', name, 'z_samples')
         return self
 
     @property
@@ -239,6 +250,58 @@ Excitation: TypeAlias = Source
 
 
 @register_type
+class Chi2Trajectory(TaggedModel):
+    """Forward mode amplitudes along one chi(2) section, sampled after the
+    driven solve converged.
+
+    One of these per chi(2) slice, so a refined taper produces many and a
+    straight section produces one. `z` is the global propagation coordinate
+    along the chain in nm, measured from its left port, so the entries of
+    `CircuitResponse.trajectories` tile the chain in order.
+
+    `wavelengths` and `amplitudes` are parallel tuples rather than a dict
+    keyed by wavelength: a float-keyed dict does not survive the wire
+    round-trip (see the `effective_area`/`group_index` entry in the server's
+    docs/known_bugs.md).
+
+    Amplitudes are complex fields in sqrt(W), the same normalization
+    `CircuitResponse.input`/`output` use, so `sum(|a|**2)` over modes is
+    watts. Forward direction only: the backward wave is solved but not
+    sampled.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    section: str
+    z: np.ndarray  # (K,) nm, global along the chain
+    wavelengths: tuple[float, ...]
+    amplitudes: tuple[np.ndarray, ...]  # each (M_wl, K) complex, sqrt(W)
+
+    def _wavelength_index(self, wavelength: float) -> int:
+        for i, wl in enumerate(self.wavelengths):
+            if wl == wavelength:
+                return i
+        # Tolerate the float drift a user gets from arithmetic on a declared
+        # wavelength; the process's own matching is tolerance-based too.
+        close = [i for i, wl in enumerate(self.wavelengths) if abs(wl - wavelength) < 1e-6]
+        if len(close) == 1:
+            return close[0]
+        raise ArgumentError(
+            f'not one of this trajectory\'s wavelengths {self.wavelengths}',
+            'Chi2Trajectory',
+            'wavelength',
+        )
+
+    def amplitude_vs_z(self, wavelength: float) -> np.ndarray:
+        """Per-mode complex amplitude, shape `(modes, len(z))`."""
+        return self.amplitudes[self._wavelength_index(wavelength)]
+
+    def power_vs_z(self, wavelength: float) -> np.ndarray:
+        """Total power (W) at each sampled z, summed over modes."""
+        return np.sum(np.abs(self.amplitude_vs_z(wavelength)) ** 2, axis=0)
+
+
+@register_type
 class CircuitResponse(TaggedModel, PortIndexed):
     """The driven (power-dependent) response at one operating point,
     returned by `EM_get('response')` after `EM_EME()` with a declared
@@ -263,6 +326,9 @@ class CircuitResponse(TaggedModel, PortIndexed):
     radiated_power: dict[float, float] | None = None  # wavelength -> total W
     sources: tuple[Source, ...] = ()
     linear: bool
+    # One entry per chi(2) slice, in order along the chain. Empty when the
+    # circuit has no chi(2) section, or when every process set z_samples=0.
+    trajectories: tuple[Chi2Trajectory, ...] = ()
 
     def amplitude(
         self,
@@ -292,3 +358,49 @@ class CircuitResponse(TaggedModel, PortIndexed):
         """Total power (W) across every external port."""
         data = self.output if direction == 'out' else self.input
         return float(np.sum(np.abs(data) ** 2))
+
+    def power_vs_z(
+        self, wavelength: float, *, section: str | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Forward power along the chain: `(z_nm, power_W)`.
+
+        Stitches every chi(2) slice's trajectory in z order, so a refined
+        taper reads as one curve. `section` restricts to the slices of one
+        declared section; the default uses all of them.
+
+        Raises when no trajectory carries `wavelength`, which is what a
+        caller gets for a wavelength the process does not couple, or when
+        the processes ran with `z_samples=0`.
+        """
+        z, p = self._stitch(wavelength, section, lambda tr: tr.power_vs_z(wavelength))
+        return z, p
+
+    def amplitude_vs_z(
+        self, wavelength: float, *, section: str | None = None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Forward per-mode amplitude along the chain: `(z_nm, a)` with `a`
+        shaped `(modes, len(z))`."""
+        return self._stitch(
+            wavelength, section, lambda tr: tr.amplitude_vs_z(wavelength), axis=-1
+        )
+
+    def _stitch(self, wavelength, section, take, axis=0):
+        chosen = [
+            tr
+            for tr in self.trajectories
+            if (section is None or tr.section == section)
+            and any(abs(wl - wavelength) < 1e-6 for wl in tr.wavelengths)
+        ]
+        if not chosen:
+            raise ArgumentError(
+                f'no sampled trajectory at {wavelength} nm'
+                + (f' on section {section!r}' if section is not None else '')
+                + '. Declare a chi(2) process with z_samples > 0 and re-run EME().',
+                'CircuitResponse.power_vs_z',
+                'wavelength',
+            )
+        chosen.sort(key=lambda tr: float(tr.z[0]))
+        return (
+            np.concatenate([tr.z for tr in chosen]),
+            np.concatenate([take(tr) for tr in chosen], axis=axis),
+        )
