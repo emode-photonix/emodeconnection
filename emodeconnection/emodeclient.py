@@ -86,35 +86,39 @@ def collect_environment() -> dict[str, Any]:
     }
 
 
+def wait_for_port(cache: Cache, timeout: float = 60) -> int:
+    """Wait for the solver to publish its port, then remove the port file.
+
+    The file is removed only after a port has been read from it. Removing it
+    after a failed read would delete a file the solver wrote in between, and
+    the solver would then wait for a connection that never comes. A file that
+    exists but doesn't hold a port yet was caught mid-write and is retried.
+    """
+    deadline = time.perf_counter() + timeout
+    while time.perf_counter() < deadline:
+        try:
+            with open(cache.port_path, "r") as f:
+                port = int(f.read())
+        except (FileNotFoundError, ValueError):
+            time.sleep(0.05)
+            continue
+        cache.port_path.unlink(missing_ok=True)
+        return port
+    raise ConnectionError("EMode connection error!")
+
+
 class EModeClient:
     def __init__(self, cache: Cache, host: str = "127.0.0.1"):
         self.cache = cache
         self.host = host
-        self.port: int = 0
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(60)
 
-        t = time.perf_counter()
-        wait_time = 60
-        while wait_time:
-            try:
-                with open(cache.port_path, "r") as f:
-                    self.port = int(f.read())
-            except FileNotFoundError:
-                pass
-            finally:
-                cache.port_path.unlink(missing_ok=True)
-
-            if self.port != 0:
-                break
-            else:
-                wait_time -= time.perf_counter() - t
-                t = time.perf_counter()
-            time.sleep(0.05)
-
-        if wait_time <= 0:
+        try:
+            self.port = wait_for_port(cache)
+        except ConnectionError:
             self.sock.close()
-            raise ConnectionError("EMode connection error!")
+            raise
 
         time.sleep(0.1)
         self.sock.connect((self.host, self.port))
