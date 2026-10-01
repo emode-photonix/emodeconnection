@@ -143,9 +143,23 @@ class MaterialProperties(TaggedModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class MaterialSpec(TaggedModel):
+    """A material and the orientation of its crystal axes in the simulation frame.
+
+    `phi`, `theta` and `psi` are z-y-z Euler angles in radians. The rotation is
+    active: it turns the crystal, and a material tensor T given on the crystal
+    axes appears in the simulation frame as R T R^T, with
+    R = Rz(phi) Ry(theta) Rz(psi). Read right to left, the crystal is first
+    turned by `psi` about its own z axis, then by `theta` about y, then by `phi`
+    about z. The crystal z axis ends up along
+    (sin(theta) cos(phi), sin(theta) sin(phi), cos(theta)). `psi` only matters
+    for a biaxial crystal (or a nonlinear tensor without rotational symmetry
+    about z). Omitted angles are 0.
+    """
+
     material: Union[str, MaterialProperties]
     theta: Optional[float] = None
     phi: Optional[float] = None
+    psi: Optional[float] = None
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
