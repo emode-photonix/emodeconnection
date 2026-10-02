@@ -1,3 +1,4 @@
+from collections.abc import Iterator, Mapping
 from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
 import sys
 
@@ -143,9 +144,23 @@ class MaterialProperties(TaggedModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class MaterialSpec(TaggedModel):
+    """A material and the orientation of its crystal axes in the simulation frame.
+
+    `phi`, `theta` and `psi` are z-y-z Euler angles in radians. The rotation is
+    active: it turns the crystal, and a material tensor T given on the crystal
+    axes appears in the simulation frame as R T R^T, with
+    R = Rz(phi) Ry(theta) Rz(psi). Read right to left, the crystal is first
+    turned by `psi` about its own z axis, then by `theta` about y, then by `phi`
+    about z. The crystal z axis ends up along
+    (sin(theta) cos(phi), sin(theta) sin(phi), cos(theta)). `psi` only matters
+    for a biaxial crystal (or a nonlinear tensor without rotational symmetry
+    about z). Omitted angles are 0.
+    """
+
     material: Union[str, MaterialProperties]
     theta: Optional[float] = None
     phi: Optional[float] = None
+    psi: Optional[float] = None
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
@@ -232,6 +247,54 @@ class FieldSet(TaggedModel):
 
     def get(self, wavelength: float, default=None):
         return self.fields.get(wavelength, default)
+
+@register_type
+class WavelengthDict(TaggedModel, Mapping):
+    """A read-only mapping from wavelength [nm] to one result per wavelength.
+
+    Returned for a multi-wavelength profile by `get()` of a per-profile
+    result, and by `effective_area()`, `group_index()`, `orthogonality()`,
+    `scattering()`, `confinement()` and `report()`. It behaves like a `dict`
+    keyed by float wavelength: index it, iterate it, call `.keys()`,
+    `.values()`, `.items()` or `.get()`, or turn it into a plain `dict` with
+    `dict(result)`. Any number equal to a wavelength names it, so
+    `result[1550]` and `result[1550.0]` are the same entry.
+
+    It exists because JSON object keys are always strings. A plain dict keyed
+    by wavelength would arrive here keyed by `"1550.0"`. This type carries its
+    keys through validation, which turns them back into floats.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    data: dict[float, Any]
+
+    def __getitem__(self, wavelength: float) -> Any:
+        return self.data[wavelength]
+
+    def __iter__(self) -> Iterator[float]:
+        return iter(self.data)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __contains__(self, wavelength: object) -> bool:
+        return wavelength in self.data
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, WavelengthDict):
+            return self.data == other.data
+        if isinstance(other, Mapping):
+            return self.data == dict(other)
+        return NotImplemented
+
+    # Unhashable, like the dict it stands in for.
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"WavelengthDict({self.data!r})"
+
+    def __str__(self) -> str:
+        return repr(self)
 
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
