@@ -6,6 +6,7 @@ from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_fa
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
 from .free_space import FreeSpaceProjection
+from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse
 from .traceback_filter import install as _install_traceback_filter
 from subprocess import Popen
 from platform import system
@@ -18,6 +19,7 @@ __all__ = [
     "Bounds", "Port", "AngledFacetMap", "JunctionOverride", "make_angled_facet_port",
     "Chi2Process", "SHGProcess", "SFGProcess", "DFGProcess",
     "Source", "Excitation", "CircuitResponse",
+    "PulsedSource", "PulsedProcess", "Poling", "PulseResponse",
     "SMatrix",
     "FreeSpaceProjection",
     "EModeLogin",
