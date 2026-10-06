@@ -7,6 +7,7 @@ from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, 
 from .smatrix import SMatrix
 from .free_space import FreeSpaceProjection
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse
+from .monitor import Monitor, PlaneField, BeamCoupling
 from .traceback_filter import install as _install_traceback_filter
 from subprocess import Popen
 from platform import system
@@ -20,6 +21,7 @@ __all__ = [
     "Chi2Process", "SHGProcess", "SFGProcess", "DFGProcess",
     "Source", "Excitation", "CircuitResponse",
     "PulsedSource", "PulsedProcess", "Poling", "PulseResponse",
+    "Monitor", "PlaneField", "BeamCoupling",
     "SMatrix",
     "FreeSpaceProjection",
     "EModeLogin",
