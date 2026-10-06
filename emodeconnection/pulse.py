@@ -237,6 +237,13 @@ class PulseResponse(TaggedModel):
             return len(self.z) - 1
         return int(np.argmin(np.abs(np.asarray(self.z) - z)))
 
+    def energy_outside_window(self) -> float:
+        """The largest fraction of the pulse energy, at any record, in the outer 5 % of
+        the time window on either side. Above about 1e-3 the pulse is wrapping
+        around the window: widen it (a narrower `wavelength_range` per point, or
+        more `num_points`)."""
+        return float(np.max(self.edge_energy)) if len(self.edge_energy) else 0.0
+
     def band_energy(
         self,
         wavelength_min: float,
