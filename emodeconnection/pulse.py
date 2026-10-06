@@ -203,8 +203,9 @@ class PulseResponse(TaggedModel):
     `junction_loss` is, per junction in chain order, the fraction of the
     arriving energy that left the tracked modes there (reflected or
     converted to untracked modes). `edge_energy` is, per record, the fraction
-    of the energy in the outer 5 % of the time window: above about 1e-6 the
-    pulse is wrapping around the window, and `num_points` should grow.
+    of the energy in the outer 5 % of the time window: above about 1e-3 the
+    pulse is wrapping around the window, and `num_points` should grow (the
+    solver warns there).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
