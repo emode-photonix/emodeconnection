@@ -135,10 +135,28 @@ TensorType = Union[float, list[float], list[list[float]]]
 DTensorType = Union[list[list[float]]]
 
 class MaterialProperties(TaggedModel):
+    """A user-defined material.
+
+    `n`, `eps` or `mu` give its linear response and `d` (m/V) its chi(2). For the
+    pulsed nonlinear solver:
+
+    - `n2`: the Kerr nonlinear index in m^2/W.
+    - `raman`: the delayed Kerr response as `(fraction, lines)`, with `lines` a
+      list of `(weight, position, half_width)` damped oscillators, position and
+      half width in cm^-1. The weights are normalized to sum to one.
+    - `tpa`: the two-photon absorption coefficient in m/W.
+    - `bandgap`: the bandgap in eV. Two-photon absorption is zero for light
+      whose two photons carry less than the bandgap.
+    """
+
     n: Optional[TensorType] = None
     eps: Optional[TensorType] = None
     mu: Optional[TensorType] = None
     d: Optional[DTensorType] = None
+    n2: Optional[float] = None
+    raman: Optional[tuple[float, list[tuple[float, float, float]]]] = None
+    tpa: Optional[float] = None
+    bandgap: Optional[float] = None
 
     # this is necessary to support np.ndarrays here...
     model_config = ConfigDict(arbitrary_types_allowed=True)
