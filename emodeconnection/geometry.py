@@ -174,3 +174,42 @@ class Path(TaggedModel):
     @property
     def length(self) -> float:
         return float(sum(seg.length for seg in self.segments))
+
+
+@register_type
+class LayoutReport(TaggedModel):
+    """The design-rule check of a circuit's layout, from `check_layout()`.
+
+    Every section is drawn at the pose its connections place it at, top down
+    (z along the chip, x across it), from the outlines of its shapes that do
+    not span the whole window.
+
+    - `overlaps`: pairs of sections whose outlines overlap, as
+      `(section, section, area)`, area in nm^2. Sections that only touch (a
+      shared port edge) do not overlap.
+    - `self_intersecting`: sections whose own outline crosses itself (a bend
+      swept past a full turn, say).
+    - `closures`: every connection that closes a loop, as
+      `(port, port, distance, angle)`: how far apart (nm) and how far from
+      facing each other (radians) the two ports are once everything else is
+      placed. A ring that closes has both near zero.
+    - `unplaced`: sections no connection reaches. Each is placed after the
+      section declared before it, or at the origin, and is left out of the
+      overlap check.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    overlaps: list[tuple[str, str, float]] = []
+    self_intersecting: list[str] = []
+    closures: list[tuple[str, str, float, float]] = []
+    unplaced: list[str] = []
+
+    def max_closure(self) -> tuple[float, float]:
+        """The largest closure distance (nm) and angle (rad), or zeros without a loop."""
+        if not self.closures:
+            return 0.0, 0.0
+        return (
+            max(c[2] for c in self.closures),
+            max(c[3] for c in self.closures),
+        )
