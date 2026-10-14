@@ -1,0 +1,62 @@
+name: Close issues fixed on dev
+
+# Issues track dev. GitHub closes an issue from "Fixes #123" only when the PR
+# merges into the default branch (main), which happens at release time, so a
+# fix merged into dev would leave its issue open for weeks. This closes them
+# when the PR merges into dev instead, and never before: a PR that is closed
+# without merging, or that targets another branch, closes nothing.
+#
+# It reads the closing keywords GitHub itself recognizes (close, closes,
+# closed, fix, fixes, fixed, resolve, resolves, resolved) in the PR's title
+# and description, for issues in this repo. An issue in another repo
+# (emode-photonix/license-manager#5) is left open with a comment, since the
+# workflow's token can only close issues here.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  close:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close the issues the PR fixes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const text = `${pr.title}\n${pr.body ?? ''}`;
+            const keyword = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+((?:[\w.-]+\/[\w.-]+)?#\d+)/gi;
+            const here = `${context.repo.owner}/${context.repo.repo}`.toLowerCase();
+            const seen = new Set();
+            for (const match of text.matchAll(keyword)) {
+              const ref = match[1];
+              if (seen.has(ref.toLowerCase())) continue;
+              seen.add(ref.toLowerCase());
+              const [repoPart, num] = ref.split('#');
+              const issue_number = Number(num);
+              if (repoPart && repoPart.toLowerCase() !== here) {
+                core.info(`${ref} is in another repo, left open`);
+                continue;
+              }
+              const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number });
+              if (issue.pull_request || issue.state === 'closed') continue;
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number,
+                body: `Fixed by #${pr.number}, merged into \`dev\`.`,
+              });
+              await github.rest.issues.update({
+                ...context.repo,
+                issue_number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+              core.info(`closed #${issue_number}`);
+            }

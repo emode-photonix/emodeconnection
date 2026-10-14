@@ -19,6 +19,20 @@ already have.
 This repository is **public**. The solver's own source is not, so nothing here should
 name its internal files, classes, or paths — describe the wire contract from this side.
 
+## Tracking work
+
+Open work lives in GitHub issues, never in lists in this repo, and every issue is on the
+emode-photonix organization's EMode project. This repository and its issues are public,
+so an issue here describes only the client side and the wire contract.
+
+- A bug or follow-up you find and do not fix becomes an issue here (when this repo's code
+  fixes it), with exactly one `type:` label and one or two `area:` labels.
+- TODO comments name their issue: `# TODO(#12): ...`.
+- Issues track `dev`. A PR says `Fixes #12`, and the issue closes when the PR merges into
+  `dev` (`.github/workflows/close-issues-on-dev.yml`), not before.
+- A release's work is its milestone:
+  `gh search issues --owner emode-photonix milestone:<version> --state open`.
+
 ## Branching, versioning, and release
 
 Read this before changing `pyproject.toml`.
