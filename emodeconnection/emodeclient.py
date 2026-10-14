@@ -92,14 +92,16 @@ def wait_for_port(cache: Cache, timeout: float = 60) -> int:
     The file is removed only after a port has been read from it. Removing it
     after a failed read would delete a file the solver wrote in between, and
     the solver would then wait for a connection that never comes. A file that
-    exists but doesn't hold a port yet was caught mid-write and is retried.
+    exists but doesn't hold a port yet was caught mid-write and is retried, and
+    so is one Windows refuses to open (PermissionError) while the solver's
+    atomic rename is moving it into place.
     """
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
         try:
             with open(cache.port_path, "r") as f:
                 port = int(f.read())
-        except (FileNotFoundError, ValueError):
+        except (FileNotFoundError, PermissionError, ValueError):
             time.sleep(0.05)
             continue
         cache.port_path.unlink(missing_ok=True)
