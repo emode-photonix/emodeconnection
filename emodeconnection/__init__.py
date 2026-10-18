@@ -5,6 +5,7 @@ from .geometry import Pose, Line, Arc, BSpline, Path, Curve, LayoutReport
 from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_facet_port
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
+from .plot import PlotImage
 from .free_space import FreeSpaceProjection
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse
 from .monitor import Monitor, PlaneField, BeamCoupling
@@ -23,6 +24,7 @@ __all__ = [
     "PulsedSource", "PulsedProcess", "Poling", "PulseResponse",
     "Monitor", "PlaneField", "BeamCoupling",
     "SMatrix",
+    "PlotImage",
     "FreeSpaceProjection",
     "EModeLogin",
 ]

@@ -12,6 +12,7 @@ from threading import Thread
 from typing import IO, Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
+from .plot import PlotImage
 from .types import EModeError
 
 logger = getLogger(__name__)
@@ -251,7 +252,7 @@ class EMode:
 
         return self._ipython
 
-    def call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list]:
+    def call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list, PlotImage, None]:
         logger.debug(f"calling '{function}' with args: {kwargs}")
         if not isinstance(function, str):
             raise TypeError("parameter 'function' must be of type 'str'")
@@ -278,6 +279,12 @@ class EMode:
             raise
 
         self._in_flight = False
+        if isinstance(rv, PlotImage) and rv.png is not None and self.in_ipython():
+            # A notebook draws the figure in the cell, as a matplotlib plot would.
+            from IPython.display import display  # type: ignore
+
+            display(rv)
+            return None
         return rv
 
     def close(self, **kwargs):

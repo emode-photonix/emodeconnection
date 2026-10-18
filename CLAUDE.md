@@ -136,6 +136,8 @@ extending an existing module rather than inventing a new ad hoc serialization pa
 - **`nonlinear.py`** — chi(2) process wire types (`SHGProcess`, `SFGProcess`,
   `DFGProcess`) and their solver settings.
 - **`smatrix.py`** — the read-only `SMatrix` view returned to callers.
+- **`plot.py`** — `PlotImage`, the figure a headless `plot()` returns. `EMode.call()` shows
+  it inline in IPython.
 - **`geometry.py`** — geometry primitives (`Path`, `Pose`) for section construction.
 - **`free_space.py`** — client-side free-space field projection diagnostics.
 - **`eph_utils.py`, `file_utils.py`** — `.eph` simulation-file helpers.
