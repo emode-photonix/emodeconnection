@@ -1,0 +1,26 @@
+name: Tests
+
+# The tests under tests/ run without a solver install or a license: they
+# exercise the client on its own (process launch, stdout forwarding). Anything
+# that crosses the wire is still validated against the solver, outside this
+# repository.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run the tests
+        # --python is explicit because .python-version predates the package's
+        # requires-python and names an older interpreter.
+        run: uv run --python 3.12 --group dev pytest tests/
