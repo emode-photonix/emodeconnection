@@ -1,4 +1,5 @@
 import atexit
+import codecs
 from datetime import datetime, timezone
 from logging import getLogger
 from logging.config import dictConfig
@@ -8,7 +9,7 @@ import platform
 import signal
 from subprocess import Popen, PIPE
 from threading import Thread
-from typing import Optional, Literal, Union
+from typing import IO, Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
 from .types import EModeError
@@ -16,11 +17,22 @@ from .types import EModeError
 logger = getLogger(__name__)
 
 
-def _forward_stdout(pipe):
+def _forward_stdout(pipe: IO[bytes]) -> None:
+    """Copy the solver's stdout into this process until the solver closes it.
+
+    Reads chunks rather than lines, so a progress message the solver writes
+    without a newline ("Solving modes...") shows up as soon as it is flushed,
+    and decodes incrementally, so a multibyte character split across two
+    chunks still comes out whole. print() is what IPython captures into the
+    cell output.
+    """
+    fd = pipe.fileno()
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     try:
-        for line in iter(pipe.readline, ""):
-            # print() => IPython captures it into the cell output
-            print(line, end="", flush=True)
+        while chunk := os.read(fd, 4096):
+            print(decoder.decode(chunk), end="", flush=True)
+        if tail := decoder.decode(b"", final=True):
+            print(tail, end="", flush=True)
     finally:
         pipe.close()
 
@@ -43,6 +55,9 @@ class EMode:
     ):
         """
         Initialize defaults and create an EMode session.
+
+        In a Jupyter or IPython session, what the solver prints (progress,
+        reports) is forwarded into the notebook cell as it is produced.
 
         parameters:
         -----
@@ -135,12 +150,13 @@ class EMode:
         self._in_flight = False
 
         if self.in_ipython():
+            # The solver's output reaches the cell through this process:
+            # unbuffered bytes here, decoded and printed by the forwarder.
             self._proc = Popen(
                 self.build_cmd_list(emode_cmd),
                 stdout=PIPE,
                 stderr=None,
-                text=True,
-                bufsize=1,
+                bufsize=0,
             )
             self.setup_print_thread()
         else:
