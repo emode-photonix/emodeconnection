@@ -27,6 +27,11 @@ Homepage = "https://github.com/emode-photonix/emodeconnection"
 [project.scripts]
 emode-install = "emodeconnection.installer:main"
 
+[dependency-groups]
+dev = [
+  "pytest",
+]
+
 [build-system]
 requires = ["hatchling>=1.11.0"]
 build-backend = "hatchling.build"
