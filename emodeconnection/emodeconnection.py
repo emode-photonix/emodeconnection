@@ -7,13 +7,13 @@ import os
 from pathlib import Path
 import platform
 import signal
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, TimeoutExpired
 from threading import Thread
 from typing import IO, Optional, Literal, Union
 from .emodeclient import EModeClient
 from .file_utils import Cache
 from .plot import PlotImage
-from .types import EModeError
+from .types import EModeError, LicenseError
 
 logger = getLogger(__name__)
 
@@ -183,8 +183,22 @@ class EMode:
                 RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
         except ConnectionError:
             raise EModeError("EMode failed to launch.")
+        except LicenseError:
+            # EMode refused the session (no license available, a busy demo, a
+            # demo that has ended) and said why in its answer to the first call.
+            self._shut_down_refused()
+            raise
 
         self._dsim = RV[len("sim:") :]  # type: ignore
+
+    def _shut_down_refused(self) -> None:
+        """Close the connection to a refused session and wait for EMode to exit."""
+        self._client.close()
+        self.running = False
+        try:
+            self._proc.wait(timeout=60)
+        except TimeoutExpired:
+            logger.warning("EMode did not exit after refusing the session")
 
     def build_cmd_list(self, emode_cmd):
         if platform.system() == "Windows":
