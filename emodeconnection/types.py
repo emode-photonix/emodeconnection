@@ -103,6 +103,9 @@ class LicenseType(Enum):
     _2D = "2d"
     _3D = "3d"
     default = "default"
+    # The time-limited session of the "Try EMode now" notebook. EMode grants
+    # it to a demo account whichever type was asked for.
+    demo = "demo"
 
     def to_dict(self):
         return {"__type__": "LicenseType", "value": self.value}
@@ -412,7 +415,12 @@ class LicenseError(EModeError):
         self.license_type = license_type
 
     def __str__(self):
-        emLicense = 'EMode3D' if self.license_type is LicenseType._3D else 'EMode2D'
+        if self.license_type is LicenseType._3D:
+            emLicense = 'EMode3D'
+        elif self.license_type is LicenseType.demo:
+            emLicense = 'EModeDEMO'
+        else:
+            emLicense = 'EMode2D'
         return f'LicenseError: current license: "{emLicense}", error msg: "{self.msg}"'
 
 @register_type

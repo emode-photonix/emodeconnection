@@ -1,6 +1,6 @@
 [project]
 name = "emodeconnection"
-version = "1.1.22"
+version = "1.1.23"
 description = "Python connection for EMode"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
@@ -26,6 +26,11 @@ Homepage = "https://github.com/emode-photonix/emodeconnection"
 
 [project.scripts]
 emode-install = "emodeconnection.installer:main"
+
+[dependency-groups]
+dev = [
+  "pytest",
+]
 
 [build-system]
 requires = ["hatchling>=1.11.0"]
