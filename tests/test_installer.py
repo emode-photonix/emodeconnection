@@ -131,6 +131,7 @@ def _is_executable(path: Path) -> bool:
 # --variant
 # ---------------------------------------------------------------
 
+
 def test_the_default_variant_is_unchanged(
     linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder
 ) -> None:
@@ -221,6 +222,7 @@ def test_the_help_describes_the_variant(
 # ---------------------------------------------------------------
 # Installing without write access
 # ---------------------------------------------------------------
+
 
 def test_root_with_a_writable_directory_needs_no_sudo(
     linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder
