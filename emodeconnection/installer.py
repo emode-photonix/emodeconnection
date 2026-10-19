@@ -7,6 +7,7 @@ emode-install --update                   # Re-download latest version
 emode-install --update --version 0.2.5   # Switch to a specific version
 emode-install --version 0.2.5            # Install a specific version
 emode-install --install-dir /opt/bin     # Custom install directory
+emode-install --variant rslab            # The lighter Linux build, without MKL
 emode-install --list-versions            # Show available versions
 emode-install --uninstall                # Remove EMode
 emode-install --uninstall --install-dir /opt/bin  # Remove from custom location
@@ -30,6 +31,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 import requests as http_requests
@@ -57,6 +59,15 @@ PLATFORM_KEYS = {
     'Linux':   'linux',
     'Windows': 'windows',
 }
+
+# Build variants. 'rslab' is the lighter Linux build, without MKL: its sparse
+# solver is rslab only. Each maps to its own platform key and file name.
+VARIANTS = ('default', 'rslab')
+VARIANT_PLATFORMS = {
+    'rslab': {'os': 'Linux', 'key': 'linux-rslab', 'display': 'Linux-rslab'},
+}
+
+PLATFORM_DISPLAY = {'mac': 'Mac', 'linux': 'Linux', 'windows': 'Windows'}
 
 # File extensions per platform
 # Mac: .pkg (native macOS installer — double-click or headless via `installer`)
@@ -88,6 +99,40 @@ def get_default_install_dir(os_name: str) -> Path:
 
 def get_executable_path(install_dir: Path, os_name: str) -> Path:
     return install_dir / EXECUTABLE_NAMES[os_name]
+
+
+def get_user_install_dir() -> Path:
+    """Where a Linux install goes without administrator rights."""
+    return Path.home() / '.local' / 'bin'
+
+
+def find_installed(install_dir: Path, os_name: str, explicit: bool) -> Path:
+    """The executable an install or uninstall should look at.
+
+    The one in `install_dir`, unless that is the Linux default, it holds no
+    executable, and a per-user install (`get_user_install_dir`) exists.
+    """
+    exe_path = get_executable_path(install_dir, os_name)
+    if explicit or os_name != 'Linux' or exe_path.exists():
+        return exe_path
+    user_exe = get_executable_path(get_user_install_dir(), os_name)
+    return user_exe if user_exe.exists() else exe_path
+
+
+def resolve_platform(os_name: str, variant: str = 'default') -> tuple[str, str]:
+    """The server's platform key and the platform part of the file name.
+
+    Exits with an error for a variant this OS has no build of.
+    """
+    if variant == 'default':
+        key = PLATFORM_KEYS[os_name]
+        return key, PLATFORM_DISPLAY[key]
+    spec = VARIANT_PLATFORMS[variant]
+    if spec['os'] != os_name:
+        print(f"Error: --variant {variant} is a {spec['os']} build, and this is {os_name}.")
+        print("Run emode-install without --variant to install the build for this computer.")
+        sys.exit(1)
+    return spec['key'], spec['display']
 
 
 # ---------------------------------------------------------------
@@ -163,14 +208,15 @@ def get_versions() -> dict:
         sys.exit(1)
 
 
-def resolve_version(requested: Optional[str], os_name: str) -> tuple[str, str]:
+def resolve_version(
+    requested: Optional[str], os_name: str, variant: str = 'default'
+) -> tuple[str, str]:
     """
     Resolve the version to download and build the expected filename.
     Returns (version_string, filename).
     """
-    platform_key     = PLATFORM_KEYS[os_name]
-    platform_display = {'mac': 'Mac', 'linux': 'Linux', 'windows': 'Windows'}[platform_key]
-    ext              = FILE_EXTENSIONS[os_name]
+    _, platform_display = resolve_platform(os_name, variant)
+    ext                 = FILE_EXTENSIONS[os_name]
 
     data = get_versions()
 
@@ -544,8 +590,6 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
              everything install.sh would do.
              Returns the path to the installed executable.
     """
-    import zipfile
-
     with zipfile.ZipFile(zip_path, 'r') as zf:
         names = zf.namelist()
 
@@ -594,30 +638,33 @@ def install_from_zip(zip_path: Path, install_dir: Path, os_name: str) -> Path:
             return get_executable_path(install_dir, 'Windows')
 
         else:
-            # Linux: find the 'emode' binary, ignoring install.sh
-            # Handle both flat zips (emode) and zips with a subdirectory
-            # (EMode-0.2.5-Linux/emode) for robustness
-            exe_name = EXECUTABLE_NAMES[os_name]
-
-            exe_members = [
-                n for n in names
-                if Path(n).name == exe_name
-                and not n.startswith('__MACOSX')
-                and not n.endswith('.sh')
-            ]
-            if not exe_members:
-                print(f"Error: Could not find '{exe_name}' inside the downloaded archive.")
-                print(f"Archive contents: {names}")
-                sys.exit(1)
-
-            exe_member = exe_members[0]
+            # Linux: only the 'emode' binary, ignoring install.sh
             install_dir.mkdir(parents=True, exist_ok=True)
-            dest = install_dir / exe_name
-
-            with zf.open(exe_member) as src, open(dest, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
-
+            dest = install_dir / EXECUTABLE_NAMES[os_name]
+            _extract_executable(zf, dest)
             return dest
+
+
+def _extract_executable(zf: zipfile.ZipFile, dest: Path) -> None:
+    """Write the archive's executable named like `dest` to `dest`.
+
+    Handles both flat zips (emode) and zips with a subdirectory
+    (EMode-0.2.5-Linux/emode). Raises PermissionError when `dest` cannot be
+    written, before anything is written.
+    """
+    names = zf.namelist()
+    exe_members = [
+        n for n in names
+        if Path(n).name == dest.name
+        and not n.startswith('__MACOSX')
+        and not n.endswith('.sh')
+    ]
+    if not exe_members:
+        print(f"Error: Could not find '{dest.name}' inside the downloaded archive.")
+        print(f"Archive contents: {names}")
+        sys.exit(1)
+    with zf.open(exe_members[0]) as src, open(dest, 'wb') as dst:
+        shutil.copyfileobj(src, dst)
 
 
 def set_permissions(exe_path: Path, os_name: str) -> None:
@@ -660,23 +707,24 @@ def install(
     version:     Optional[str] = None,
     install_dir: Optional[Path] = None,
     update:      bool = False,
+    variant:     str = 'default',
 ) -> None:
-    os_name      = get_os()
-    platform_key = PLATFORM_KEYS[os_name]
+    os_name         = get_os()
+    platform_key, _ = resolve_platform(os_name, variant)
 
+    explicit_dir = install_dir is not None
     if install_dir is None:
         install_dir = get_default_install_dir(os_name)
 
-    exe_path = get_executable_path(install_dir, os_name)
-
     # Check if already installed
-    if exe_path.exists() and not update:
-        print(f"EMode is already installed at {exe_path}")
+    installed = find_installed(install_dir, os_name, explicit_dir)
+    if installed.exists() and not update:
+        print(f"EMode is already installed at {installed}")
         print("Run 'emode-install --update' to download the latest version.")
         sys.exit(0)
 
     # Resolve version and build filename
-    version, filename = resolve_version(version, os_name)
+    version, filename = resolve_version(version, os_name, variant)
 
     # EULA
     if not handle_eula():
@@ -705,23 +753,15 @@ def install(
             # permissions internally, so we skip those steps here
             exe_path = install_pkg(downloaded_path, install_dir)
             check_path(install_dir)
-        else:
-            # Windows and Linux: extract from zip
+        elif os_name == 'Windows':
+            # Windows PATH is handled by Inno Setup
             try:
                 exe_path = install_from_zip(downloaded_path, install_dir, os_name)
             except PermissionError:
-                if os_name != 'Windows':
-                    print("Permission denied. Trying with sudo...")
-                    _install_with_sudo(downloaded_path, install_dir, os_name)
-                    exe_path = get_executable_path(install_dir, os_name)
-                else:
-                    print("Error: Permission denied. Try running as Administrator.")
-                    sys.exit(1)
-
-            # Windows PATH is handled by Inno Setup
-            if os_name != 'Windows':
-                set_permissions(exe_path, os_name)
-                check_path(install_dir)
+                print("Error: Permission denied. Try running as Administrator.")
+                sys.exit(1)
+        else:
+            exe_path = install_linux(downloaded_path, install_dir, explicit_dir)
 
     print(f"\nEMode {version} installed successfully.")
     if os_name != 'Windows':
@@ -729,49 +769,79 @@ def install(
     print('Get started by logging in:\n\tpython -c "import emodeconnection as emc; emc.EModeLogin()"')
 
 
-def _install_with_sudo(zip_path: Path, install_dir: Path, os_name: str) -> None:
-    """Extract to a temp location then sudo mv into place. Linux only."""
-    import zipfile
+def install_linux(zip_path: Path, install_dir: Path, explicit_dir: bool) -> Path:
+    """Install the Linux binary from `zip_path`, and return where it went.
 
-    exe_name = EXECUTABLE_NAMES[os_name]
-    with tempfile.TemporaryDirectory(prefix='emode_sudo_') as tmp:
-        tmp_exe = Path(tmp) / exe_name
+    Into `install_dir` when it is writable (root, or a directory the user
+    owns). Otherwise, with sudo and a terminal, through one `sudo install`.
+    Without either, or when sudo fails or is declined, into the per-user
+    directory instead, unless `install_dir` was asked for explicitly, which
+    exits with the two ways to proceed.
+    """
+    exe_path = get_executable_path(install_dir, 'Linux')
+    try:
+        install_from_zip(zip_path, install_dir, 'Linux')
+    except PermissionError:
+        pass
+    else:
+        set_permissions(exe_path, 'Linux')
+        check_path(install_dir)
+        return exe_path
+
+    if explicit_dir:
+        print(f"Error: Permission denied writing to {install_dir}.")
+        print("Either run the installer with administrator rights:")
+        print(f"    sudo {shutil.which('emode-install') or 'emode-install'} --install-dir {install_dir}")
+        print("or choose a directory you can write to, for example:")
+        print(f"    emode-install --install-dir {get_user_install_dir()}")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory(prefix='emode_install_') as tmp:
+        tmp_exe = get_executable_path(Path(tmp), 'Linux')
         with zipfile.ZipFile(zip_path, 'r') as zf:
-            names       = zf.namelist()
-            exe_members = [
-                n for n in names
-                if Path(n).name == exe_name
-                and not n.startswith('__MACOSX')
-                and not n.endswith('.sh')
-            ]
-            if not exe_members:
-                print(f"Error: Could not find '{exe_name}' in archive.")
-                sys.exit(1)
-            with zf.open(exe_members[0]) as src, open(tmp_exe, 'wb') as dst:
-                shutil.copyfileobj(src, dst)
-        tmp_exe.chmod(tmp_exe.stat().st_mode | stat.S_IEXEC)
+            _extract_executable(zf, tmp_exe)
 
-        result = subprocess.run(
-            ['sudo', 'mkdir', '-p', str(install_dir)], timeout=30
-        )
+        if shutil.which('sudo') is None:
+            print(f"\nInstalling to {install_dir} needs administrator rights, "
+                  "and sudo is not available.")
+        elif not sys.stdin.isatty():
+            print(f"\nInstalling to {install_dir} needs administrator rights, "
+                  "and there is no terminal to ask for a sudo password.")
+        elif _sudo_install(tmp_exe, install_dir):
+            check_path(install_dir)
+            return exe_path
+        else:
+            print(f"\nsudo did not install EMode to {install_dir}.")
+
+        user_dir = get_user_install_dir()
+        print(f"Installing for this user only, to {user_dir}, instead.")
+        user_dir.mkdir(parents=True, exist_ok=True)
+        user_exe = get_executable_path(user_dir, 'Linux')
+        shutil.copyfile(tmp_exe, user_exe)
+    set_permissions(user_exe, 'Linux')
+    check_path(user_dir)
+    return user_exe
+
+
+def _sudo_install(exe: Path, install_dir: Path) -> bool:
+    """Copy `exe` into `install_dir` as root, with mode 755. True on success.
+
+    `install` creates the file with its mode in one step, and exists on Linux
+    and macOS. The directory keeps its owner, so a later update asks again.
+    """
+    print(f"\nInstalling to {install_dir} needs administrator rights. "
+          "sudo may ask for your password.")
+    commands = [] if install_dir.exists() else [['sudo', 'mkdir', '-p', str(install_dir)]]
+    dest = get_executable_path(install_dir, 'Linux')
+    commands.append(['sudo', 'install', '-m', '755', str(exe), str(dest)])
+    for cmd in commands:
+        try:
+            result = subprocess.run(cmd, timeout=300)
+        except subprocess.TimeoutExpired:
+            return False
         if result.returncode != 0:
-            print("Error: sudo mkdir failed.")
-            sys.exit(1)
-
-        # Make directory owned by current user so future updates don't need sudo
-        result = subprocess.run(
-            ['sudo', 'chown', f'{os.getenv("USER", os.getlogin())}', str(install_dir)],
-            timeout=10,
-        )
-
-        if result.returncode != 0:
-            print("Error: sudo mv failed.")
-            sys.exit(1)
-
-        subprocess.run(
-            ['sudo', 'chmod', '+x', str(install_dir / exe_name)],
-            timeout=10,
-        )
+            return False
+    return True
 
 
 # ---------------------------------------------------------------
@@ -781,10 +851,12 @@ def _install_with_sudo(zip_path: Path, install_dir: Path, os_name: str) -> None:
 def uninstall(install_dir: Optional[Path] = None) -> None:
     os_name = get_os()
 
+    explicit_dir = install_dir is not None
     if install_dir is None:
         install_dir = get_default_install_dir(os_name)
 
-    exe_path = get_executable_path(install_dir, os_name)
+    exe_path = find_installed(install_dir, os_name, explicit_dir)
+    install_dir = exe_path.parent
 
     if not exe_path.exists():
         print(f"EMode is not installed at {exe_path}")
@@ -867,6 +939,7 @@ Examples:
   emode-install --update --version 0.2.5   Switch to a specific version
   emode-install --version 0.2.5            Install a specific version
   emode-install --install-dir /opt/bin     Custom install directory
+  emode-install --variant rslab            The lighter Linux build, without MKL
   emode-install --list-versions            Show available versions
   emode-install --uninstall                Remove EMode
   emode-install --uninstall --install-dir /opt/bin  Remove from custom location
@@ -887,7 +960,16 @@ Environment variables:
         '--install-dir',
         metavar='DIR',
         default=None,
-        help='Directory to install EMode into (default: /usr/local/bin on Mac/Linux)',
+        help='Directory to install EMode into (default: /usr/local/bin on Mac/Linux). '
+             'On Linux without administrator rights, the default falls back to '
+             '~/.local/bin.',
+    )
+    parser.add_argument(
+        '--variant',
+        choices=VARIANTS,
+        default='default',
+        help="Build to install. 'rslab' (Linux only) is the lighter Linux build "
+             "without MKL, whose sparse solver is rslab only (default: default).",
     )
     parser.add_argument(
         '--update',
@@ -922,6 +1004,7 @@ Environment variables:
         version     = args.version,
         install_dir = install_dir,
         update      = args.update,
+        variant     = args.variant,
     )
 
 
