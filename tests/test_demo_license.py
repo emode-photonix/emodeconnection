@@ -26,7 +26,9 @@ def test_license_type_demo() -> None:
     assert demo is LicenseType.demo
     assert str(demo) == "demo"
     assert demo.to_dict() == {"__type__": "LicenseType", "value": "demo"}
-    assert LicenseType.coerce(json.loads(json.dumps(demo.to_dict()))) is LicenseType.demo
+    assert (
+        LicenseType.coerce(json.loads(json.dumps(demo.to_dict()))) is LicenseType.demo
+    )
 
 
 def _over_the_wire(error: LicenseError) -> Any:
@@ -35,7 +37,9 @@ def _over_the_wire(error: LicenseError) -> Any:
 
 
 def test_a_demo_license_error_names_the_demo() -> None:
-    error = _over_the_wire(LicenseError("Your 60 minute EMode demo session has ended.", LicenseType.demo))
+    error = _over_the_wire(
+        LicenseError("Your 60 minute EMode demo session has ended.", LicenseType.demo)
+    )
     assert isinstance(error, LicenseError)
     assert error.license_type is LicenseType.demo
     assert str(error) == (
@@ -76,17 +80,23 @@ class _Client:
         self.closed = True
 
 
-def test_a_refused_launch_raises_the_license_error_and_shuts_down(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_refused_launch_raises_the_license_error_and_shuts_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     process = _Process()
     _Client.instances.clear()
     hooks: list[Any] = []
     monkeypatch.setattr(launch_module, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(launch_module, "EModeClient", _Client)
     monkeypatch.setattr(signal, "signal", lambda signum, handler: None)
-    monkeypatch.setattr(atexit, "register", lambda func, *args, **kwargs: hooks.append(func) or func)
+    monkeypatch.setattr(
+        atexit, "register", lambda func, *args, **kwargs: hooks.append(func) or func
+    )
     monkeypatch.setattr(EMode, "in_ipython", lambda self: False)
 
-    refusal = LicenseError("The EMode demo is busy, please try again in a few minutes", None)
+    refusal = LicenseError(
+        "The EMode demo is busy, please try again in a few minutes", None
+    )
 
     calls: list[str] = []
 
