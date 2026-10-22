@@ -9,7 +9,7 @@ from functools import cached_property
 from typing import Literal
 
 import numpy as np
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator, model_validator
 
 from .types import TaggedModel, register_type
 
@@ -98,6 +98,10 @@ class SMatrix(TaggedModel, PortIndexed):
     wavelengths carry one entry per port (parallel to port_sizes) so ports
     can be addressed by name instead of bare index, e.g.
     ``S.transmission(from_port='left', to_port='right')``.
+
+    mode_power, when present, holds the real power each mode carries, one
+    entry per mode in the same order as the rows of data. A lossy mode
+    carries little or no real power. An older solver does not send it.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -106,6 +110,23 @@ class SMatrix(TaggedModel, PortIndexed):
     data: np.ndarray  # complex, shape (total_modes, total_modes)
     port_names: tuple[str, ...] | None = None
     wavelengths: tuple[float, ...] | None = None
+    mode_power: np.ndarray | None = None  # real, shape (total_modes,)
+
+    @field_validator('mode_power', mode='before')
+    @classmethod
+    def _mode_power_as_array(cls, v: object) -> object:
+        if v is None:
+            return None
+        return np.asarray(v, dtype=float)
+
+    @model_validator(mode='after')
+    def _check_mode_power(self) -> 'SMatrix':
+        if self.mode_power is not None and self.mode_power.shape != (self.total_modes,):
+            raise ValueError(
+                f'mode_power has shape {self.mode_power.shape}, expected ({self.total_modes},), '
+                'one entry per mode'
+            )
+        return self
 
     def block(
         self,
@@ -128,9 +149,27 @@ class SMatrix(TaggedModel, PortIndexed):
         return self.block(port, port)
 
     def unitarity_error(self) -> float:
-        """||S^H S - I||_fro."""
+        """How far the S-matrix is from conserving power.
+
+        With mode_power, this is the power-weighted balance
+        ``||S^H P S - P||_fro / ||P||_fro``, where P is the diagonal matrix of
+        mode_power. Modes that carry no real power (lossy modes) drop out, and
+        the result is independent of the matrix size and of the power scale.
+        When every mode carries unit power, ||P||_fro is the square root of the
+        mode count, so a 10% gain on every mode gives 0.1.
+
+        Without mode_power, this is ``||S^H S - I||_fro``, which measures power
+        conservation only when every mode carries unit power, and which grows
+        with the number of modes.
+        """
         data = self.block(list(range(self.num_ports)), list(range(self.num_ports)))
-        return float(np.linalg.norm(data.conj().T @ data - np.eye(self.total_modes)))
+        if self.mode_power is None:
+            return float(np.linalg.norm(data.conj().T @ data - np.eye(self.total_modes)))
+        power = np.diag(self.mode_power)
+        scale = np.linalg.norm(power)
+        if scale == 0:
+            return 0.0
+        return float(np.linalg.norm(data.conj().T @ power @ data - power) / scale)
 
     def insertion_loss_dB(self, from_port: int | str, to_port: int | str, mode: int = 0) -> float:
         col = self.block(to_port, from_port)[:, mode]

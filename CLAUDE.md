@@ -87,9 +87,11 @@ uv build
 
 ### Tests
 
-This repo has **no test suite of its own**. The tests that exercise it live with the
-solver, because they launch a real solver process and need a license checkout, which
-rules out running them here or in this repo's CI.
+`tests/` holds this repo's own unit tests (the wire protocol, `SMatrix`, stdout
+forwarding, wire types), which `.github/workflows/ci.yml` runs on every push and pull
+request. The tests that exercise a real session live with the solver, because they
+launch a real solver process and need a license checkout, which rules out running them
+here or in this repo's CI.
 
 So a change to anything that crosses the wire — a new or altered wire type, a change to
 how one serializes — cannot be validated from inside this repository. Say so plainly in
