@@ -1,4 +1,4 @@
-"""Wire types of the optimizer and of `evaluate()`.
+"""Wire types of the optimizer, of `evaluate()` and of `converge()`.
 
 An optimization is declared with three kinds of objects and returns one:
 
@@ -443,3 +443,149 @@ class OptimizationResult(TaggedModel):
     def to_json(self) -> Dict[str, Any]:
         """This result, history included, as JSON-ready plain data."""
         return self.model_dump(mode='json')
+
+
+# ---------------------------------------------------------------------------
+# converge()
+# ---------------------------------------------------------------------------
+
+CONVERGENCE_SETTINGS = ('resolution', 'window', 'pml', 'modes')
+CONVERGENCE_STATUSES = ('converged', 'oscillating', 'stalled', 'budget', 'lost mode')
+
+ConvergenceStatus = Literal['converged', 'oscillating', 'stalled', 'budget', 'lost mode']
+
+
+@register_type
+class ConvergenceStep(TaggedModel):
+    """One solve of a `converge()` run.
+
+    `setting` is the setting the step varied (`'resolution'`, `'window'`,
+    `'pml'` or `'modes'`) and `value` its value: the x resolution in nm, the
+    window as `[width, height]` in nm, the PML thickness in nm or the number
+    of modes. `settings` holds every setting the step solved with, as
+    `settings()` takes them. `quantity` is the target quantity of the tracked
+    mode (None when the mode was lost), `change` its change from the previous
+    step and `estimated_error` the routine's estimate of its distance from the
+    converged value. `seconds` is the wall time of the step.
+    """
+
+    setting: Literal['resolution', 'window', 'pml', 'modes']
+    value: Union[float, List[float]]
+    settings: Dict[str, Any] = {}
+    quantity: Optional[float] = None
+    change: Optional[float] = None
+    estimated_error: Optional[float] = None
+    mode: Optional[int] = None
+    seconds: float = 0.0
+
+    def value_text(self) -> str:
+        """The step's value as the table prints it."""
+        if self.setting == 'window' and isinstance(self.value, list):
+            return f'{self.value[0]:.0f} x {self.value[1]:.0f} nm'
+        if self.setting == 'modes':
+            return f'{int(self.value)}'  # type: ignore[arg-type]
+        if self.setting == 'resolution' and self.settings.get('solver') == 'FEM':
+            return f'{float(self.value):.3g}/wl'  # type: ignore[arg-type]
+        return f'{float(self.value):.4g} nm'  # type: ignore[arg-type]
+
+
+@register_type
+class ConvergenceStage(TaggedModel):
+    """The part of a `converge()` run that varied one setting.
+
+    `status` is why the stage stopped: `'converged'` (the estimated error was
+    below the tolerance on two consecutive steps, or below it once for the
+    orthogonality target), `'oscillating'` (the change flipped sign between
+    two consecutive steps), `'stalled'` (the orthogonality measure stopped
+    improving), `'budget'` (`max_solves` or `max_time` ran out) or
+    `'lost mode'` (no mode of a step matched the tracked one). `chosen` holds
+    the settings the stage chose, `order` the observed order of a resolution
+    stage and `estimated_error` the chosen step's estimated error.
+    """
+
+    setting: Literal['resolution', 'window', 'pml', 'modes']
+    status: ConvergenceStatus
+    chosen: Dict[str, Any] = {}
+    order: Optional[float] = None
+    estimated_error: Optional[float] = None
+    solves: int = 0
+    seconds: float = 0.0
+
+
+@register_type
+class ConvergenceResult(TaggedModel):
+    """What `converge()` returns.
+
+    `setting` and `target` are the arguments the run was called with, and
+    `tolerance` the tolerance it used (relative for the loss target, absolute
+    otherwise). `status` is `'converged'` when every stage converged and
+    otherwise the status of the first stage that did not. `chosen` holds every
+    setting the run chose, as `settings()` takes them, and `applied` says
+    whether they were written to the profile. `stages` has one entry per
+    setting varied, in order, and `history` one row per solve.
+    """
+
+    setting: Literal['resolution', 'window', 'pml', 'modes', 'all']
+    target: Literal['effective_index', 'group_index', 'loss', 'orthogonality']
+    tolerance: float
+    relative: bool = False
+    status: ConvergenceStatus
+    chosen: Dict[str, Any] = {}
+    stages: List[ConvergenceStage] = []
+    history: List[ConvergenceStep] = []
+    seconds: float = 0.0
+    applied: bool = False
+
+    @property
+    def converged(self) -> bool:
+        return self.status == 'converged'
+
+    def table(self) -> str:
+        """The run as a fixed-format table, one row per solve and one line per stage."""
+        quantity = {
+            'effective_index': 'n_eff',
+            'group_index': 'n_g',
+            'loss': 'dB/m',
+            'orthogonality': 'overlap',
+        }[self.target]
+        lines = [
+            f'{"setting":11s}{"value":>20s}{quantity:>14s}{"change":>11s}'
+            f'{"est. error":>12s}{"time (s)":>10s}'
+        ]
+        for step in self.history:
+            lines.append(
+                f'{step.setting:11s}{step.value_text():>20s}{_number(step.quantity, 14)}'
+                f'{_exponent(step.change, 11)}{_exponent(step.estimated_error, 12)}'
+                f'{step.seconds:>10.1f}'
+            )
+        lines.append('')
+        kind = 'relative' if self.relative else 'absolute'
+        for stage in self.stages:
+            chosen = ', '.join(f'{k}={_plain(v)}' for k, v in stage.chosen.items())
+            error = (
+                ''
+                if stage.estimated_error is None
+                else f', estimated error {stage.estimated_error:.1e}'
+            )
+            order = '' if stage.order is None else f', order {stage.order:.2f}'
+            lines.append(f'{stage.setting}: {stage.status} ({chosen}{error}{order})')
+        lines.append(
+            f'{self.status} at {self.tolerance:g} {kind} in {self.seconds:.1f} s'
+            + ('' if not self.applied else ', settings applied')
+        )
+        return '\n'.join(lines)
+
+    def __str__(self) -> str:
+        return self.table()
+
+    def to_json(self) -> Dict[str, Any]:
+        """This result as JSON-ready plain data."""
+        return self.model_dump(mode='json')
+
+
+def _number(value: Optional[float], width: int) -> str:
+    return f'{"-":>{width}s}' if value is None else f'{value:>{width}.7g}'
+
+
+def _exponent(value: Optional[float], width: int) -> str:
+    return f'{"-":>{width}s}' if value is None else f'{value:>{width}.1e}'
