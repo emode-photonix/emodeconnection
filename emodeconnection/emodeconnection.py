@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import platform
 import signal
-from subprocess import Popen, PIPE, TimeoutExpired
+from subprocess import DEVNULL, PIPE, Popen, TimeoutExpired
 from threading import Thread
 from typing import IO, Optional, Literal, Union
 from .emodeclient import EModeClient
@@ -37,6 +37,23 @@ def _forward_stdout(pipe: IO[bytes]) -> None:
     finally:
         pipe.close()
 
+
+def _launch_solver(cmd: list[str], ipython: bool, quiet: bool) -> "Popen[bytes]":
+    """Start the solver with its stdout routed for this session.
+
+    In a terminal the solver writes to the same stdout as this process. Under
+    IPython its stdout is a pipe that `_forward_stdout` copies into the cell.
+    A quiet session discards the solver's stdout in both cases. Its stderr is
+    always inherited, so warnings and errors still show.
+    """
+    if quiet:
+        return Popen(cmd, stdout=DEVNULL, stderr=None)
+    if ipython:
+        # unbuffered bytes here, decoded and printed by the forwarder
+        return Popen(cmd, stdout=PIPE, stderr=None, bufsize=0)
+    return Popen(cmd, stdout=None, stderr=None)
+
+
 class EMode:
     def __init__(
         self,
@@ -53,6 +70,7 @@ class EMode:
         emode_cmd: Optional[list[str]] = None,
         force_open: bool = False,
         save: bool = True,
+        quiet: bool = False,
     ):
         """
         Initialize defaults and create an EMode session.
@@ -108,6 +126,10 @@ class EMode:
         emode_cmd: Optional[list[str]] = None
             The command to use to invoke EMode as a command list.  This shouldn't need to be
             modified if you installed EMode normally.
+
+        quiet: bool = False
+            Hide everything EMode prints (progress, banners, reports). Warnings
+            and errors still show.
         """
         self.setup_logging()
 
@@ -150,23 +172,10 @@ class EMode:
         self.running = True
         self._in_flight = False
 
-        if self.in_ipython():
-            # The solver's output reaches the cell through this process:
-            # unbuffered bytes here, decoded and printed by the forwarder.
-            self._proc = Popen(
-                self.build_cmd_list(emode_cmd),
-                stdout=PIPE,
-                stderr=None,
-                bufsize=0,
-            )
+        self._proc = _launch_solver(self.build_cmd_list(emode_cmd), self.in_ipython(), quiet)
+        if self._proc.stdout is not None:
+            # The solver's output reaches the cell through this process.
             self.setup_print_thread()
-        else:
-            self._proc = Popen(
-                self.build_cmd_list(emode_cmd),
-                stdout=None,
-                stderr=None,
-                # stderr=None,
-            )
         self._client = EModeClient(self._cache)
         atexit.register(self.close_atexit)
         signal.signal(signal.SIGINT, self._signal_handler)
