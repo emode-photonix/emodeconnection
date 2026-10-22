@@ -172,8 +172,9 @@ class EMode:
         self.running = True
         self._in_flight = False
 
-        self._proc = _launch_solver(self.build_cmd_list(emode_cmd), self.in_ipython(), quiet)
-        if self._proc.stdout is not None:
+        ipython = self.in_ipython()
+        self._proc = _launch_solver(self.build_cmd_list(emode_cmd), ipython, quiet)
+        if ipython and not quiet:
             # The solver's output reaches the cell through this process.
             self.setup_print_thread()
         self._client = EModeClient(self._cache)
