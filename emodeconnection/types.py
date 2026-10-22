@@ -71,8 +71,8 @@ class TaggedModel(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def _nan_to_none(cls, v: Any, info: ValidationInfo):
-        # this is necessary because matlab doesn't support None, so they are all
-        # changed to NaNs in serialization.
+        # A .mat file has no null, so None is written there as NaN. Read a NaN
+        # back as None wherever the field allows None.
         if not (isinstance(v, float) and math.isnan(v)):
             return v  # nothing to do
         if info.field_name is None:

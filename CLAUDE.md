@@ -131,8 +131,9 @@ extending an existing module rather than inventing a new ad hoc serialization pa
 
 - **`emodeconnection.py`** — the `EMode` class the user talks to; wraps every `EM_*` call.
 - **`emodeclient.py`** — socket transport, `recv`, `obj_hook`, `reconstruct`.
-- **`types.py`** — `@register_type`, `__data_type__`, and the user-facing exception
-  hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
+- **`types.py`** — `@register_type`, `__data_type__`, the key-preserving result
+  mappings (`WavelengthDict` keyed by wavelength, `Confinement` keyed by shape and mode
+  index), and the user-facing exception hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
   `EPHKeyError`, `NameError`). All EMode errors reach the user as one of these.
 - **`port.py`** — `Port`, `Bounds`, `JunctionOverride`, `make_angled_facet_port`.
 - **`nonlinear.py`** — chi(2) process wire types (`SHGProcess`, `SFGProcess`,
@@ -142,14 +143,18 @@ extending an existing module rather than inventing a new ad hoc serialization pa
   shows it inline in IPython.
 - **`geometry.py`** — geometry primitives (`Path`, `Pose`) for section construction.
 - **`free_space.py`** — client-side free-space field projection diagnostics.
+- **`monitor.py`** — monitor wire types (`Monitor`, `PlaneField`, `BeamCoupling`): the
+  field on a plane inside a circuit and its coupling to a beam.
+- **`pulse.py`** — pulsed nonlinear solver wire types (`PulsedSource`, `PulsedProcess`,
+  `Poling`, `PulseResponse`, `PulseMeasurement`, `PulseFit`).
+- **`optimize.py`** — optimizer and `evaluate()` wire types (`Parameter`, `Objective`,
+  `Constraint`, `Evaluation`, `OptimizationResult`).
 - **`eph_utils.py`, `file_utils.py`** — `.eph` simulation-file helpers.
 - **`installer.py`** — the `emode-install` console script; downloads and installs the
   EMode executable.
 - **`traceback_filter.py`** — hides internal wrapper/call/recv frames so a user's
   traceback points at their own script.
 - **`constants.py`** — shared protocol constants.
-
-`emodeconnection_matlab/` is the MATLAB unsupported counterpart, kept alongside the Python client.
 
 ## Style
 

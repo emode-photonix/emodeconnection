@@ -97,9 +97,3 @@ Full documentation is available at [docs.emodephotonix.com](https://docs.emodeph
 ## License
 
 See [LICENSE](LICENSE) for details.
-
-## MATLAB
-
-A legacy MATLAB interface (`emodeconnection.m`) is included in this repository
-for historical reference. It is no longer supported as of EMode 0.2.5 and may
-not work with newer versions. No support is provided for MATLAB usage.
