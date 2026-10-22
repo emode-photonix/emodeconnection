@@ -107,11 +107,18 @@ class Poling(TaggedModel):
     """The chi(2) domain pattern of a section, in nm along the section.
 
     Give exactly one of: `period` (constant), `z_knots` with `periods` (a local
-    period interpolated between knots, the form an optimizer varies), or
-    `domain_walls` (explicit positions). `duty_cycle` is the fraction of each
-    period in the first (positive) domain. `inverted_first` starts in the
-    inverted domain. `jitter_rms` displaces every wall by Gaussian noise (nm)
-    drawn with `seed`, for fabrication-tolerance studies.
+    period interpolated between knots), `domain_walls` (explicit positions),
+    or `domain_lengths` (the length of every domain in order, each one free in
+    an inverse design). `duty_cycle` is the fraction of each period in the
+    first (positive) domain. `inverted_first` starts in the inverted domain.
+    `jitter_rms` displaces every wall by Gaussian noise (nm) drawn with
+    `seed`, for fabrication-tolerance studies.
+
+    The walls of `domain_lengths` are its running sum. A wall at or past the
+    end of the section is dropped, and when the domains end before the
+    section does, the sign flips once more and the last domain runs to the
+    end. `walls(section_length)` gives the walls of any form, and
+    `to_domain_lengths(section_length)` converts any form to domain lengths.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -120,6 +127,7 @@ class Poling(TaggedModel):
     z_knots: Optional[List[float]] = None
     periods: Optional[List[float]] = None
     domain_walls: Optional[List[float]] = None
+    domain_lengths: Optional[List[float]] = None
     duty_cycle: float = 0.5
     interpolation: Literal['linear', 'spline'] = 'linear'
     inverted_first: bool = False
@@ -129,9 +137,16 @@ class Poling(TaggedModel):
     @model_validator(mode='after')
     def _validate(self) -> 'Poling':
         name = 'Poling'
-        forms = [self.period is not None, self.z_knots is not None, self.domain_walls is not None]
+        forms = [
+            self.period is not None,
+            self.z_knots is not None,
+            self.domain_walls is not None,
+            self.domain_lengths is not None,
+        ]
         if sum(forms) != 1:
-            raise ArgumentError('give exactly one of period, z_knots/periods and domain_walls', name, 'period')
+            raise ArgumentError(
+                'give exactly one of period, z_knots/periods, domain_walls and domain_lengths', name, 'period'
+            )
         if self.period is not None and self.period <= 0:
             raise ArgumentError('period must be > 0', name, 'period')
         if self.z_knots is not None:
@@ -145,11 +160,113 @@ class Poling(TaggedModel):
             b <= a for a, b in zip(self.domain_walls[:-1], self.domain_walls[1:])
         ):
             raise ArgumentError('domain_walls must be strictly increasing', name, 'domain_walls')
+        if self.domain_lengths is not None:
+            if not self.domain_lengths:
+                raise ArgumentError('domain_lengths needs at least one domain', name, 'domain_lengths')
+            if any(not v > 0 for v in self.domain_lengths):
+                raise ArgumentError('every domain length must be > 0', name, 'domain_lengths')
         if not 0 < self.duty_cycle < 1:
             raise ArgumentError('duty_cycle must be in (0, 1)', name, 'duty_cycle')
         if self.jitter_rms < 0:
             raise ArgumentError('jitter_rms must be >= 0', name, 'jitter_rms')
         return self
+
+    @property
+    def total_length(self) -> Optional[float]:
+        """The summed length (nm) of `domain_lengths`, None for the other forms."""
+        return None if self.domain_lengths is None else float(sum(self.domain_lengths))
+
+    def walls(self, section_length: float) -> List[float]:
+        """The domain walls (nm from the start of the section) over a section of `section_length` nm."""
+        if self.period is not None:
+            walls = _walls_from_period(section_length, self.period, self.duty_cycle)
+        elif self.z_knots is not None:
+            walls = _walls_from_knots(
+                section_length, self.z_knots, self.periods or [], self.duty_cycle, self.interpolation
+            )
+        elif self.domain_lengths is not None:
+            walls = [float(w) for w in np.cumsum(self.domain_lengths) if w < section_length]
+        else:
+            walls = [float(w) for w in self.domain_walls or [] if 0 < w < section_length]
+        if self.jitter_rms > 0:
+            walls = _jitter(walls, self.jitter_rms, self.seed)
+        return walls
+
+    def to_domain_lengths(self, section_length: float) -> List[float]:
+        """The length (nm) of every domain over a section of `section_length` nm.
+
+        The lengths sum to the section length, so `Poling(domain_lengths=...)`
+        with the same `inverted_first` has the same walls. A run can start
+        from a fixed or chirped poling and free every domain from there.
+        """
+        edges = [0.0, *self.walls(section_length), float(section_length)]
+        return [float(b - a) for a, b in zip(edges[:-1], edges[1:])]
+
+
+def _walls_from_phase(z: np.ndarray, phase: np.ndarray, duty_cycle: float) -> List[float]:
+    """Walls where the grating phase crosses 2 pi (k + D) (to -) and 2 pi (k + 1) (to +)."""
+    total = phase[-1] / (2 * np.pi)
+    targets = []
+    k = 0
+    while True:
+        down, up = 2 * np.pi * (k + duty_cycle), 2 * np.pi * (k + 1)
+        if down >= phase[-1] * (1 - 1e-12):
+            break
+        targets.append(down)
+        if up >= phase[-1] * (1 - 1e-12):
+            break
+        targets.append(up)
+        k += 1
+        if k > total + 2:
+            break
+    return [float(v) for v in np.interp(targets, phase, z)]
+
+
+def _walls_from_period(length: float, period: float, duty_cycle: float) -> List[float]:
+    """Walls of a constant-period grating over [0, length]."""
+    walls = []
+    k = 0
+    while True:
+        for offset in (duty_cycle, 1.0):
+            w = (k + offset) * period
+            if w >= length * (1 - 1e-12):
+                return walls
+            walls.append(w)
+        k += 1
+
+
+def _walls_from_knots(
+    length: float,
+    z_knots: List[float],
+    periods: List[float],
+    duty_cycle: float,
+    interpolation: str,
+    samples: int = 200001,
+) -> List[float]:
+    """Walls of a grating whose local period is interpolated between (z, period) knots.
+
+    The local grating phase, the integral of 2 pi / period(z), is integrated on
+    `samples` points and a wall placed at every half cycle (shifted by the duty
+    cycle).
+    """
+    from scipy.integrate import cumulative_trapezoid
+    from scipy.interpolate import CubicSpline
+
+    zk = np.asarray(z_knots, dtype=float)
+    pk = np.asarray(periods, dtype=float)
+    z = np.linspace(0.0, length, samples)
+    local = np.interp(z, zk, pk) if interpolation == 'linear' else CubicSpline(zk, pk)(z)
+    phase = cumulative_trapezoid(2 * np.pi / local, z, initial=0.0)
+    return _walls_from_phase(z, phase, duty_cycle)
+
+
+def _jitter(walls: List[float], rms: float, seed: Optional[int]) -> List[float]:
+    """Walls displaced by Gaussian noise of `rms`, refusing noise that reorders two walls."""
+    w = np.asarray(walls, dtype=float)
+    out = w + np.random.default_rng(seed).normal(0.0, rms, size=w.shape)
+    if np.any(np.diff(out) <= 0):
+        raise ArgumentError('the jitter reordered two domain walls: reduce jitter_rms', 'Poling', 'jitter_rms')
+    return [float(v) for v in out]
 
 
 @register_type
