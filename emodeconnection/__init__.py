@@ -7,7 +7,7 @@ from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, 
 from .smatrix import SMatrix
 from .plot import PlotImage
 from .free_space import FreeSpaceProjection
-from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse
+from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit
 from .monitor import Monitor, PlaneField, BeamCoupling
 from .optimize import Parameter, Objective, Constraint, Evaluation, OptimizationResult
 from .traceback_filter import install as _install_traceback_filter
@@ -22,7 +22,7 @@ __all__ = [
     "Bounds", "Port", "AngledFacetMap", "JunctionOverride", "make_angled_facet_port",
     "Chi2Process", "SHGProcess", "SFGProcess", "DFGProcess",
     "Source", "Excitation", "CircuitResponse",
-    "PulsedSource", "PulsedProcess", "Poling", "PulseResponse",
+    "PulsedSource", "PulsedProcess", "Poling", "PulseResponse", "PulseMeasurement", "PulseFit",
     "Monitor", "PlaneField", "BeamCoupling",
     "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
     "SMatrix",
