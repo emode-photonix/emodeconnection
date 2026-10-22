@@ -9,7 +9,10 @@ from .plot import PlotImage
 from .free_space import FreeSpaceProjection
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit
 from .monitor import Monitor, PlaneField, BeamCoupling
-from .optimize import Parameter, Objective, Constraint, Evaluation, OptimizationResult
+from .optimize import (
+    Parameter, Objective, Constraint, Evaluation, OptimizationResult,
+    ConvergenceStep, ConvergenceStage, ConvergenceResult,
+)
 from .traceback_filter import install as _install_traceback_filter
 from subprocess import Popen
 from platform import system
@@ -25,6 +28,7 @@ __all__ = [
     "PulsedSource", "PulsedProcess", "Poling", "PulseResponse", "PulseMeasurement", "PulseFit",
     "Monitor", "PlaneField", "BeamCoupling",
     "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
+    "ConvergenceStep", "ConvergenceStage", "ConvergenceResult",
     "SMatrix",
     "PlotImage",
     "FreeSpaceProjection",
