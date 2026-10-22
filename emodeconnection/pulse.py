@@ -3,7 +3,9 @@
 A pulsed simulation is declared with three objects and returns one:
 
 - `PulsedSource`, the excitation: a femtosecond pulse (or a CW reference)
-  launched into one port, declared with `settings(excitation=...)`.
+  launched into one port, declared with `settings(excitation=...)`. A
+  measured pulse is given as a `PulseMeasurement` (sampled spectrum or
+  temporal trace), which the solver fits before it launches it.
 - `PulsedProcess`, attached to a section with its `nonlinear=` argument: which
   nonlinearities act there, which modes are tracked, and how the section's
   dispersion is sampled.
@@ -11,7 +13,8 @@ A pulsed simulation is declared with three objects and returns one:
   period that varies along the section, or explicit domain walls.
 - `PulseResponse`, returned by `get('pulse_response')` after `EME()` or
   `pulse_propagate()`: the spectrum of every tracked mode at the recorded
-  positions, with band energy and power computed here on the client.
+  positions, with band energy and power computed here on the client. For a
+  measured pulse it also carries the `PulseFit` the solver accepted.
 
 Units, as in the rest of the API: wavelengths and lengths in nm, durations
 in fs, energies in pJ, powers in W, repetition rates in Hz. Arrays returned
@@ -22,15 +25,142 @@ alongside.
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 from .types import ArgumentError, TaggedModel, register_type
 
 _C0 = 299792458.0
 
 
+class _LoadsOlderVersions:
+    """Fills the fields an earlier version did not have when a pickled object is loaded.
+
+    Simulation files store these objects pickled. A file written before a
+    field existed has no value for it, and pydantic would then raise on first
+    access, so the field's default is filled in instead.
+    """
+
+    def __setstate__(self, state: Dict) -> None:
+        values = state.get('__dict__', {})
+        for name, info in type(self).model_fields.items():
+            if name not in values and not info.is_required():
+                values[name] = info.get_default(call_default_factory=True)
+        super().__setstate__(state)
+
+
+def _sample_list(value):
+    """A 1D array or sequence of samples as a plain list of floats."""
+    if value is None:
+        return None
+    return np.asarray(value, dtype=float).ravel().tolist()
+
+
 @register_type
-class PulsedSource(TaggedModel):
+class PulseMeasurement(TaggedModel):
+    """A measured pulse, sampled in wavelength or in time, for `PulsedSource(shape='measured')`.
+
+    Give exactly one of `wavelength` (nm), for a measured spectrum, and `time`
+    (fs), for a temporal trace, with `intensity` on the same samples. A
+    spectrum's intensity is per unit wavelength, as a spectrometer records
+    it. The scale is arbitrary, since the source's `energy` or `peak_power`
+    sets it. `phase` (rad), optional, is the retrieved spectral or temporal
+    phase (from FROG or SPIDER, for example), in the convention of those
+    retrievals: the group delay is d phase / d omega, so a positive quadratic
+    spectral phase is a positive GDD, and the instantaneous angular frequency
+    is omega_0 - d phase / dt. Without a phase the pulse is taken as transform
+    limited, and the solver warns.
+
+    The solver fits the samples before it launches the pulse. `fit='smooth'`
+    (the default) is a smoothing spline of the intensity with a polynomial
+    phase whose order (2 to 4) the fit chooses. `fit='sech'` or `'gaussian'`
+    fits the analytic shapes of `PulsedSource` (width, center and chirp). The
+    fit's quality is 1 minus its normalized residual: the R^2 of the
+    intensity, less the intensity-weighted mean of 1 - cos of the phase error
+    when a phase is given. A fit below `min_fit_quality` is refused with an
+    error stating the quality reached and where the residual is largest.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    wavelength: Optional[List[float]] = None
+    time: Optional[List[float]] = None
+    intensity: List[float]
+    phase: Optional[List[float]] = None
+    fit: Literal['smooth', 'sech', 'gaussian'] = 'smooth'
+    min_fit_quality: float = 0.99
+
+    @field_validator('wavelength', 'time', 'intensity', 'phase', mode='before')
+    @classmethod
+    def _as_lists(cls, value):
+        return _sample_list(value)
+
+    @model_validator(mode='after')
+    def _validate(self) -> 'PulseMeasurement':
+        name = 'PulseMeasurement'
+        if (self.wavelength is None) == (self.time is None):
+            raise ArgumentError('give exactly one of wavelength and time', name, 'wavelength')
+        axis_name = 'wavelength' if self.wavelength is not None else 'time'
+        axis = np.asarray(self.wavelength if self.wavelength is not None else self.time)
+        intensity = np.asarray(self.intensity)
+        if axis.size != intensity.size:
+            raise ArgumentError(f'{axis_name} and intensity must have the same length', name, 'intensity')
+        if self.phase is not None and len(self.phase) != axis.size:
+            raise ArgumentError(f'phase and {axis_name} must have the same length', name, 'phase')
+        if axis.size < 8:
+            raise ArgumentError('a measurement needs at least 8 samples', name, axis_name)
+        values = [axis, intensity] + ([np.asarray(self.phase)] if self.phase is not None else [])
+        if not all(np.all(np.isfinite(v)) for v in values):
+            raise ArgumentError('every sample must be finite', name, axis_name)
+        if self.wavelength is not None and np.any(axis <= 0):
+            raise ArgumentError('every wavelength must be > 0', name, 'wavelength')
+        if np.unique(axis).size != axis.size:
+            raise ArgumentError(f'the {axis_name} samples must be distinct', name, axis_name)
+        if np.max(intensity) <= 0:
+            raise ArgumentError('the intensity needs a positive peak', name, 'intensity')
+        if not 0 <= self.min_fit_quality <= 1:
+            raise ArgumentError('min_fit_quality must be in [0, 1]', name, 'min_fit_quality')
+        return self
+
+    @property
+    def domain(self) -> Literal['spectral', 'temporal']:
+        """'spectral' for a sampled spectrum, 'temporal' for a sampled trace."""
+        return 'spectral' if self.wavelength is not None else 'temporal'
+
+
+@register_type
+class PulseFit(TaggedModel):
+    """The fit the solver accepted for a measured pulse, reported on the `PulseResponse`.
+
+    `model` is the fitted model and `quality` its goodness of fit (see
+    `PulseMeasurement`). The rest describe the launched pulse: `fwhm` (fs) its
+    intensity FWHM, `center_wavelength` (nm) its spectral centroid, `gdd`
+    (fs^2) and `tod` (fs^3) the second and third derivatives of its spectral
+    phase in the convention of `PulseMeasurement`, and `chirp` the fitted C of
+    a 'sech' or 'gaussian' model (None for 'smooth'). `transform_limited` is
+    True when the measurement had no phase. `energy_outside` is the fraction
+    of the fitted pulse's energy that fell outside the source's
+    `wavelength_range` (or time window) and was cut. `residual_peak` is where
+    the fit's residual is largest, on the measurement's own axis
+    (`residual_axis`, 'wavelength' in nm or 'time' in fs).
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    model: Literal['smooth', 'sech', 'gaussian']
+    quality: float
+    fwhm: float
+    center_wavelength: float
+    gdd: float
+    tod: float
+    chirp: Optional[float] = None
+    transform_limited: bool
+    energy_outside: float = 0.0
+    residual_peak: float
+    residual_axis: Literal['wavelength', 'time']
+
+
+@register_type
+class PulsedSource(_LoadsOlderVersions, TaggedModel):
     """A pulse launched into one port of the circuit.
 
     `mode` is the tracked mode index that carries the pulse, or a dict
@@ -40,6 +170,12 @@ class PulsedSource(TaggedModel):
     fs. `chirp` is the dimensionless C of exp(j C t^2 / (2 T0^2)): positive
     raises the instantaneous frequency across the pulse. `shape='cw'` launches
     a continuous wave of `peak_power` at `center_wavelength` (no `duration`).
+    `shape='measured'` launches the `measurement` (a `PulseMeasurement`),
+    fitted by the solver and scaled to `energy` or `peak_power`, with no
+    `duration` or `chirp` (the measurement carries both). A measured spectrum
+    sits at its own wavelengths, and `center_wavelength` stays the wavelength
+    at which the circuit is refined. A measured trace is centered on
+    `center_wavelength`.
 
     The pulse is resolved on `num_points` frequencies spanning
     `wavelength_range` (nm). The time window is `num_points` over the
@@ -55,8 +191,9 @@ class PulsedSource(TaggedModel):
     peak_power: Optional[float] = None
     port: str = 'left'
     mode: Union[int, Dict[int, complex]] = 0
-    shape: Literal['sech', 'gaussian', 'cw'] = 'sech'
+    shape: Literal['sech', 'gaussian', 'cw', 'measured'] = 'sech'
     chirp: float = 0.0
+    measurement: Optional[PulseMeasurement] = None
     repetition_rate: Optional[float] = None
     wavelength_range: Tuple[float, float] = (450.0, 3500.0)
     num_points: int = 16384
@@ -72,9 +209,20 @@ class PulsedSource(TaggedModel):
             raise ArgumentError('wavelength_range must be (min, max) with 0 < min < max', name, 'wavelength_range')
         if not lo < self.center_wavelength < hi:
             raise ArgumentError('center_wavelength must lie inside wavelength_range', name, 'center_wavelength')
+        if self.measurement is not None and self.shape != 'measured':
+            raise ArgumentError("a measurement goes with shape='measured'", name, 'measurement')
         if self.shape == 'cw':
             if self.peak_power is None or self.energy is not None:
                 raise ArgumentError("a 'cw' source takes peak_power (W) and no energy", name, 'peak_power')
+        elif self.shape == 'measured':
+            if self.measurement is None:
+                raise ArgumentError("shape='measured' needs a measurement (PulseMeasurement)", name, 'measurement')
+            if self.duration is not None:
+                raise ArgumentError('a measured source takes no duration: the measurement sets it', name, 'duration')
+            if self.chirp != 0:
+                raise ArgumentError('a measured source takes no chirp: the measurement sets it', name, 'chirp')
+            if (self.energy is None) == (self.peak_power is None):
+                raise ArgumentError('give exactly one of energy (pJ) and peak_power (W)', name, 'energy')
         else:
             if self.duration is None or self.duration <= 0:
                 raise ArgumentError('duration (fs FWHM) must be > 0', name, 'duration')
@@ -311,7 +459,7 @@ class PulsedProcess(TaggedModel):
 
 
 @register_type
-class PulseResponse(TaggedModel):
+class PulseResponse(_LoadsOlderVersions, TaggedModel):
     """The pulse at the recorded positions along the chain.
 
     `spectrum` is (records, modes, points), complex, in sqrt(J/Hz) on
@@ -322,7 +470,8 @@ class PulseResponse(TaggedModel):
     converted to untracked modes). `edge_energy` is, per record, the fraction
     of the energy in the outer 5 % of the time window: above about 1e-3 the
     pulse is wrapping around the window, and `num_points` should grow (the
-    solver warns there).
+    solver warns there). `measured_fit` is the `PulseFit` of a measured
+    source (None for an analytic one).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -341,6 +490,7 @@ class PulseResponse(TaggedModel):
     rank_per_slice: List[int]
     samples_per_slice: List[int]
     repetition_rate: Optional[float] = None
+    measured_fit: Optional[PulseFit] = None
 
     @property
     def wavelength(self) -> np.ndarray:

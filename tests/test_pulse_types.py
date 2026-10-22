@@ -1,28 +1,29 @@
-"""The pulsed solver's `Poling` wire type: its forms, their domain walls and the
-`domain_lengths` form an inverse design varies.
+"""The pulsed solver's wire types for a measured pulse: PulseMeasurement, the
+measured PulsedSource and the PulseFit that the PulseResponse reports.
 
-Every form gives the same thing, the positions (nm along the section) where
-the sign of chi(2) flips. `domain_lengths` lists the length of every domain in
-order, so its walls are the running sum, and any other form converts to it.
+Each one crosses the wire through its `__data_type__` tag, and a source or a
+response saved by an earlier version, before these fields existed, still loads.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import pickle
 from typing import Any
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
+from emodeconnection import PulseFit, PulseMeasurement, PulsedSource, PulseResponse
 from emodeconnection.emodeclient import obj_hook
-from emodeconnection.pulse import Poling
 from emodeconnection.types import ArgumentError, reconstruct
-
-SECTION = 100_000.0  # nm
 
 
 def _over_the_wire(value: Any) -> Any:
+    """What the client rebuilds from `value` after a trip through the protocol's
+    JSON, with arrays base64-encoded as the solver sends them."""
     payload = json.dumps(value.model_dump(), default=_array)
     return reconstruct(json.loads(payload, object_hook=obj_hook))
 
@@ -34,75 +35,166 @@ def _array(value: Any) -> Any:
     raise TypeError(type(value))
 
 
-@pytest.mark.parametrize(
-    'lengths, match',
-    [([], 'at least one'), ([2000.0, 0.0], '> 0'), ([2000.0, -5.0], '> 0')],
-)
-def test_domain_lengths_must_be_a_non_empty_list_of_positive_lengths(
-    lengths: list[float], match: str
-) -> None:
-    with pytest.raises(ArgumentError, match=match) as info:
-        Poling(domain_lengths=lengths)
-    assert info.value.argument == 'domain_lengths'
+def _spectral(**kw: Any) -> PulseMeasurement:
+    wl = np.linspace(1500.0, 1600.0, 41)
+    args: dict = dict(wavelength=wl, intensity=np.exp(-(((wl - 1550.0) / 15.0) ** 2)))
+    args.update(kw)
+    return PulseMeasurement(**args)
 
 
-def test_domain_lengths_is_one_of_the_forms() -> None:
+def _measured_source(**kw: Any) -> PulsedSource:
+    args: dict = dict(
+        center_wavelength=1550.0, shape='measured', measurement=_spectral(), energy=1.0
+    )
+    args.update(kw)
+    return PulsedSource(**args)
+
+
+# ---------------------------------------------------------------------------
+# PulseMeasurement
+# ---------------------------------------------------------------------------
+
+
+def test_a_measurement_takes_numpy_arrays_and_defaults_to_the_smooth_fit() -> None:
+    m = _spectral(phase=np.zeros(41))
+    assert isinstance(m.wavelength, list) and len(m.wavelength) == 41
+    assert m.time is None
+    assert m.fit == 'smooth'
+    assert m.min_fit_quality == 0.99
+    assert m.domain == 'spectral'
+    t = PulseMeasurement(time=np.linspace(-500, 500, 64), intensity=np.ones(64))
+    assert t.domain == 'temporal'
+
+
+def test_a_measurement_holds_exactly_one_domain() -> None:
+    wl = np.linspace(1500.0, 1600.0, 41)
+    with pytest.raises(ArgumentError, match='exactly one of wavelength and time'):
+        PulseMeasurement(intensity=np.ones(41))
+    with pytest.raises(ArgumentError, match='exactly one of wavelength and time'):
+        PulseMeasurement(wavelength=wl, time=wl, intensity=np.ones(41))
+
+
+def test_a_measurement_refuses_mismatched_or_bad_samples() -> None:
+    wl = np.linspace(1500.0, 1600.0, 41)
+    with pytest.raises(ArgumentError, match='same length'):
+        PulseMeasurement(wavelength=wl, intensity=np.ones(40))
+    with pytest.raises(ArgumentError, match='same length'):
+        PulseMeasurement(wavelength=wl, intensity=np.ones(41), phase=np.ones(3))
+    with pytest.raises(ArgumentError, match='at least 8'):
+        PulseMeasurement(wavelength=wl[:5], intensity=np.ones(5))
+    with pytest.raises(ArgumentError, match='finite'):
+        PulseMeasurement(wavelength=wl, intensity=np.full(41, np.nan))
+    with pytest.raises(ArgumentError, match='positive peak'):
+        PulseMeasurement(wavelength=wl, intensity=np.zeros(41))
+    with pytest.raises(ArgumentError, match='wavelength'):
+        PulseMeasurement(wavelength=-wl, intensity=np.ones(41))
+    with pytest.raises(ArgumentError, match='distinct'):
+        PulseMeasurement(wavelength=np.r_[wl[:-1], wl[0]], intensity=np.ones(41))
+    with pytest.raises(ArgumentError, match='min_fit_quality'):
+        _spectral(min_fit_quality=1.5)
+    with pytest.raises(ValidationError, match='fit'):
+        _spectral(fit='lorentzian')
+
+
+def test_a_measurement_round_trips_the_wire() -> None:
+    m = _spectral(phase=np.linspace(0, 1, 41), fit='gaussian', min_fit_quality=0.9)
+    back = _over_the_wire(m)
+    assert isinstance(back, PulseMeasurement)
+    assert back == m
+
+
+# ---------------------------------------------------------------------------
+# PulsedSource(shape='measured')
+# ---------------------------------------------------------------------------
+
+
+def test_a_measured_source_needs_a_measurement_and_no_analytic_shape() -> None:
+    s = _measured_source()
+    assert s.duration is None and s.measurement is not None
+    with pytest.raises(ArgumentError, match='measurement'):
+        PulsedSource(center_wavelength=1550.0, shape='measured', energy=1.0)
+    with pytest.raises(ArgumentError, match='duration'):
+        _measured_source(duration=100.0)
+    with pytest.raises(ArgumentError, match='chirp'):
+        _measured_source(chirp=1.0)
     with pytest.raises(ArgumentError, match='exactly one'):
-        Poling(period=4000.0, domain_lengths=[2000.0])
-    with pytest.raises(ArgumentError, match='exactly one'):
-        Poling(domain_walls=[2000.0], domain_lengths=[2000.0])
+        _measured_source(energy=None)
+    with pytest.raises(ArgumentError, match="shape='measured'"):
+        PulsedSource(center_wavelength=1550.0, duration=100.0, energy=1.0, measurement=_spectral())
 
 
-def test_the_walls_of_domain_lengths_are_their_running_sum() -> None:
-    rng = np.random.default_rng(7)
-    lengths = list(rng.uniform(1500.0, 2500.0, size=40))
-    # 40 domains of about 2 um end inside the 100 um section, so their end is a wall too
-    walls = list(np.cumsum(lengths))
-    by_lengths = Poling(domain_lengths=lengths).walls(SECTION)
-    by_walls = Poling(domain_walls=walls).walls(SECTION)
-    assert by_lengths == by_walls  # exactly
+def test_a_measured_source_round_trips_the_wire() -> None:
+    s = _measured_source(peak_power=10.0, energy=None)
+    back = _over_the_wire(s)
+    assert isinstance(back, PulsedSource)
+    assert isinstance(back.measurement, PulseMeasurement)
+    assert back == s
 
 
-def test_domains_past_the_section_are_dropped_and_the_last_one_runs_to_its_end() -> None:
-    poling = Poling(domain_lengths=[3000.0, 4000.0, 5000.0])
-    # the third domain ends past a 9 um section, so its end is no wall
-    assert poling.walls(9000.0) == [3000.0, 7000.0]
-    # a section longer than the domains: the sign flips once more at their end
-    assert poling.walls(20000.0) == [3000.0, 7000.0, 12000.0]
-    assert poling.total_length == 12000.0
+def _older(model: Any, *missing: str) -> Any:
+    """`model` as an earlier version pickled it, before the `missing` fields existed."""
+    state = model.__getstate__()
+    state['__dict__'] = {k: v for k, v in state['__dict__'].items() if k not in missing}
+    old = type(model).__new__(type(model))
+    old.__setstate__(state)
+    return pickle.loads(pickle.dumps(old))
 
 
-@pytest.mark.parametrize(
-    'poling',
-    [
-        Poling(period=4000.0),
-        Poling(period=4000.0, duty_cycle=0.3),
-        Poling(z_knots=[0.0, 50_000.0, SECTION], periods=[4000.0, 3500.0, 4200.0]),
-        Poling(
-            z_knots=[0.0, 30_000.0, 60_000.0, SECTION],
-            periods=[4000.0, 3500.0, 4200.0, 3900.0],
-            interpolation='spline',
-        ),
-        Poling(period=4000.0, jitter_rms=50.0, seed=3),
-        Poling(domain_walls=[1000.0, 5000.0, 7500.0]),
-    ],
-)
-def test_every_form_converts_to_domain_lengths_with_the_same_walls(poling: Poling) -> None:
-    lengths = poling.to_domain_lengths(SECTION)
-    assert all(v > 0 for v in lengths)
-    assert sum(lengths) == pytest.approx(SECTION, rel=1e-15)
-    walls = Poling(domain_lengths=lengths, inverted_first=poling.inverted_first).walls(SECTION)
-    np.testing.assert_allclose(walls, poling.walls(SECTION), rtol=0, atol=1e-9)
+def test_a_source_saved_before_measured_pulses_still_loads() -> None:
+    s = PulsedSource(center_wavelength=1550.0, duration=100.0, energy=1.0)
+    old = _older(s, 'measurement')
+    assert old.measurement is None
+    assert old == s
 
 
-def test_a_fixed_period_has_its_half_period_domains() -> None:
-    lengths = Poling(period=4000.0).to_domain_lengths(SECTION)
-    assert len(lengths) == 50
-    np.testing.assert_allclose(lengths, 2000.0, rtol=1e-12)
+# ---------------------------------------------------------------------------
+# PulseFit on the PulseResponse
+# ---------------------------------------------------------------------------
 
 
-def test_domain_lengths_round_trip_the_wire() -> None:
-    poling = Poling(domain_lengths=[2000.0, 2100.5, 1999.25], inverted_first=True)
-    back = _over_the_wire(poling)
-    assert isinstance(back, Poling)
-    assert back == poling
+def _fit() -> PulseFit:
+    return PulseFit(
+        model='sech',
+        quality=0.998,
+        fwhm=101.0,
+        center_wavelength=1551.0,
+        gdd=1200.0,
+        tod=-300.0,
+        chirp=1.5,
+        transform_limited=False,
+        energy_outside=0.0,
+        residual_peak=1549.0,
+        residual_axis='wavelength',
+    )
+
+
+def _response(fit: PulseFit | None) -> PulseResponse:
+    return PulseResponse(
+        z=np.array([0.0, 1e6]),
+        frequency=np.linspace(150e12, 250e12, 16),
+        spectrum=np.zeros((2, 1, 16), dtype=complex),
+        modes=[0],
+        reference_index=0,
+        energy=np.zeros((2, 1)),
+        junction_loss=[],
+        edge_energy=np.zeros(2),
+        domain_walls=[],
+        steps=1,
+        rejected_steps=0,
+        rank_per_slice=[1],
+        samples_per_slice=[8],
+        measured_fit=fit,
+    )
+
+
+def test_the_response_reports_the_fit_across_the_wire() -> None:
+    back = _over_the_wire(_response(_fit()))
+    assert isinstance(back, PulseResponse)
+    assert isinstance(back.measured_fit, PulseFit)
+    assert back.measured_fit == _fit()
+    assert _over_the_wire(_response(None)).measured_fit is None
+
+
+def test_a_response_saved_before_measured_pulses_still_loads() -> None:
+    old = _older(_response(None), 'measured_fit')
+    assert old.measured_fit is None
