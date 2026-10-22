@@ -223,3 +223,12 @@ def test_an_optimization_result_round_trips_the_wire_and_json() -> None:
     assert back.best.index == 1
     assert back.x == res.x and back.status == 'converged'
     assert json.loads(json.dumps(res.to_json()))['history'][1]['index'] == 1
+
+
+def test_a_parameter_objective_reads_the_point() -> None:
+    o = Objective('parameter', key='section, taper, length', goal='minimize')
+    assert o.result is None
+    assert o.value({}, {'section, taper, length': 1200.0}) == pytest.approx(1200.0)
+    assert _over_the_wire(o) == o
+    with pytest.raises(ArgumentError, match='key'):
+        Objective('parameter')

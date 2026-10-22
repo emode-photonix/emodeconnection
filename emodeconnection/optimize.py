@@ -44,6 +44,7 @@ OBJECTIVE_KINDS = (
     'loss',
     'band_energy',
     'band_average',
+    'parameter',
 )
 
 #: The result of `evaluate()` each kind of objective reads.
@@ -56,6 +57,7 @@ _RESULT_OF = {
     'loss': 'loss_dB_per_m',
     'band_energy': 'pulse_response',
     'band_average': 'pulse_response',
+    'parameter': None,
 }
 
 GOALS = ('maximize', 'minimize', 'target')
@@ -159,6 +161,8 @@ class Objective(TaggedModel):
     - `'band_energy'` (pJ) and `'band_average'` (average power, W) of a pulse
       in `band = (min, max)` nm at the output, of tracked mode `mode` (default
       all of them).
+    - `'parameter'`, the value of the parameter `key` itself, to make a
+      device as short or as narrow as its constraints allow.
 
     `goal` is `'maximize'` (the default), `'minimize'`, or `'target'` with a
     `target` value, which minimizes the squared distance to it. `weight`
@@ -176,7 +180,9 @@ class Objective(TaggedModel):
         'loss',
         'band_energy',
         'band_average',
+        'parameter',
     ]
+    key: Optional[str] = None
     out: Optional[Union[int, str]] = None
     into: Optional[Union[int, str]] = None
     wavelength: Optional[float] = None
@@ -217,6 +223,8 @@ class Objective(TaggedModel):
                 raise ArgumentError(
                     f"a '{self.kind}' objective needs band=(min, max) in nm", name, 'band'
                 )
+        if (self.kind == 'parameter') != (self.key is not None):
+            raise ArgumentError("give key= exactly for a 'parameter' objective", name, 'key')
         if (self.goal == 'target') != (self.target is not None):
             raise ArgumentError("give target= exactly when goal='target'", name, 'target')
         if not self.weight > 0:
@@ -224,12 +232,19 @@ class Objective(TaggedModel):
         return self
 
     @property
-    def result(self) -> str:
-        """The `evaluate()` result this objective reads."""
+    def result(self) -> Optional[str]:
+        """The `evaluate()` result this objective reads (None for a parameter)."""
         return _RESULT_OF[self.kind]
 
-    def value(self, results: Mapping[str, Any]) -> float:
-        """This objective's quantity in an evaluation's `results`."""
+    def value(
+        self, results: Mapping[str, Any], parameters: Optional[Mapping[str, Any]] = None
+    ) -> float:
+        """This objective's quantity in an evaluation's `results` (and, for a
+        `'parameter'` objective, its `parameters`)."""
+        if self.kind == 'parameter':
+            if parameters is None or self.key not in parameters:
+                raise ArgumentError(f"the point holds no '{self.key}'", 'Objective', 'key')
+            return float(parameters[self.key])
         if self.result not in results:
             raise ArgumentError(f"the results hold no '{self.result}'", 'Objective', 'kind')
         data = _at_wavelength(results[self.result], self.wavelength)
