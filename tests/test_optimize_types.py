@@ -8,6 +8,7 @@ writes as JSON, which is how a run's history is kept in a file.
 
 from __future__ import annotations
 
+import base64
 import json
 from typing import Any
 
@@ -22,20 +23,21 @@ from emodeconnection import (
     Parameter,
     SMatrix,
 )
-from emodeconnection.types import ArgumentError, reconstruct, serialize
+from emodeconnection.emodeclient import obj_hook
+from emodeconnection.types import ArgumentError, reconstruct
 
 
 def _over_the_wire(value: Any) -> Any:
-    """What the other side rebuilds from `value` after a JSON trip."""
-    payload = json.dumps(serialize(value.model_dump()), default=_array)
-    return reconstruct(json.loads(payload))
+    """What the client rebuilds from `value` after a trip through the protocol's
+    JSON, with arrays base64-encoded as the solver sends them."""
+    payload = json.dumps(value.model_dump(), default=_array)
+    return reconstruct(json.loads(payload, object_hook=obj_hook))
 
 
 def _array(value: Any) -> Any:
     if isinstance(value, np.ndarray):
-        if np.iscomplexobj(value):
-            return {'re': value.real.tolist(), 'im': value.imag.tolist()}
-        return value.tolist()
+        data = base64.b64encode(np.ascontiguousarray(value).data).decode()
+        return {'__ndarray__': data, 'dtype': str(value.dtype), 'shape': value.shape}
     raise TypeError(type(value))
 
 
@@ -159,7 +161,9 @@ def test_a_constraint_measures_its_violation() -> None:
 
 
 def _evaluation(index: int = 0) -> Evaluation:
-    S = SMatrix(port_sizes=(1, 1), data=np.array([[0.1, 0.9j], [0.9j, 0.1]]), port_names=('left', 'right'))
+    S = SMatrix(
+        port_sizes=(1, 1), data=np.array([[0.1, 0.9j], [0.9j, 0.1]]), port_names=('left', 'right')
+    )
     return Evaluation(
         index=index,
         parameters={'section, g, length': 1000.0, 'lengths': [1.0, 2.0]},
