@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from emodeconnection.emodeconnection import _forward_stdout
+from emodeconnection.emodeconnection import _forward_stdout, _launch_solver
 
 # Generous: a forwarder that works returns within milliseconds of the child
 # exiting. One that does not (a line reader on a byte pipe never sees its
@@ -121,3 +121,53 @@ def test_forward_stdout_closes_pipe_on_eof(monkeypatch: pytest.MonkeyPatch) -> N
     assert forwarded.recorder.text == "done\n"
     assert forwarded.proc.stdout is not None
     assert forwarded.proc.stdout.closed
+
+
+# -- quiet mode ----------------------------------------------------------------
+
+# Stands in for the solver: one line of output on stdout, one warning on stderr.
+_SOLVER = [
+    sys.executable,
+    "-c",
+    "import sys; print('Solving modes... done', flush=True); "
+    "print('Warning: the window is small', file=sys.stderr, flush=True)",
+]
+
+
+def _run(ipython: bool, quiet: bool) -> subprocess.Popen[bytes]:
+    proc = _launch_solver(list(_SOLVER), ipython=ipython, quiet=quiet)
+    proc.wait(_FORWARD_TIMEOUT)
+    return proc
+
+
+@pytest.mark.parametrize("ipython", [False, True], ids=["terminal", "notebook"])
+def test_a_quiet_session_shows_no_output_but_still_warns(
+    ipython: bool, capfd: pytest.CaptureFixture[str]
+) -> None:
+    proc = _run(ipython=ipython, quiet=True)
+    # nothing to forward into a cell, and nothing reached the terminal
+    assert proc.stdout is None
+    out, err = capfd.readouterr()
+    assert "Solving modes" not in out
+    assert "Warning: the window is small" in err
+
+
+def test_a_normal_terminal_session_is_unchanged(capfd: pytest.CaptureFixture[str]) -> None:
+    proc = _run(ipython=False, quiet=False)
+    assert proc.stdout is None
+    out, err = capfd.readouterr()
+    assert "Solving modes... done" in out
+    assert "Warning: the window is small" in err
+
+
+def test_a_normal_notebook_session_forwards_its_output(
+    monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    recorder = _Recorder()
+    monkeypatch.setattr(builtins, "print", recorder)
+    proc = _launch_solver(list(_SOLVER), ipython=True, quiet=False)
+    assert proc.stdout is not None
+    _forward_stdout(proc.stdout)
+    proc.wait(_FORWARD_TIMEOUT)
+    assert recorder.text == "Solving modes... done\n"
+    assert "Warning: the window is small" in capfd.readouterr().err

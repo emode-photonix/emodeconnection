@@ -11,9 +11,12 @@ from enum import Enum
 from pydantic import (
     BaseModel,
     ConfigDict,
+    SerializerFunctionWrapHandler,
     ValidationInfo,
     computed_field,
     field_validator,
+    model_serializer,
+    model_validator,
 )
 import math
 import numpy as np
@@ -68,8 +71,8 @@ class TaggedModel(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def _nan_to_none(cls, v: Any, info: ValidationInfo):
-        # this is necessary because matlab doesn't support None, so they are all
-        # changed to NaNs in serialization.
+        # A .mat file has no null, so None is written there as NaN. Read a NaN
+        # back as None wherever the field allows None.
         if not (isinstance(v, float) and math.isnan(v)):
             return v  # nothing to do
         if info.field_name is None:
@@ -313,6 +316,78 @@ class WavelengthDict(TaggedModel, Mapping):
 
     def __repr__(self) -> str:
         return f"WavelengthDict({self.data!r})"
+
+    def __str__(self) -> str:
+        return repr(self)
+
+@register_type
+class Confinement(TaggedModel, Mapping):
+    """A read-only mapping from shape name to the confinement factor of each mode.
+
+    Returned by `confinement()`. Each shape name (or ``'vs'`` for a polygon
+    given by ``vertices``) maps to a `dict` from mode index to that mode's
+    confinement factor, so ``result['core'][0]`` is the fundamental mode's
+    factor in the shape ``'core'``. It behaves like a `dict` keyed by shape
+    name: index it, iterate it, call ``.keys()``, ``.values()``, ``.items()``
+    or ``.get()``, or turn it into a plain `dict` with ``dict(result)``.
+
+    It exists because JSON object keys are always strings. A plain dict keyed
+    by mode index would arrive here keyed by ``'0'``. This type carries its
+    mode indices through validation, which turns them back into integers.
+
+    On the wire the shape names sit at the top level beside the type tag, so
+    an emodeconnection that predates this type reads the reply as the plain
+    dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
+    entry).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    factors: dict[str, dict[int, float]]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_wire(cls, values: Any) -> Any:
+        """Accept the flat wire form, ``{shape: {mode: factor}}``, as well as ``factors=``."""
+        if not isinstance(values, Mapping):
+            return values
+        factors = values.get("factors")
+        if (
+            set(values) == {"factors"}
+            and isinstance(factors, Mapping)
+            and all(isinstance(modes, Mapping) for modes in factors.values())
+        ):
+            return values
+        return {"factors": dict(values)}
+
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        dumped = handler(self)
+        return {"__data_type__": dumped["__data_type__"], **dumped["factors"]}
+
+    def __getitem__(self, shape: str) -> dict[int, float]:
+        return self.factors[shape]
+
+    def __iter__(self) -> Iterator[str]:  # type: ignore[override]
+        return iter(self.factors)
+
+    def __len__(self) -> int:
+        return len(self.factors)
+
+    def __contains__(self, shape: object) -> bool:
+        return shape in self.factors
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Confinement):
+            return self.factors == other.factors
+        if isinstance(other, Mapping):
+            return self.factors == dict(other)
+        return NotImplemented
+
+    # Unhashable, like the dict it stands in for.
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"Confinement({self.factors!r})"
 
     def __str__(self) -> str:
         return repr(self)
