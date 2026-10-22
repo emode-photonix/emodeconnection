@@ -426,7 +426,8 @@ class PulsedProcess(TaggedModel):
     modes). `tpa=None` turns two-photon absorption on wherever a material has
     a two-photon coefficient. The section's cross-sections are solved at
     `dispersion_samples` wavelengths (Chebyshev nodes over the source's
-    `wavelength_range`); the tracked fields are expanded in patterns whose
+    `wavelength_range`), by default as many as the band's width needs. The
+    tracked fields are expanded in patterns whose
     singular values stay above `pattern_threshold` relative to the first, at
     most `max_rank` of them.
     """
@@ -440,14 +441,14 @@ class PulsedProcess(TaggedModel):
     tpa: Optional[bool] = None
     modes: Optional[List[int]] = None
     poling: Optional[Poling] = None
-    dispersion_samples: int = 24
+    dispersion_samples: Optional[int] = None
     pattern_threshold: float = 1e-3
     max_rank: int = 12
 
     @model_validator(mode='after')
     def _validate(self) -> 'PulsedProcess':
         name = 'PulsedProcess'
-        if self.dispersion_samples < 4:
+        if self.dispersion_samples is not None and self.dispersion_samples < 4:
             raise ArgumentError('dispersion_samples must be at least 4', name, 'dispersion_samples')
         if not 0 <= self.pattern_threshold < 1:
             raise ArgumentError('pattern_threshold must be in [0, 1)', name, 'pattern_threshold')

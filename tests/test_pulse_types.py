@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from emodeconnection import PulseFit, PulseMeasurement, PulsedSource, PulseResponse
+from emodeconnection import PulseFit, PulseMeasurement, PulsedProcess, PulsedSource, PulseResponse
 from emodeconnection.emodeclient import obj_hook
 from emodeconnection.types import ArgumentError, reconstruct
 
@@ -198,3 +198,14 @@ def test_the_response_reports_the_fit_across_the_wire() -> None:
 def test_a_response_saved_before_measured_pulses_still_loads() -> None:
     old = _older(_response(None), 'measured_fit')
     assert old.measured_fit is None
+
+
+def test_dispersion_samples_default_to_the_servers_choice():
+    # None lets the server size the sampling to the band (wider bands need more)
+    assert PulsedProcess().dispersion_samples is None
+    assert PulsedProcess(dispersion_samples=4).dispersion_samples == 4
+    with pytest.raises(ArgumentError):
+        PulsedProcess(dispersion_samples=3)
+    back = _over_the_wire(PulsedProcess())
+    assert isinstance(back, PulsedProcess)
+    assert back.dispersion_samples is None
