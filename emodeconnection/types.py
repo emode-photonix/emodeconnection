@@ -398,7 +398,7 @@ class ModeDict(TaggedModel, Mapping):
 
     A shape returned by ``get_shape()`` carries one under
     ``metadata['confinement']``, the confinement factor of each mode in that
-    shape, so ``shape.metadata['confinement'][0]`` is the fundamental mode's.
+    shape, so ``shape['metadata']['confinement'][0]`` is the fundamental mode's.
     It behaves like a `dict` keyed by integer mode index: index it, iterate it,
     call ``.keys()``, ``.values()``, ``.items()`` or ``.get()``, or turn it into
     a plain `dict` with ``dict(result)``.

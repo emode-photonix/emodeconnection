@@ -3,7 +3,7 @@
 A shape returned by ``get_shape()`` carries the confinement factor of each mode
 under ``metadata['confinement']``. JSON object keys are always strings, so a
 plain dict reached the client keyed by ``'0'``, ``'1'``, and
-``shape.metadata['confinement'][0]`` raised ``KeyError``. ``ModeDict`` carries
+``shape['metadata']['confinement'][0]`` raised ``KeyError``. ``ModeDict`` carries
 the mode indices through validation, which turns them back into integers.
 
 On the wire it is a flat object, the mode indices at the top level beside the
