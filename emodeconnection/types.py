@@ -392,6 +392,73 @@ class Confinement(TaggedModel, Mapping):
     def __str__(self) -> str:
         return repr(self)
 
+@register_type
+class ModeDict(TaggedModel, Mapping):
+    """A read-only mapping from mode index to one result per mode.
+
+    A shape returned by ``get_shape()`` carries one under
+    ``metadata['confinement']``, the confinement factor of each mode in that
+    shape, so ``shape['metadata']['confinement'][0]`` is the fundamental mode's.
+    It behaves like a `dict` keyed by integer mode index: index it, iterate it,
+    call ``.keys()``, ``.values()``, ``.items()`` or ``.get()``, or turn it into
+    a plain `dict` with ``dict(result)``.
+
+    It exists because JSON object keys are always strings. A plain dict keyed
+    by mode index would arrive here keyed by ``'0'``. This type carries its
+    mode indices through validation, which turns them back into integers.
+
+    On the wire the mode indices sit at the top level beside the type tag, so
+    an emodeconnection that predates this type reads the reply as the plain
+    dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
+    entry).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    data: dict[int, Any]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_wire(cls, values: Any) -> Any:
+        """Accept the flat wire form, ``{mode: value}``, as well as ``data=``."""
+        if not isinstance(values, Mapping):
+            return values
+        if set(values) == {"data"} and isinstance(values["data"], Mapping):
+            return values
+        return {"data": dict(values)}
+
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler: SerializerFunctionWrapHandler) -> dict[Any, Any]:
+        dumped = handler(self)
+        return {"__data_type__": dumped["__data_type__"], **dumped["data"]}
+
+    def __getitem__(self, mode: int) -> Any:
+        return self.data[mode]
+
+    def __iter__(self) -> Iterator[int]:  # type: ignore[override]
+        return iter(self.data)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __contains__(self, mode: object) -> bool:
+        return mode in self.data
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ModeDict):
+            return self.data == other.data
+        if isinstance(other, Mapping):
+            return self.data == dict(other)
+        return NotImplemented
+
+    # Unhashable, like the dict it stands in for.
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"ModeDict({self.data!r})"
+
+    def __str__(self) -> str:
+        return repr(self)
+
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
     Reconstructs an exception from its serialized form.

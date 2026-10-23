@@ -133,7 +133,7 @@ extending an existing module rather than inventing a new ad hoc serialization pa
 - **`emodeclient.py`** — socket transport, `recv`, `obj_hook`, `reconstruct`.
 - **`types.py`** — `@register_type`, `__data_type__`, the key-preserving result
   mappings (`WavelengthDict` keyed by wavelength, `Confinement` keyed by shape and mode
-  index), and the user-facing exception hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
+  index, `ModeDict` keyed by mode index), and the user-facing exception hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
   `EPHKeyError`, `NameError`). All EMode errors reach the user as one of these.
 - **`port.py`** — `Port`, `Bounds`, `JunctionOverride`, `make_angled_facet_port`.
 - **`nonlinear.py`** — chi(2) process wire types (`SHGProcess`, `SFGProcess`,
