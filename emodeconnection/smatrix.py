@@ -139,11 +139,21 @@ class SMatrix(TaggedModel, PortIndexed):
         return self.data[np.ix_(row_idx, col_idx)]
 
     def transmission(self, from_port: int | str = 0, to_port: int | str = 1) -> np.ndarray:
+        """Complex transmission amplitudes from from_port to to_port (2-port only).
+
+        These are amplitudes, not powers. When the modes carry unequal power
+        their squared magnitudes are not the transmitted power, so use
+        `power` for that.
+        """
         if self.num_ports != 2:
             raise ValueError('transmission() only valid for 2-port S-matrices')
         return self.block(to_port, from_port)
 
     def reflection(self, port: int | str = 0) -> np.ndarray:
+        """Complex reflection amplitudes back into port (2-port only).
+
+        These are amplitudes, not powers. Use `power` for the reflected power.
+        """
         if self.num_ports != 2:
             raise ValueError('reflection() only valid for 2-port S-matrices')
         return self.block(port, port)
@@ -171,9 +181,29 @@ class SMatrix(TaggedModel, PortIndexed):
             return 0.0
         return float(np.linalg.norm(data.conj().T @ power @ data - power) / scale)
 
+    def power(self, from_port: int | str = 0, to_port: int | str = 1) -> np.ndarray:
+        """Power carried from each mode of from_port into each mode of to_port.
+
+        Entry (i, j) is ``|S_ij|^2 P_i / P_j``, the fraction of the power in
+        mode j of from_port that leaves in mode i of to_port, where P is
+        mode_power. Without mode_power it is the plain ``|S_ij|^2``. Name the
+        same port twice for the reflected power, as in `reflection`.
+        """
+        row_idx = self._gather_indices(to_port)
+        col_idx = self._gather_indices(from_port)
+        squared = np.abs(self.data[np.ix_(row_idx, col_idx)]) ** 2
+        if self.mode_power is None:
+            return squared
+        return squared * self.mode_power[row_idx][:, None] / self.mode_power[col_idx][None, :]
+
     def insertion_loss_dB(self, from_port: int | str, to_port: int | str, mode: int = 0) -> float:
-        col = self.block(to_port, from_port)[:, mode]
-        return float(-10 * np.log10(np.sum(np.abs(col) ** 2)))
+        """Loss in dB of the power that mode of from_port sends into to_port.
+
+        The power is ``sum_i |S_ij|^2 P_i / P_j`` over the modes i of to_port,
+        with P the mode_power when present, and the plain sum of ``|S_ij|^2``
+        otherwise.
+        """
+        return float(-10 * np.log10(np.sum(self.power(from_port, to_port)[:, mode])))
 
     def plot(self, kind: Literal['abs**2', 'phase'] = 'abs**2', ax=None):
         """
