@@ -99,8 +99,7 @@ class BSpline(TaggedModel):
     `coefficients` is a list of (x, z) control points. `knots` is the knot
     vector; standard relation `len(knots) == len(coefficients) + degree + 1`.
 
-    Reaches the v1 build only via `em.to_gds` (preview); v1 `em.to_section`
-    raises before reaching a transform.
+    A B-spline centerline segment, usable anywhere a `Line` or `Arc` is.
     """
     model_config = ConfigDict(frozen=True)
 
