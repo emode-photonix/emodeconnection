@@ -56,7 +56,11 @@ class Chi2Process(TaggedModel):
     # slice). The envelope equations are smooth and the residual error is far
     # below the discretisation error of the modes driving them.
     solver_rtol: float = 1e-6
-    solver_atol: float = 1e-9
+    # None (the default) lets the server choose the absolute tolerance from the
+    # amplitudes in the slice: solver_rtol times the weakest field it carries or
+    # generates. A fixed value, in sqrt(W), overrides that. A fixed 1e-9 did not
+    # resolve the field a uW pump generates (emode#971).
+    solver_atol: float | None = None
     max_step: float | None = None
     # Forward mode amplitudes are sampled this many times along each chi(2)
     # slice after the driven solve converges, and reach the caller as
@@ -88,7 +92,7 @@ class Chi2Process(TaggedModel):
             raise ArgumentError(
                 'wavelength_tolerance must be > 0', name, 'wavelength_tolerance'
             )
-        if self.solver_rtol <= 0 or self.solver_atol <= 0:
+        if self.solver_rtol <= 0 or (self.solver_atol is not None and self.solver_atol <= 0):
             raise ArgumentError(
                 'solver_rtol/solver_atol must be > 0', name, 'solver_rtol'
             )
