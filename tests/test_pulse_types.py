@@ -209,3 +209,21 @@ def test_dispersion_samples_default_to_the_servers_choice():
     back = _over_the_wire(PulsedProcess())
     assert isinstance(back, PulsedProcess)
     assert back.dispersion_samples is None
+
+
+# ---------------------------------------------------------------------------
+# The time window's empty stretch on the PulseResponse
+# ---------------------------------------------------------------------------
+
+
+def test_the_window_gap_crosses_the_wire() -> None:
+    response = _response(None).model_copy(update={'window_gap': np.array([0.9, 0.02])})
+    back = _over_the_wire(response)
+    np.testing.assert_allclose(back.window_gap, [0.9, 0.02])
+    assert back.smallest_window_gap() == pytest.approx(0.02)
+
+
+def test_a_response_saved_before_the_window_gap_still_loads() -> None:
+    old = _older(_response(None), 'window_gap')
+    assert len(old.window_gap) == 0
+    assert old.smallest_window_gap() is None
