@@ -158,28 +158,42 @@ class SMatrix(TaggedModel, PortIndexed):
             raise ValueError('reflection() only valid for 2-port S-matrices')
         return self.block(port, port)
 
-    def unitarity_error(self) -> float:
+    def unitarity_error(self, from_ports: int | str | list[int | str] | None = None) -> float:
         """How far the S-matrix is from conserving power.
 
-        With mode_power, this is the power-weighted balance
-        ``||S^H P S - P||_fro / ||P||_fro``, where P is the diagonal matrix of
-        mode_power. Modes that carry no real power (lossy modes) drop out, and
-        the result is independent of the matrix size and of the power scale.
-        When every mode carries unit power, ||P||_fro is the square root of the
-        mode count, so a 10% gain on every mode gives 0.1.
+        Each mode that carries positive real power is scaled to unit power,
+        ``S'_ij = sqrt(P_i) S_ij / sqrt(P_j)`` with P the mode_power, and the
+        result is ``||S'^H S' - I||_fro / sqrt(n)`` over the n incident modes
+        counted. Modes that carry no positive real power (lossy modes) have no
+        power to conserve and drop out. A lossless S-matrix reads 0, a 10% gain
+        on every mode reads 0.1, and the value depends neither on the matrix
+        size nor on the power scale.
 
-        Without mode_power, this is ``||S^H S - I||_fro``, which measures power
-        conservation only when every mode carries unit power, and which grows
-        with the number of modes.
+        Without mode_power every mode counts as carrying unit power, which
+        measures power conservation only when the modes are power-orthonormal.
+
+        Parameters
+        ----------
+        from_ports : int, str or list, optional
+            Count only the modes incident from these ports (by index or name).
+            Every outgoing mode still counts. A port whose basis is truncated
+            cannot receive all that another port sends, so the whole matrix
+            then loses power while the balance from the other port holds.
+            All ports by default.
         """
-        data = self.block(list(range(self.num_ports)), list(range(self.num_ports)))
-        if self.mode_power is None:
-            return float(np.linalg.norm(data.conj().T @ data - np.eye(self.total_modes)))
-        power = np.diag(self.mode_power)
-        scale = np.linalg.norm(power)
-        if scale == 0:
+        n = self.total_modes
+        power = np.ones(n) if self.mode_power is None else self.mode_power
+        carries = power > 1e-9 * power.max() if power.max() > 0 else np.zeros(n, dtype=bool)
+        rows = np.flatnonzero(carries)
+        incident = np.arange(n) if from_ports is None else self._gather_indices(from_ports)
+        cols = incident[carries[incident]]
+        if cols.size == 0:
             return 0.0
-        return float(np.linalg.norm(data.conj().T @ power @ data - power) / scale)
+        root = np.sqrt(power[rows])
+        scaled = self.data[np.ix_(rows, rows)] * root[:, None] / root[None, :]
+        gram = scaled.conj().T @ scaled[:, np.searchsorted(rows, cols)]
+        identity = (rows[:, None] == cols[None, :]).astype(float)
+        return float(np.linalg.norm(gram - identity) / np.sqrt(cols.size))
 
     def power(self, from_port: int | str = 0, to_port: int | str = 1) -> np.ndarray:
         """Power carried from each mode of from_port into each mode of to_port.
