@@ -108,9 +108,11 @@ def test_a_measurement_takes_a_constant_background() -> None:
     assert _spectral(background='auto').background == 'auto'
     assert _spectral(background=0.02).background == pytest.approx(0.02)
     assert _spectral(background=0).background == 0.0
-    for bad in (-0.1, 1.0, 2.0, float('nan'), float('inf')):
+    for bad in (-0.1, 1.0, 2.0, float('inf')):
         with pytest.raises(ArgumentError, match='background'):
             _spectral(background=bad)  # the samples' peak is 1
+    # NaN reads as None in every optional field (a .mat file's null)
+    assert _spectral(background=float('nan')).background is None
     with pytest.raises(ValidationError, match='background'):
         _spectral(background='median')
 
