@@ -25,7 +25,7 @@ alongside.
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .types import ArgumentError, TaggedModel, register_type
 
@@ -489,11 +489,17 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     record positions from the launch port. `energy` (records, modes) is in pJ.
     `junction_loss` is, per junction in chain order, the fraction of the
     arriving energy that left the tracked modes there (reflected or
-    converted to untracked modes). `edge_energy` is, per record, the fraction
-    of the energy in the outer 5 % of the time window: above about 1e-3 the
-    pulse is wrapping around the window, and `num_points` should grow (the
-    solver warns there). `measured_fit` is the `PulseFit` of a measured
-    source (None for an analytic one).
+    converted to untracked modes). `window_gap` is, per record, the longest
+    stretch of the time window, as a fraction of it, that holds almost none
+    of the energy of all the tracked modes together. The window is periodic,
+    so below about 0.05 the leading and trailing content have met around it
+    and wrapped onto each other, and `num_points` should grow (the solver
+    warns there). It does not depend on the comoving frame. `edge_energy` is,
+    per record, the fraction of the energy in the outer 5 % of the window
+    around the comoving frame (the first tracked mode's group delay). It says
+    where the content sits relative to that frame, not whether it wraps onto
+    itself, and can be large in a run that is fine. `measured_fit` is the
+    `PulseFit` of a measured source (None for an analytic one).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -513,6 +519,7 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     samples_per_slice: List[int]
     repetition_rate: Optional[float] = None
     measured_fit: Optional[PulseFit] = None
+    window_gap: np.ndarray = Field(default_factory=lambda: np.zeros(0))
 
     @property
     def wavelength(self) -> np.ndarray:
@@ -529,10 +536,16 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
 
     def energy_outside_window(self) -> float:
         """The largest fraction of the pulse energy, at any record, in the outer 5 % of
-        the time window on either side. Above about 1e-3 the pulse is wrapping
-        around the window: widen it (a narrower `wavelength_range` per point, or
-        more `num_points`)."""
+        the time window on either side of the comoving frame. It depends on the
+        frame: `smallest_window_gap` says whether the content wraps onto itself."""
         return float(np.max(self.edge_energy)) if len(self.edge_energy) else 0.0
+
+    def smallest_window_gap(self) -> Optional[float]:
+        """The smallest `window_gap` at any record, or None for a response saved
+        before it was reported. Below about 0.05 the pulse has wrapped onto itself
+        around the time window: widen it (more `num_points` over the same
+        `wavelength_range`)."""
+        return float(np.min(self.window_gap)) if len(self.window_gap) else None
 
     def band_energy(
         self,
