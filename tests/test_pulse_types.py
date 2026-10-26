@@ -103,6 +103,34 @@ def test_a_measurement_round_trips_the_wire() -> None:
     assert back == m
 
 
+def test_a_measurement_takes_a_constant_background() -> None:
+    assert _spectral().background is None
+    assert _spectral(background='auto').background == 'auto'
+    assert _spectral(background=0.02).background == pytest.approx(0.02)
+    assert _spectral(background=0).background == 0.0
+    for bad in (-0.1, 1.0, 2.0, float('inf')):
+        with pytest.raises(ArgumentError, match='background'):
+            _spectral(background=bad)  # the samples' peak is 1
+    # NaN reads as None in every optional field (a .mat file's null)
+    assert _spectral(background=float('nan')).background is None
+    with pytest.raises(ValidationError, match='background'):
+        _spectral(background='median')
+
+
+@pytest.mark.parametrize('background', ['auto', 0.02])
+def test_a_background_round_trips_the_wire(background: Any) -> None:
+    m = _spectral(background=background)
+    back = _over_the_wire(m)
+    assert back == m
+    assert back.background == background
+
+
+def test_a_measurement_saved_before_backgrounds_still_loads() -> None:
+    old = _older(_spectral(), 'background')
+    assert old.background is None
+    assert old == _spectral()
+
+
 # ---------------------------------------------------------------------------
 # PulsedSource(shape='measured')
 # ---------------------------------------------------------------------------
@@ -193,6 +221,14 @@ def test_the_response_reports_the_fit_across_the_wire() -> None:
     assert isinstance(back.measured_fit, PulseFit)
     assert back.measured_fit == _fit()
     assert _over_the_wire(_response(None)).measured_fit is None
+
+
+def test_the_fit_reports_the_background_removed() -> None:
+    assert _fit().background == 0.0
+    fit = _fit().model_copy(update={'background': 0.03})
+    assert _over_the_wire(_response(fit)).measured_fit.background == pytest.approx(0.03)
+    old = _older(_fit(), 'background')
+    assert old.background == 0.0
 
 
 def test_a_response_saved_before_measured_pulses_still_loads() -> None:

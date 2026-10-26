@@ -56,7 +56,7 @@ def _sample_list(value):
 
 
 @register_type
-class PulseMeasurement(TaggedModel):
+class PulseMeasurement(_LoadsOlderVersions, TaggedModel):
     """A measured pulse, sampled in wavelength or in time, for `PulsedSource(shape='measured')`.
 
     Give exactly one of `wavelength` (nm), for a measured spectrum, and `time`
@@ -70,14 +70,22 @@ class PulseMeasurement(TaggedModel):
     is omega_0 - d phase / dt. Without a phase the pulse is taken as transform
     limited, and the solver warns.
 
+    `background`, optional, is a constant offset (dark counts, stray light)
+    subtracted from `intensity` before the fit, on the same scale as
+    `intensity`. `background='auto'` estimates it from the outer samples at
+    both ends, which must then be flat and at one level, and the solver
+    refuses the measurement when they are not.
+
     The solver fits the samples before it launches the pulse. `fit='smooth'`
     (the default) is a smoothing spline of the intensity with a polynomial
-    phase whose order (2 to 4) the fit chooses. `fit='sech'` or `'gaussian'`
-    fits the analytic shapes of `PulsedSource` (width, center and chirp). The
-    fit's quality is 1 minus its normalized residual: the R^2 of the
-    intensity, less the intensity-weighted mean of 1 - cos of the phase error
-    when a phase is given. A fit below `min_fit_quality` is refused with an
-    error stating the quality reached and where the residual is largest.
+    phase whose order (2 to 4) the fit chooses, or, when no polynomial reaches
+    `min_fit_quality`, a smoothing spline of the phase weighted by the
+    intensity. `fit='sech'` or `'gaussian'` fits the analytic shapes of
+    `PulsedSource` (width, center and chirp). The fit's quality is 1 minus its
+    normalized residual: the R^2 of the intensity, less the intensity-weighted
+    mean of 1 - cos of the phase error when a phase is given. A fit below
+    `min_fit_quality` is refused with an error stating the quality reached and
+    where the residual is largest.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -88,6 +96,7 @@ class PulseMeasurement(TaggedModel):
     phase: Optional[List[float]] = None
     fit: Literal['smooth', 'sech', 'gaussian'] = 'smooth'
     min_fit_quality: float = 0.99
+    background: Optional[Union[float, Literal['auto']]] = None
 
     @field_validator('wavelength', 'time', 'intensity', 'phase', mode='before')
     @classmethod
@@ -119,6 +128,15 @@ class PulseMeasurement(TaggedModel):
             raise ArgumentError('the intensity needs a positive peak', name, 'intensity')
         if not 0 <= self.min_fit_quality <= 1:
             raise ArgumentError('min_fit_quality must be in [0, 1]', name, 'min_fit_quality')
+        if isinstance(self.background, float):
+            peak = float(np.max(intensity))
+            if not (np.isfinite(self.background) and 0 <= self.background < peak):
+                raise ArgumentError(
+                    f'background must be at least 0 and below the intensity peak {peak:g}, '
+                    f'got {self.background:g}',
+                    name,
+                    'background',
+                )
         return self
 
     @property
@@ -128,7 +146,7 @@ class PulseMeasurement(TaggedModel):
 
 
 @register_type
-class PulseFit(TaggedModel):
+class PulseFit(_LoadsOlderVersions, TaggedModel):
     """The fit the solver accepted for a measured pulse, reported on the `PulseResponse`.
 
     `model` is the fitted model and `quality` its goodness of fit (see
@@ -141,7 +159,9 @@ class PulseFit(TaggedModel):
     of the fitted pulse's energy that fell outside the source's
     `wavelength_range` (or time window) and was cut. `residual_peak` is where
     the fit's residual is largest, on the measurement's own axis
-    (`residual_axis`, 'wavelength' in nm or 'time' in fs).
+    (`residual_axis`, 'wavelength' in nm or 'time' in fs). `background` is the
+    constant background subtracted before the fit, as a fraction of the
+    samples' peak (0 when none was).
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -157,6 +177,7 @@ class PulseFit(TaggedModel):
     energy_outside: float = 0.0
     residual_peak: float
     residual_axis: Literal['wavelength', 'time']
+    background: float = 0.0
 
 
 @register_type
