@@ -76,6 +76,9 @@ def test_a_1_0_6_smatrix_reply_is_accepted() -> None:
     assert received.port_names == ("left", "right")
     assert received.mode_power is None
     np.testing.assert_allclose(received.data, [[0.6, 0.8j], [0.8j, 0.6]])
+    # Without mode_power every mode counts as carrying unit power.
+    assert received.unitarity_error() < 1e-12
+    assert received.unitarity_error(from_ports="left") < 1e-12
 
 
 def test_a_1_0_6_dict_reply_is_accepted() -> None:

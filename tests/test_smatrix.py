@@ -36,13 +36,62 @@ def _lossless(power: np.ndarray) -> np.ndarray:
     return unitary * root[None, :] / root[:, None]
 
 
-def test_without_mode_power_the_error_is_unchanged() -> None:
+def test_without_mode_power_every_mode_carries_unit_power() -> None:
+    # The fallback is ``||S^H S - I||_fro / sqrt(n)``, valid only for a
+    # power-orthonormal basis.
     data = _lossless(np.array([1.0, 4.0]))
     s = SMatrix(port_sizes=(1, 1), data=data)
-    expected = float(np.linalg.norm(data.conj().T @ data - np.eye(2)))
+    expected = float(np.linalg.norm(data.conj().T @ data - np.eye(2))) / np.sqrt(2)
     assert s.mode_power is None
-    assert s.unitarity_error() == expected
+    assert s.unitarity_error() == pytest.approx(expected, rel=1e-12)
     assert s.unitarity_error() > 0.5
+
+
+def test_without_mode_power_the_error_is_normalized_by_size() -> None:
+    errors = [SMatrix(port_sizes=(n // 2, n // 2), data=np.sqrt(1.1) * np.eye(n)).unitarity_error() for n in (2, 8)]
+    assert errors == pytest.approx([0.1, 0.1])
+
+
+def test_a_gain_on_a_weak_mode_is_not_hidden_by_a_strong_one() -> None:
+    # Each mode counts once, in its own power frame, however little power it
+    # carries: a 10% gain on the mode that carries 1/100 of the power reads
+    # 0.1 / sqrt(2), not 0.1 / 100.
+    data = np.diag([np.sqrt(1.1), 1.0]).astype(complex)
+    s = SMatrix(port_sizes=(1, 1), data=data, mode_power=np.array([1.0, 100.0]))
+    assert s.unitarity_error() == pytest.approx(0.1 / np.sqrt(2), rel=1e-12)
+
+
+def test_modes_with_negative_power_are_not_counted() -> None:
+    # Only the subspace that carries positive real power has a power frame.
+    data = np.zeros((3, 3), dtype=complex)
+    data[:2, :2] = _lossless(np.array([1.0, 4.0]))
+    data[2, :] = [3.0, 5.0, 7.0]
+    s = SMatrix(port_sizes=(2, 1), data=data, mode_power=np.array([1.0, 4.0, -2.0]))
+    assert s.unitarity_error() == pytest.approx(0.0, abs=1e-12)
+
+
+def test_no_mode_carrying_power_reads_zero() -> None:
+    s = SMatrix(port_sizes=(1, 1), data=np.eye(2), mode_power=np.zeros(2))
+    assert s.unitarity_error() == 0.0
+
+
+def _lossy_from_port_1() -> SMatrix:
+    """Port 0 conserves power, port 1 keeps only 0.64 of each mode's power."""
+    data = np.zeros((4, 4), dtype=complex)
+    data[2:, :2] = np.eye(2)
+    data[:2, 2:] = 0.8 * np.eye(2)
+    return SMatrix(port_sizes=(2, 2), data=data, mode_power=np.array([1.0, 2.0, 1.0, 2.0]), port_names=("a", "b"))
+
+
+def test_the_error_from_one_port_counts_only_its_incident_modes() -> None:
+    # A truncated basis on one side cannot receive what the other sends, so
+    # the whole matrix is not unitary while the balance from one port is.
+    s = _lossy_from_port_1()
+    assert s.unitarity_error(from_ports=0) == pytest.approx(0.0, abs=1e-12)
+    assert s.unitarity_error(from_ports="a") == pytest.approx(0.0, abs=1e-12)
+    assert s.unitarity_error(from_ports=1) == pytest.approx(0.36, rel=1e-12)
+    assert s.unitarity_error() == pytest.approx(0.36 / np.sqrt(2), rel=1e-12)
+    assert s.unitarity_error(from_ports=[0, 1]) == pytest.approx(s.unitarity_error())
 
 
 def test_mode_power_makes_a_lossless_matrix_conserve_power() -> None:
