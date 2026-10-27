@@ -463,12 +463,14 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     unpoled section's modal phase matches are searched for where the pump
     drives them, as set by `modal_search`:
 
-    - `'launch'` (the default): where the launched pulse's spectrum is within
-      30 dB of its peak.
-    - `'broadened'`: where the pump's spectrum is within 30 dB of its peak
-      anywhere in the section, as it broadens. A quick run of the pump alone
-      (one mode, one field pattern, no second-harmonic modes) finds it first,
-      which adds that run's time to `EME()`.
+    - `'broadened'` (the default): where the launched pulse's spectrum is
+      within 30 dB of its peak, and where the pump's spectrum is within 30 dB
+      of its peak anywhere in the section, as it broadens. When a match lies
+      outside the launched spectrum, a quick run of the pump alone (one mode,
+      one field pattern, no second-harmonic modes) finds that first, which adds
+      its time to `EME()`.
+    - `'launch'`: only where the launched pulse's spectrum is within 30 dB of
+      its peak (the behavior before this option existed).
     - `(min, max)`: at the fundamental wavelengths (nm) in that band.
     """
 
@@ -486,7 +488,7 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     max_rank: int = 12
     max_harmonic_modes: int = 3
     harmonic_coupling: float = 0.1
-    modal_search: Union[Literal['launch', 'broadened'], Tuple[float, float]] = 'launch'
+    modal_search: Union[Literal['launch', 'broadened'], Tuple[float, float]] = 'broadened'
 
     @model_validator(mode='after')
     def _validate(self) -> 'PulsedProcess':

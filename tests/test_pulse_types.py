@@ -277,11 +277,14 @@ def test_a_response_saved_before_the_window_gap_still_loads() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_harmonic_mode_options_default_to_the_earlier_behavior() -> None:
+def test_the_harmonic_mode_options_default_to_the_automatic_search() -> None:
+    # the count and the floor keep their earlier values, and the modal search
+    # follows the pump as it broadens ('launch' is the earlier behavior)
     process = PulsedProcess()
     assert process.max_harmonic_modes == 3
     assert process.harmonic_coupling == 0.1
-    assert process.modal_search == 'launch'
+    assert process.modal_search == 'broadened'
+    assert PulsedProcess(modal_search='launch').modal_search == 'launch'
 
 
 @pytest.mark.parametrize(
