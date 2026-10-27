@@ -14,7 +14,8 @@ A pulsed simulation is declared with three objects and returns one:
 - `PulseResponse`, returned by `get('pulse_response')` after `EME()` or
   `pulse_propagate()`: the spectrum of every tracked mode at the recorded
   positions, with band energy and power computed here on the client. For a
-  measured pulse it also carries the `PulseFit` the solver accepted.
+  measured pulse it also carries the `PulseFit` the solver accepted, and a
+  `RankReport` says how well the field patterns represent the tracked modes.
 
 Units, as in the rest of the API: wavelengths and lengths in nm, durations
 in fs, energies in pJ, powers in W, repetition rates in Hz. Arrays returned
@@ -439,7 +440,7 @@ def _jitter(walls: List[float], rms: float, seed: Optional[int]) -> List[float]:
 
 
 @register_type
-class PulsedProcess(TaggedModel):
+class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     """The nonlinear optics of one section for a pulsed simulation.
 
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
@@ -450,7 +451,25 @@ class PulsedProcess(TaggedModel):
     `wavelength_range`), by default as many as the band's width needs. The
     tracked fields are expanded in patterns whose
     singular values stay above `pattern_threshold` relative to the first, at
-    most `max_rank` of them.
+    most `max_rank` of them. `PulseResponse.rank_report` says where `max_rank`
+    binds and how much of each mode's field that drops.
+
+    A chi(2) section adds the second-harmonic modes it phase-matches to the
+    first tracked mode, ranked by their chi(2) overlap with it times the length
+    they build over: at most `max_harmonic_modes` of them (0 adds none), and
+    none below `harmonic_coupling` of the strongest. Several chi(2) sections
+    over one cross-section share its modes, which take the largest
+    `max_harmonic_modes` and the smallest `harmonic_coupling` among them. An
+    unpoled section's modal phase matches are searched for where the pump
+    drives them, as set by `modal_search`:
+
+    - `'launch'` (the default): where the launched pulse's spectrum is within
+      30 dB of its peak.
+    - `'broadened'`: where the pump's spectrum is within 30 dB of its peak
+      anywhere in the section, as it broadens. A quick run of the pump alone
+      (one mode, one field pattern, no second-harmonic modes) finds it first,
+      which adds that run's time to `EME()`.
+    - `(min, max)`: at the fundamental wavelengths (nm) in that band.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -465,10 +484,21 @@ class PulsedProcess(TaggedModel):
     dispersion_samples: Optional[int] = None
     pattern_threshold: float = 1e-3
     max_rank: int = 12
+    max_harmonic_modes: int = 3
+    harmonic_coupling: float = 0.1
+    modal_search: Union[Literal['launch', 'broadened'], Tuple[float, float]] = 'launch'
 
     @model_validator(mode='after')
     def _validate(self) -> 'PulsedProcess':
         name = 'PulsedProcess'
+        if self.max_harmonic_modes < 0:
+            raise ArgumentError('max_harmonic_modes must be >= 0', name, 'max_harmonic_modes')
+        if not 0 <= self.harmonic_coupling <= 1:
+            raise ArgumentError('harmonic_coupling must be in [0, 1]', name, 'harmonic_coupling')
+        if isinstance(self.modal_search, tuple) and not 0 < self.modal_search[0] < self.modal_search[1]:
+            raise ArgumentError(
+                'a modal_search band must be (min, max) in nm with 0 < min < max', name, 'modal_search'
+            )
         if self.dispersion_samples is not None and self.dispersion_samples < 4:
             raise ArgumentError('dispersion_samples must be at least 4', name, 'dispersion_samples')
         if not 0 <= self.pattern_threshold < 1:
@@ -478,6 +508,46 @@ class PulsedProcess(TaggedModel):
         if self.modes is not None and (not self.modes or any(m < 0 for m in self.modes)):
             raise ArgumentError('modes must list mode indices >= 0', name, 'modes')
         return self
+
+
+@register_type
+class RankReport(TaggedModel):
+    """How well each slice's field patterns represent its tracked modes.
+
+    Per slice of the chain, in order: the `section` it belongs to, the `rank`
+    (number of field patterns) used, the `natural_rank` its process's
+    `pattern_threshold` asks for, and the `max_rank` that caps it (all 0 for a
+    slice with no nonlinear process). `dropped_weight[slice][mode]` is the
+    share of each tracked mode's field weight (its squared field, weighted
+    where the nonlinearity lives, over every dispersion sample) that the
+    patterns leave out, in the order of `PulseResponse.modes`. Where the rank
+    reaches `natural_rank` it is negligible. Where `max_rank` binds, the
+    nonlinear coupling of a mode that drops more than about `limit` is not
+    converged in rank, and the solver warns.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    section: List[Optional[str]]
+    rank: List[int]
+    max_rank: List[int]
+    natural_rank: List[int]
+    dropped_weight: List[List[float]]
+    limit: float
+
+    def binding(self, limit: Optional[float] = None) -> List[int]:
+        """The slices where `max_rank` binds and some mode drops more than `limit`
+        (default: the report's own) of its field weight."""
+        level = self.limit if limit is None else limit
+        return [
+            i
+            for i, (used, natural, dropped) in enumerate(zip(self.rank, self.natural_rank, self.dropped_weight))
+            if natural > used and max(dropped, default=0.0) > level
+        ]
+
+    def largest_dropped_weight(self) -> float:
+        """The largest share of any mode's field weight that any slice drops."""
+        return max((max(d, default=0.0) for d in self.dropped_weight), default=0.0)
 
 
 @register_type
@@ -499,7 +569,9 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     around the comoving frame (the first tracked mode's group delay). It says
     where the content sits relative to that frame, not whether it wraps onto
     itself, and can be large in a run that is fine. `measured_fit` is the
-    `PulseFit` of a measured source (None for an analytic one).
+    `PulseFit` of a measured source (None for an analytic one). `rank_report`
+    is the `RankReport` of the field patterns behind `rank_per_slice` (None
+    from a server that predates it).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -520,6 +592,7 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     repetition_rate: Optional[float] = None
     measured_fit: Optional[PulseFit] = None
     window_gap: np.ndarray = Field(default_factory=lambda: np.zeros(0))
+    rank_report: Optional[RankReport] = None
 
     @property
     def wavelength(self) -> np.ndarray:

@@ -146,7 +146,7 @@ extending an existing module rather than inventing a new ad hoc serialization pa
 - **`monitor.py`** — monitor wire types (`Monitor`, `PlaneField`, `BeamCoupling`): the
   field on a plane inside a circuit and its coupling to a beam.
 - **`pulse.py`** — pulsed nonlinear solver wire types (`PulsedSource`, `PulsedProcess`,
-  `Poling`, `PulseResponse`, `PulseMeasurement`, `PulseFit`).
+  `Poling`, `PulseResponse`, `PulseMeasurement`, `PulseFit`, `RankReport`).
 - **`optimize.py`** — optimizer and `evaluate()` wire types (`Parameter`, `Objective`,
   `Constraint`, `Evaluation`, `OptimizationResult`).
 - **`eph_utils.py`, `file_utils.py`** — `.eph` simulation-file helpers.
