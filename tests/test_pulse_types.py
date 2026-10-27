@@ -16,7 +16,14 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from emodeconnection import PulseFit, PulseMeasurement, PulsedProcess, PulsedSource, PulseResponse
+from emodeconnection import (
+    PulseFit,
+    PulseMeasurement,
+    PulsedProcess,
+    PulsedSource,
+    PulseResponse,
+    RankReport,
+)
 from emodeconnection.emodeclient import obj_hook
 from emodeconnection.types import ArgumentError, reconstruct
 
@@ -263,3 +270,92 @@ def test_a_response_saved_before_the_window_gap_still_loads() -> None:
     old = _older(_response(None), 'window_gap')
     assert len(old.window_gap) == 0
     assert old.smallest_window_gap() is None
+
+
+# ---------------------------------------------------------------------------
+# The second-harmonic modes a PulsedProcess tracks
+# ---------------------------------------------------------------------------
+
+
+def test_the_harmonic_mode_options_default_to_the_earlier_behavior() -> None:
+    process = PulsedProcess()
+    assert process.max_harmonic_modes == 3
+    assert process.harmonic_coupling == 0.1
+    assert process.modal_search == 'launch'
+
+
+@pytest.mark.parametrize(
+    'kw',
+    [
+        {'max_harmonic_modes': -1},
+        {'harmonic_coupling': -0.01},
+        {'harmonic_coupling': 1.5},
+        {'modal_search': (1700.0, 1600.0)},
+        {'modal_search': (0.0, 1600.0)},
+    ],
+)
+def test_the_harmonic_mode_options_refuse_values_out_of_range(kw: dict) -> None:
+    with pytest.raises(ArgumentError) as info:
+        PulsedProcess(**kw)
+    assert info.value.argument == next(iter(kw))
+
+
+@pytest.mark.parametrize(
+    'kw', [{'max_harmonic_modes': 2.5}, {'modal_search': 'everywhere'}, {'modal_search': (1.0,)}]
+)
+def test_the_harmonic_mode_options_refuse_the_wrong_type(kw: dict) -> None:
+    with pytest.raises(ValidationError):
+        PulsedProcess(**kw)
+
+
+@pytest.mark.parametrize('search', ['launch', 'broadened', (1650.0, 1800.0)])
+def test_the_harmonic_mode_options_round_trip_the_wire(search: Any) -> None:
+    process = PulsedProcess(max_harmonic_modes=6, harmonic_coupling=0.01, modal_search=search)
+    back = _over_the_wire(process)
+    assert isinstance(back, PulsedProcess)
+    assert back == process
+    assert back.modal_search == search  # a band comes back a tuple, not a list
+    assert PulsedProcess(max_harmonic_modes=0).max_harmonic_modes == 0  # none tracked
+
+
+def test_a_process_saved_before_the_harmonic_mode_options_still_loads() -> None:
+    old = _older(PulsedProcess(), 'max_harmonic_modes', 'harmonic_coupling', 'modal_search')
+    assert old == PulsedProcess()
+
+
+# ---------------------------------------------------------------------------
+# The rank report on the PulseResponse
+# ---------------------------------------------------------------------------
+
+
+def _rank_report() -> RankReport:
+    # three slices: a linear one, one where max_rank binds and drops 4 % of the
+    # second mode's field weight, one where it binds and drops little
+    return RankReport(
+        section=[None, 'unpoled', 'poled'],
+        rank=[0, 3, 3],
+        max_rank=[0, 3, 3],
+        natural_rank=[0, 17, 5],
+        dropped_weight=[[0.0, 0.0], [0.002, 0.04], [1e-4, 2e-3]],
+        limit=0.01,
+    )
+
+
+def test_the_rank_report_names_the_slices_where_max_rank_binds() -> None:
+    report = _rank_report()
+    assert report.binding() == [1]
+    assert report.largest_dropped_weight() == pytest.approx(0.04)
+    assert report.binding(limit=1e-3) == [1, 2]
+
+
+def test_the_rank_report_crosses_the_wire() -> None:
+    response = _response(None).model_copy(update={'rank_report': _rank_report()})
+    back = _over_the_wire(response)
+    assert isinstance(back.rank_report, RankReport)
+    assert back.rank_report == _rank_report()
+    assert _over_the_wire(_response(None)).rank_report is None
+
+
+def test_a_response_saved_before_the_rank_report_still_loads() -> None:
+    old = _older(_response(None), 'rank_report')
+    assert old.rank_report is None
