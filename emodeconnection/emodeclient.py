@@ -180,7 +180,8 @@ class EModeClient:
         A dictionary reply is stamped with the protocol version in
         ``__version__``. A reply without a stamp (a scalar, a list, an array
         or None) is a plain value and is returned as is. A stamp other than
-        `PROTOCOL_VERSION` raises an `EModeError`.
+        `PROTOCOL_VERSION` raises an `EModeError`, and so does an error of a
+        type this client does not know, with the solver's message.
         """
         logger.debug("")
         data = self._recv_msg()
@@ -197,6 +198,10 @@ class EModeClient:
         o = reconstruct(json_data)
         if isinstance(o, EModeError):
             raise o
+        name = o.get("__data_type__") if isinstance(o, dict) else None
+        if isinstance(name, str) and name.endswith("Error") and "msg" in o:
+            # An error type a newer solver added and this client predates.
+            raise EModeError(f"{name}: {o['msg']}")
         return o
 
     def send(self, data):

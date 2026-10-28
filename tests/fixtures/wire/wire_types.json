@@ -1,0 +1,2087 @@
+{
+ "emode 1.0.5": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "d",
+    "eps",
+    "mu",
+    "n"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ },
+ "emode 1.0.6": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "BeamCoupling": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "center",
+    "coupling",
+    "index",
+    "mode_field_diameter",
+    "name",
+    "overlap",
+    "polarization",
+    "power_fraction",
+    "power_in",
+    "power_through_plane",
+    "wavelength"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "bandgap",
+    "d",
+    "eps",
+    "mu",
+    "n",
+    "n2",
+    "raman",
+    "tpa"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Monitor": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "length",
+    "name",
+    "resolution",
+    "w",
+    "y"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "PlaneField": {
+   "extra": null,
+   "fields": [
+    "Sn",
+    "angle",
+    "fields",
+    "name",
+    "power_in",
+    "power_through_plane",
+    "s",
+    "w",
+    "wavelength",
+    "x",
+    "y"
+   ]
+  },
+  "Poling": {
+   "extra": "forbid",
+   "fields": [
+    "domain_walls",
+    "duty_cycle",
+    "interpolation",
+    "inverted_first",
+    "jitter_rms",
+    "period",
+    "periods",
+    "seed",
+    "z_knots"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "PulseResponse": {
+   "extra": null,
+   "fields": [
+    "domain_walls",
+    "edge_energy",
+    "energy",
+    "frequency",
+    "junction_loss",
+    "modes",
+    "rank_per_slice",
+    "reference_index",
+    "rejected_steps",
+    "repetition_rate",
+    "samples_per_slice",
+    "spectrum",
+    "steps",
+    "z"
+   ]
+  },
+  "PulsedProcess": {
+   "extra": "forbid",
+   "fields": [
+    "chi2",
+    "chi3",
+    "dispersion_samples",
+    "max_rank",
+    "modes",
+    "pattern_threshold",
+    "poling",
+    "raman",
+    "raman_mode",
+    "tpa"
+   ]
+  },
+  "PulsedSource": {
+   "extra": "forbid",
+   "fields": [
+    "alias",
+    "center_wavelength",
+    "chirp",
+    "duration",
+    "energy",
+    "mode",
+    "num_points",
+    "peak_power",
+    "port",
+    "repetition_rate",
+    "shape",
+    "wavelength_range"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ },
+ "emodeconnection 1.1.19": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "Field": {
+   "extra": null,
+   "fields": [
+    "field",
+    "field_names",
+    "grid",
+    "num_modes"
+   ]
+  },
+  "FieldSet": {
+   "extra": null,
+   "fields": [
+    "fields"
+   ]
+  },
+  "FreeSpaceProjection": {
+   "extra": null,
+   "fields": [
+    "captured_fraction",
+    "name",
+    "num_modes",
+    "port",
+    "wavelength"
+   ]
+  },
+  "Grid": {
+   "extra": null,
+   "fields": [
+    "is_bc",
+    "is_expanded",
+    "is_pml",
+    "x",
+    "y"
+   ]
+  },
+  "GridSet": {
+   "extra": null,
+   "fields": [
+    "grids"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "d",
+    "eps",
+    "mu",
+    "n"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "theta",
+    "x"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  }
+ },
+ "emodeconnection 1.1.20": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "Field": {
+   "extra": null,
+   "fields": [
+    "field",
+    "field_names",
+    "grid",
+    "num_modes"
+   ]
+  },
+  "FieldSet": {
+   "extra": null,
+   "fields": [
+    "fields"
+   ]
+  },
+  "FreeSpaceProjection": {
+   "extra": null,
+   "fields": [
+    "captured_fraction",
+    "name",
+    "num_modes",
+    "port",
+    "wavelength"
+   ]
+  },
+  "Grid": {
+   "extra": null,
+   "fields": [
+    "is_bc",
+    "is_expanded",
+    "is_pml",
+    "x",
+    "y"
+   ]
+  },
+  "GridSet": {
+   "extra": null,
+   "fields": [
+    "grids"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "d",
+    "eps",
+    "mu",
+    "n"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ },
+ "emodeconnection 1.1.21": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "BeamCoupling": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "center",
+    "coupling",
+    "index",
+    "mode_field_diameter",
+    "name",
+    "overlap",
+    "polarization",
+    "power_fraction",
+    "power_in",
+    "power_through_plane",
+    "wavelength"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "Field": {
+   "extra": null,
+   "fields": [
+    "field",
+    "field_names",
+    "grid",
+    "num_modes"
+   ]
+  },
+  "FieldSet": {
+   "extra": null,
+   "fields": [
+    "fields"
+   ]
+  },
+  "FreeSpaceProjection": {
+   "extra": null,
+   "fields": [
+    "captured_fraction",
+    "name",
+    "num_modes",
+    "port",
+    "wavelength"
+   ]
+  },
+  "Grid": {
+   "extra": null,
+   "fields": [
+    "is_bc",
+    "is_expanded",
+    "is_pml",
+    "x",
+    "y"
+   ]
+  },
+  "GridSet": {
+   "extra": null,
+   "fields": [
+    "grids"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "LayoutReport": {
+   "extra": "forbid",
+   "fields": [
+    "closures",
+    "overlaps",
+    "self_intersecting",
+    "unplaced"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "bandgap",
+    "d",
+    "eps",
+    "mu",
+    "n",
+    "n2",
+    "raman",
+    "tpa"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Monitor": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "length",
+    "name",
+    "resolution",
+    "w",
+    "y"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "PlaneField": {
+   "extra": null,
+   "fields": [
+    "Sn",
+    "angle",
+    "fields",
+    "name",
+    "power_in",
+    "power_through_plane",
+    "s",
+    "w",
+    "wavelength",
+    "x",
+    "y"
+   ]
+  },
+  "Poling": {
+   "extra": "forbid",
+   "fields": [
+    "domain_walls",
+    "duty_cycle",
+    "interpolation",
+    "inverted_first",
+    "jitter_rms",
+    "period",
+    "periods",
+    "seed",
+    "z_knots"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "PulseResponse": {
+   "extra": null,
+   "fields": [
+    "domain_walls",
+    "edge_energy",
+    "energy",
+    "frequency",
+    "junction_loss",
+    "modes",
+    "rank_per_slice",
+    "reference_index",
+    "rejected_steps",
+    "repetition_rate",
+    "samples_per_slice",
+    "spectrum",
+    "steps",
+    "z"
+   ]
+  },
+  "PulsedProcess": {
+   "extra": "forbid",
+   "fields": [
+    "chi2",
+    "chi3",
+    "dispersion_samples",
+    "max_rank",
+    "modes",
+    "pattern_threshold",
+    "poling",
+    "raman",
+    "raman_mode",
+    "tpa"
+   ]
+  },
+  "PulsedSource": {
+   "extra": "forbid",
+   "fields": [
+    "alias",
+    "center_wavelength",
+    "chirp",
+    "duration",
+    "energy",
+    "mode",
+    "num_points",
+    "peak_power",
+    "port",
+    "repetition_rate",
+    "shape",
+    "wavelength_range"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ },
+ "emodeconnection 1.1.22": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "BeamCoupling": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "center",
+    "coupling",
+    "index",
+    "mode_field_diameter",
+    "name",
+    "overlap",
+    "polarization",
+    "power_fraction",
+    "power_in",
+    "power_through_plane",
+    "wavelength"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "Field": {
+   "extra": null,
+   "fields": [
+    "field",
+    "field_names",
+    "grid",
+    "num_modes"
+   ]
+  },
+  "FieldSet": {
+   "extra": null,
+   "fields": [
+    "fields"
+   ]
+  },
+  "FreeSpaceProjection": {
+   "extra": null,
+   "fields": [
+    "captured_fraction",
+    "name",
+    "num_modes",
+    "port",
+    "wavelength"
+   ]
+  },
+  "Grid": {
+   "extra": null,
+   "fields": [
+    "is_bc",
+    "is_expanded",
+    "is_pml",
+    "x",
+    "y"
+   ]
+  },
+  "GridSet": {
+   "extra": null,
+   "fields": [
+    "grids"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "LayoutReport": {
+   "extra": "forbid",
+   "fields": [
+    "closures",
+    "overlaps",
+    "self_intersecting",
+    "unplaced"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "bandgap",
+    "d",
+    "eps",
+    "mu",
+    "n",
+    "n2",
+    "raman",
+    "tpa"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Monitor": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "length",
+    "name",
+    "resolution",
+    "w",
+    "y"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "PlaneField": {
+   "extra": null,
+   "fields": [
+    "Sn",
+    "angle",
+    "fields",
+    "name",
+    "power_in",
+    "power_through_plane",
+    "s",
+    "w",
+    "wavelength",
+    "x",
+    "y"
+   ]
+  },
+  "Poling": {
+   "extra": "forbid",
+   "fields": [
+    "domain_walls",
+    "duty_cycle",
+    "interpolation",
+    "inverted_first",
+    "jitter_rms",
+    "period",
+    "periods",
+    "seed",
+    "z_knots"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "PulseResponse": {
+   "extra": null,
+   "fields": [
+    "domain_walls",
+    "edge_energy",
+    "energy",
+    "frequency",
+    "junction_loss",
+    "modes",
+    "rank_per_slice",
+    "reference_index",
+    "rejected_steps",
+    "repetition_rate",
+    "samples_per_slice",
+    "spectrum",
+    "steps",
+    "z"
+   ]
+  },
+  "PulsedProcess": {
+   "extra": "forbid",
+   "fields": [
+    "chi2",
+    "chi3",
+    "dispersion_samples",
+    "max_rank",
+    "modes",
+    "pattern_threshold",
+    "poling",
+    "raman",
+    "raman_mode",
+    "tpa"
+   ]
+  },
+  "PulsedSource": {
+   "extra": "forbid",
+   "fields": [
+    "alias",
+    "center_wavelength",
+    "chirp",
+    "duration",
+    "energy",
+    "mode",
+    "num_points",
+    "peak_power",
+    "port",
+    "repetition_rate",
+    "shape",
+    "wavelength_range"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ },
+ "emodeconnection 1.1.23": {
+  "AngledFacetMap": {
+   "extra": null,
+   "fields": [
+    "degrees",
+    "pivot_angle",
+    "pivot_point",
+    "polar_angle"
+   ]
+  },
+  "Arc": {
+   "extra": null,
+   "fields": [
+    "radius",
+    "sweep_angle"
+   ]
+  },
+  "BSpline": {
+   "extra": null,
+   "fields": [
+    "coefficients",
+    "degree",
+    "knots"
+   ]
+  },
+  "BeamCoupling": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "center",
+    "coupling",
+    "index",
+    "mode_field_diameter",
+    "name",
+    "overlap",
+    "polarization",
+    "power_fraction",
+    "power_in",
+    "power_through_plane",
+    "wavelength"
+   ]
+  },
+  "Bounds": {
+   "extra": null,
+   "fields": [
+    "offset",
+    "window_height",
+    "window_width"
+   ]
+  },
+  "Chi2Trajectory": {
+   "extra": null,
+   "fields": [
+    "amplitudes",
+    "section",
+    "wavelengths",
+    "z"
+   ]
+  },
+  "CircuitResponse": {
+   "extra": null,
+   "fields": [
+    "converged",
+    "input",
+    "iterations",
+    "linear",
+    "output",
+    "port_names",
+    "port_sizes",
+    "radiated_power",
+    "residual",
+    "sources",
+    "trajectories",
+    "wavelengths"
+   ]
+  },
+  "DFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "signal_wavelength",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "Field": {
+   "extra": null,
+   "fields": [
+    "field",
+    "field_names",
+    "grid",
+    "num_modes"
+   ]
+  },
+  "FieldSet": {
+   "extra": null,
+   "fields": [
+    "fields"
+   ]
+  },
+  "FreeSpaceProjection": {
+   "extra": null,
+   "fields": [
+    "captured_fraction",
+    "name",
+    "num_modes",
+    "port",
+    "wavelength"
+   ]
+  },
+  "Grid": {
+   "extra": null,
+   "fields": [
+    "is_bc",
+    "is_expanded",
+    "is_pml",
+    "x",
+    "y"
+   ]
+  },
+  "GridSet": {
+   "extra": null,
+   "fields": [
+    "grids"
+   ]
+  },
+  "JunctionOverride": {
+   "extra": null,
+   "fields": [
+    "junction_normalization"
+   ]
+  },
+  "LayoutReport": {
+   "extra": "forbid",
+   "fields": [
+    "closures",
+    "overlaps",
+    "self_intersecting",
+    "unplaced"
+   ]
+  },
+  "Line": {
+   "extra": null,
+   "fields": [
+    "length"
+   ]
+  },
+  "MaterialProperties": {
+   "extra": null,
+   "fields": [
+    "bandgap",
+    "d",
+    "eps",
+    "mu",
+    "n",
+    "n2",
+    "raman",
+    "tpa"
+   ]
+  },
+  "MaterialSpec": {
+   "extra": null,
+   "fields": [
+    "loss",
+    "material",
+    "phi",
+    "psi",
+    "theta",
+    "x"
+   ]
+  },
+  "Monitor": {
+   "extra": "forbid",
+   "fields": [
+    "angle",
+    "length",
+    "name",
+    "resolution",
+    "w",
+    "y"
+   ]
+  },
+  "Path": {
+   "extra": null,
+   "fields": [
+    "segments"
+   ]
+  },
+  "PlaneField": {
+   "extra": null,
+   "fields": [
+    "Sn",
+    "angle",
+    "fields",
+    "name",
+    "power_in",
+    "power_through_plane",
+    "s",
+    "w",
+    "wavelength",
+    "x",
+    "y"
+   ]
+  },
+  "PlotImage": {
+   "extra": null,
+   "fields": [
+    "dpi",
+    "file",
+    "png"
+   ]
+  },
+  "Poling": {
+   "extra": "forbid",
+   "fields": [
+    "domain_walls",
+    "duty_cycle",
+    "interpolation",
+    "inverted_first",
+    "jitter_rms",
+    "period",
+    "periods",
+    "seed",
+    "z_knots"
+   ]
+  },
+  "Port": {
+   "extra": null,
+   "fields": [
+    "basis_transform",
+    "name",
+    "offset",
+    "side",
+    "window"
+   ]
+  },
+  "Pose": {
+   "extra": null,
+   "fields": [
+    "azimuth",
+    "w",
+    "x",
+    "y",
+    "z"
+   ]
+  },
+  "PulseResponse": {
+   "extra": null,
+   "fields": [
+    "domain_walls",
+    "edge_energy",
+    "energy",
+    "frequency",
+    "junction_loss",
+    "modes",
+    "rank_per_slice",
+    "reference_index",
+    "rejected_steps",
+    "repetition_rate",
+    "samples_per_slice",
+    "spectrum",
+    "steps",
+    "z"
+   ]
+  },
+  "PulsedProcess": {
+   "extra": "forbid",
+   "fields": [
+    "chi2",
+    "chi3",
+    "dispersion_samples",
+    "max_rank",
+    "modes",
+    "pattern_threshold",
+    "poling",
+    "raman",
+    "raman_mode",
+    "tpa"
+   ]
+  },
+  "PulsedSource": {
+   "extra": "forbid",
+   "fields": [
+    "alias",
+    "center_wavelength",
+    "chirp",
+    "duration",
+    "energy",
+    "mode",
+    "num_points",
+    "peak_power",
+    "port",
+    "repetition_rate",
+    "shape",
+    "wavelength_range"
+   ]
+  },
+  "SFGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength_1",
+    "pump_wavelength_2",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SHGProcess": {
+   "extra": "forbid",
+   "fields": [
+    "duty_cycle",
+    "inverted",
+    "max_step",
+    "poling_period",
+    "pump_wavelength",
+    "qpm_order",
+    "radiation",
+    "radiation_threshold",
+    "solver_atol",
+    "solver_method",
+    "solver_rtol",
+    "wavelength_tolerance",
+    "z_samples"
+   ]
+  },
+  "SMatrix": {
+   "extra": null,
+   "fields": [
+    "data",
+    "port_names",
+    "port_sizes",
+    "wavelengths"
+   ]
+  },
+  "Source": {
+   "extra": "forbid",
+   "fields": [
+    "mode",
+    "phase",
+    "port",
+    "power",
+    "wavelength",
+    "wavelength_tolerance"
+   ]
+  },
+  "WavelengthDict": {
+   "extra": null,
+   "fields": [
+    "data"
+   ]
+  }
+ }
+}
