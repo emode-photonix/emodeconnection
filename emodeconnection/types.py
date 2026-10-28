@@ -1,6 +1,8 @@
 from collections.abc import Iterator, Mapping
 from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
+import inspect
 import sys
+from logging import getLogger
 
 if sys.version_info >= (3, 10):
     from types import UnionType
@@ -12,6 +14,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     SerializerFunctionWrapHandler,
+    ValidationError,
     ValidationInfo,
     computed_field,
     field_validator,
@@ -20,6 +23,9 @@ from pydantic import (
 )
 import math
 import numpy as np
+from pydantic.fields import FieldInfo
+
+logger = getLogger(__name__)
 
 
 def serialize(data: Any):
@@ -38,12 +44,117 @@ def serialize(data: Any):
     elif isinstance(data, np.ndarray):
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
-        return data.model_dump()
+        return serialize(wire_dump(data))
     if type(data).__module__ == np.__name__:
         # final catchall
         data = np.squeeze(data).tolist()
     else:
         return data
+
+def _is_default(value: Any, info: FieldInfo) -> bool:
+    """Whether a field holds its default, compared without raising on arrays."""
+    if info.is_required():
+        return False
+    default = info.get_default(call_default_factory=True)
+    if value is default:
+        return True
+    if isinstance(value, np.ndarray) or isinstance(default, np.ndarray):
+        return (
+            isinstance(value, np.ndarray)
+            and isinstance(default, np.ndarray)
+            and value.shape == default.shape
+            and value.dtype == default.dtype
+            and bool(np.array_equal(value, default))
+        )
+    try:
+        same = value == default
+    except Exception:
+        return False
+    return same is True or (isinstance(same, np.bool_) and bool(same))
+
+
+def non_default_fields(model: BaseModel) -> Iterator[tuple[str, Any]]:
+    """The fields of `model` that differ from their defaults, as (name, value)."""
+    for name, info in type(model).model_fields.items():
+        value = getattr(model, name)
+        if not _is_default(value, info):
+            yield name, value
+
+
+def _prune_defaults(value: Any, dumped: Any) -> None:
+    """Remove from `dumped`, in place, every field `value` holds at its default."""
+    if isinstance(value, BaseModel):
+        if not isinstance(dumped, dict):
+            return
+        for name, info in type(value).model_fields.items():
+            if name not in dumped:
+                continue  # a custom serializer laid the model out differently
+            field_value = getattr(value, name)
+            if _is_default(field_value, info):
+                del dumped[name]
+            else:
+                _prune_defaults(field_value, dumped[name])
+    elif isinstance(value, (list, tuple)) and isinstance(dumped, (list, tuple)):
+        if len(value) == len(dumped):
+            for item, dumped_item in zip(value, dumped):
+                _prune_defaults(item, dumped_item)
+    elif isinstance(value, dict) and isinstance(dumped, dict):
+        for key, item in value.items():
+            if key in dumped:
+                _prune_defaults(item, dumped[key])
+
+
+def wire_dump(model: BaseModel) -> dict:
+    """`model` as it crosses the wire: its tag and the fields that differ from their defaults.
+
+    A field left at its default is not sent, at any depth. The other side
+    fills it in from its own class. That is what lets an older EMode or
+    emodeconnection read a wire type that has gained fields since (several
+    wire types refuse fields they do not know), and what keeps a default that
+    changed between versions (None for "the solver's choice") from reaching a
+    side that cannot hold it.
+    """
+    dumped = model.model_dump()
+    _prune_defaults(model, dumped)
+    return dumped
+
+
+def from_wire(cls: type, fields: dict) -> Any:
+    """Build `cls` from what the other side sent, ignoring what this version does not know.
+
+    A newer sender may add fields. A type that refuses unknown fields
+    (``extra='forbid'``) does so to catch a user's typo, which still raises
+    when the type is built directly, and only here are unknown fields dropped.
+    An error type takes the arguments its constructor knows, with None for any
+    the sender left out, and keeps the rest as attributes.
+    """
+    if isinstance(cls, type) and issubclass(cls, BaseException):
+        return _error_from_wire(cls, fields)
+    model_fields = getattr(cls, "model_fields", None)
+    if model_fields is not None and cls.model_config.get("extra") == "forbid":  # type: ignore[attr-defined]
+        unknown = [key for key in fields if key not in model_fields]
+        if unknown:
+            logger.debug(f"ignored the fields {unknown} of {cls.__name__}, which this version does not know")
+            fields = {key: value for key, value in fields.items() if key in model_fields}
+    return cls(**fields)
+
+
+def _error_from_wire(cls: type, fields: dict) -> BaseException:
+    params = [
+        p
+        for p in list(inspect.signature(cls.__init__).parameters.values())[1:]
+        if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+    ]
+    names = {p.name for p in params}
+    kwargs = {key: value for key, value in fields.items() if key in names}
+    for p in params:
+        if p.name not in kwargs and p.default is p.empty:
+            kwargs[p.name] = None
+    error = cls(**kwargs)
+    for key, value in fields.items():
+        if key not in names and not key.startswith("_"):
+            setattr(error, key, value)
+    return error
 
 def _allows_none(tp: Any) -> bool:
     """
@@ -477,7 +588,9 @@ def reconstruct(data: Any) -> Any:
     Recursively rebuild registered wire types anywhere in a decoded payload.
 
     Any dict carrying a known "__data_type__" tag becomes an instance of the
-    registered class; dicts with an unknown tag are left as plain dicts.
+    registered class, ignoring fields this version does not know (`from_wire`).
+    Dicts with an unknown tag, or with values the class refuses, are left as
+    plain dicts.
     Containers are walked bottom-up so nested tagged objects are rebuilt
     before their parent.
     """
@@ -485,8 +598,21 @@ def reconstruct(data: Any) -> Any:
         data = {key: reconstruct(value) for key, value in data.items()}
         name = data.get("__data_type__")
         if name in _TYPE_REGISTRY:
+            cls = _TYPE_REGISTRY[name]
             fields = {key: value for key, value in data.items() if key != "__data_type__"}
-            return _TYPE_REGISTRY[name](**fields)
+            if isinstance(cls, type) and issubclass(cls, BaseException):
+                return from_wire(cls, fields)
+            try:
+                return from_wire(cls, fields)
+            except (ValidationError, EModeError, TypeError, ValueError) as e:
+                # A newer sender may hold a value this version's class refuses
+                # (a new choice of a Literal, say). The plain dict keeps the
+                # rest of the reply readable.
+                logger.warning(
+                    f"this emodeconnection cannot read the {name} it received, so it is "
+                    f"returned as a plain dict. Upgrading emodeconnection may help. ({e})"
+                )
+                return data
         return data
     if isinstance(data, list):
         return [reconstruct(item) for item in data]

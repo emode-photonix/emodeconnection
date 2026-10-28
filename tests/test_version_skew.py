@@ -52,6 +52,7 @@ from emodeconnection.types import (
     TaggedModel,
     reconstruct,
     serialize,
+    wire_dump,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "wire"
@@ -143,9 +144,18 @@ def test_a_default_that_changed_is_not_sent() -> None:
 
 
 def test_array_fields_are_compared_with_their_defaults_safely() -> None:
+    # The solver sends its replies through the same wire_dump, arrays and all.
     with_power = SMatrix(port_sizes=(1, 1), data=np.eye(2, dtype=complex), mode_power=np.ones(2))
-    assert "mode_power" in _sent(with_power)
-    assert "mode_power" not in _sent(SMatrix(port_sizes=(1, 1), data=np.eye(2, dtype=complex)))
+    assert "mode_power" in wire_dump(with_power)
+    assert "mode_power" not in wire_dump(SMatrix(port_sizes=(1, 1), data=np.eye(2, dtype=complex)))
+    n = 4
+    response = PulseResponse(
+        z=np.zeros(2), frequency=np.linspace(1.9e14, 2e14, n), spectrum=np.zeros((2, 1, n), complex),
+        modes=[0], reference_index=0, energy=np.ones((2, 1)), junction_loss=[], edge_energy=np.zeros(2),
+        domain_walls=[], steps=3, rejected_steps=0, rank_per_slice=[1], samples_per_slice=[8],
+    )
+    assert "window_gap" not in wire_dump(response)
+    assert "window_gap" in wire_dump(response.model_copy(update={"window_gap": np.array([0.5, 0.5])}))
 
 
 @pytest.mark.parametrize("name", list(_DEFAULT_ARGUMENTS))
