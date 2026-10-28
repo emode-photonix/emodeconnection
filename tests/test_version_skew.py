@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Optional
 
 import numpy as np
 import pytest
@@ -50,6 +50,7 @@ from emodeconnection.types import (
     MaterialProperties,
     MaterialSpec,
     TaggedModel,
+    is_wire_type,
     reconstruct,
     serialize,
     wire_dump,
@@ -388,3 +389,27 @@ def test_a_released_clients_argument_reconstructs_into_todays_types(client: str,
     sent = json.loads(raw)["arg"]
     received = reconstruct(sent)
     assert type(received).__name__ == sent["__data_type__"]
+
+
+# Which objects the other side rebuilds into its own class
+
+
+class _NotOnTheWire(TaggedModel):
+    port: Optional[str] = None
+
+
+class Grid(TaggedModel):
+    """Named like a registered wire type, as a solver's own classes may be."""
+
+    port: Optional[str] = None
+
+
+def test_a_registered_wire_type_is_one() -> None:
+    assert is_wire_type(PulsedProcess())
+    assert is_wire_type(SMatrix(port_sizes=(1,), data=np.eye(1)))
+
+
+@pytest.mark.parametrize("obj", [_NotOnTheWire(), Grid(), {"__data_type__": "PulsedProcess"}, 3])
+def test_anything_else_is_not(obj: Any) -> None:
+    # Pruning its defaults would lose them: the other side reads it as a plain dict.
+    assert not is_wire_type(obj)
