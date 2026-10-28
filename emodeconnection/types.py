@@ -82,9 +82,13 @@ def non_default_fields(model: BaseModel) -> Iterator[tuple[str, Any]]:
 
 
 def _prune_defaults(value: Any, dumped: Any) -> None:
-    """Remove from `dumped`, in place, every field `value` holds at its default."""
+    """Remove from `dumped`, in place, every field `value` holds at its default.
+
+    Only a registered wire type is pruned (`is_wire_type`). The other side
+    reads any other model as a plain dict, so it keeps every field.
+    """
     if isinstance(value, BaseModel):
-        if not isinstance(dumped, dict):
+        if not isinstance(dumped, dict) or not is_wire_type(value):
             return
         for name, info in type(value).model_fields.items():
             if name not in dumped:
@@ -119,7 +123,9 @@ def is_wire_type(obj: Any) -> bool:
 def wire_dump(model: BaseModel) -> dict:
     """`model` as it crosses the wire: its tag and the fields that differ from their defaults.
 
-    A field left at its default is not sent, at any depth. The other side
+    A field left at its default is not sent, at any depth, in any registered
+    wire type (a model the other side does not rebuild keeps every field,
+    since it is read there as a plain dict). The other side
     fills it in from its own class. That is what lets an older EMode or
     emodeconnection read a wire type that has gained fields since (several
     wire types refuse fields they do not know), and what keeps a default that

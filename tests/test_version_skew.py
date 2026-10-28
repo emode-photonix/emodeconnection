@@ -50,6 +50,7 @@ from emodeconnection.types import (
     MaterialProperties,
     MaterialSpec,
     TaggedModel,
+    WavelengthDict,
     is_wire_type,
     reconstruct,
     serialize,
@@ -413,3 +414,9 @@ def test_a_registered_wire_type_is_one() -> None:
 def test_anything_else_is_not(obj: Any) -> None:
     # Pruning its defaults would lose them: the other side reads it as a plain dict.
     assert not is_wire_type(obj)
+
+
+def test_a_model_the_other_side_cannot_rebuild_keeps_its_defaults_inside_a_wire_type() -> None:
+    # A wire type holding a model the other side reads as a plain dict.
+    nested = wire_dump(WavelengthDict(data={1550.0: _NotOnTheWire()}))
+    assert nested["data"][1550.0] == {"__data_type__": "_NotOnTheWire", "port": None}
