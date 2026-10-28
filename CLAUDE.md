@@ -87,9 +87,11 @@ uv build
 
 ### Tests
 
-This repo has **no test suite of its own**. The tests that exercise it live with the
-solver, because they launch a real solver process and need a license checkout, which
-rules out running them here or in this repo's CI.
+`tests/` holds this repo's own unit tests (the wire protocol, `SMatrix`, stdout
+forwarding, wire types), which `.github/workflows/ci.yml` runs on every push and pull
+request. The tests that exercise a real session live with the solver, because they
+launch a real solver process and need a license checkout, which rules out running them
+here or in this repo's CI.
 
 So a change to anything that crosses the wire — a new or altered wire type, a change to
 how one serializes — cannot be validated from inside this repository. Say so plainly in
@@ -125,12 +127,48 @@ result type cannot be added from the solver side alone — it has to land here f
 released version has to contain it before anything can depend on it. Adding one means
 extending an existing module rather than inventing a new ad hoc serialization path.
 
+### Version skew
+
+A client and a solver of different releases have to keep working together, and each
+rebuilds the other's wire types with its own copy of the classes. Several wire types are
+`extra='forbid'`, so a field the receiving side does not know would refuse the whole
+message. Four rules keep that from happening:
+
+- **Send only what differs from the default.** `serialize` sends a wire type through
+  `types.wire_dump`, its tag and the fields that differ from their defaults, at any depth.
+  An older solver then reads any argument that leaves the newer options alone, and a
+  default that changed (None for "the solver's choice") never reaches a side that cannot
+  hold it. Only a registered wire type is pruned (`types.is_wire_type`), since only those
+  are rebuilt on the other side with their own defaults. Any other tagged model is read
+  there as a plain dict and keeps every field.
+- **Refuse a new option before sending it.** `compat.py` records the first EMode release
+  that reads each wire type and field added after EMode 1.0.6. When a call uses one,
+  `EMode` asks the solver its version once a session (`version()`, which a solver older
+  than 1.0.7 answers with an error) and raises `ArgumentError` naming the option and the
+  version it needs. A test holds the tables to every type and field newer than the record
+  in `tests/fixtures/wire`, so a new field or type needs an entry there, with the version
+  of the first EMode release that reads it.
+- **Read tolerantly.** `reconstruct` builds a wire type through `types.from_wire`, which
+  drops fields this version does not know, and returns a type it does not know (or a
+  value its class refuses) as a plain dict. An unknown error type is raised as an
+  `EModeError` with the solver's message. A typo in a user's own constructor still
+  raises, since only the wire path drops fields.
+- **Never change a field's meaning in place.** A new behavior is a new field or a new
+  value, with an entry in `compat.py`.
+
+`tests/fixtures/wire` records what released clients send, what released solvers reply,
+and the wire types each release knows, so `tests/test_version_skew.py` needs no old
+checkout. Add a solver release's record there when it ships.
+
 ### Modules
 
 - **`emodeconnection.py`** — the `EMode` class the user talks to; wraps every `EM_*` call.
 - **`emodeclient.py`** — socket transport, `recv`, `obj_hook`, `reconstruct`.
-- **`types.py`** — `@register_type`, `__data_type__`, and the user-facing exception
-  hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
+- **`compat.py`** — the first EMode release that reads each wire type and field added
+  after 1.0.6, and the check that refuses a call an older EMode cannot read.
+- **`types.py`** — `@register_type`, `__data_type__`, `wire_dump` and `from_wire`, the key-preserving result
+  mappings (`WavelengthDict` keyed by wavelength, `Confinement` keyed by shape and mode
+  index, `ModeDict` keyed by mode index), and the user-facing exception hierarchy (`EModeError`, `ArgumentError`, `ShapeError`, `FileError`, `LicenseError`,
   `EPHKeyError`, `NameError`). All EMode errors reach the user as one of these.
 - **`port.py`** — `Port`, `Bounds`, `JunctionOverride`, `make_angled_facet_port`.
 - **`nonlinear.py`** — chi(2) process wire types (`SHGProcess`, `SFGProcess`,
@@ -140,14 +178,18 @@ extending an existing module rather than inventing a new ad hoc serialization pa
   shows it inline in IPython.
 - **`geometry.py`** — geometry primitives (`Path`, `Pose`) for section construction.
 - **`free_space.py`** — client-side free-space field projection diagnostics.
+- **`monitor.py`** — monitor wire types (`Monitor`, `PlaneField`, `BeamCoupling`): the
+  field on a plane inside a circuit and its coupling to a beam.
+- **`pulse.py`** — pulsed nonlinear solver wire types (`PulsedSource`, `PulsedProcess`,
+  `Poling`, `PulseResponse`, `PulseMeasurement`, `PulseFit`, `RankReport`).
+- **`optimize.py`** — optimizer and `evaluate()` wire types (`Parameter`, `Objective`,
+  `Constraint`, `Evaluation`, `OptimizationResult`).
 - **`eph_utils.py`, `file_utils.py`** — `.eph` simulation-file helpers.
 - **`installer.py`** — the `emode-install` console script; downloads and installs the
   EMode executable.
 - **`traceback_filter.py`** — hides internal wrapper/call/recv frames so a user's
   traceback points at their own script.
 - **`constants.py`** — shared protocol constants.
-
-`emodeconnection_matlab/` is the MATLAB unsupported counterpart, kept alongside the Python client.
 
 ## Style
 

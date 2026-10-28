@@ -1,14 +1,18 @@
 from .emodeconnection import EMode
 from .eph_utils import open_file, get, inspect
-from .types import MaterialSpec, MaterialProperties, Grid, Field, GridSet, FieldSet, WavelengthDict
+from .types import MaterialSpec, MaterialProperties, Grid, Field, GridSet, FieldSet, WavelengthDict, Confinement, ModeDict
 from .geometry import Pose, Line, Arc, BSpline, Path, Curve, LayoutReport
 from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_facet_port
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
 from .plot import PlotImage
 from .free_space import FreeSpaceProjection
-from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse
+from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit, RankReport
 from .monitor import Monitor, PlaneField, BeamCoupling
+from .optimize import (
+    Parameter, Objective, Constraint, Evaluation, OptimizationResult,
+    ConvergenceStep, ConvergenceStage, ConvergenceResult,
+)
 from .traceback_filter import install as _install_traceback_filter
 from subprocess import Popen
 from platform import system
@@ -16,13 +20,15 @@ from platform import system
 __all__ = [
     "EMode", "open_file", "get", "inspect",
     "MaterialSpec", "MaterialProperties",
-    "Grid", "Field", "GridSet", "FieldSet", "WavelengthDict",
+    "Grid", "Field", "GridSet", "FieldSet", "WavelengthDict", "Confinement", "ModeDict",
     "Pose", "Line", "Arc", "BSpline", "Path", "Curve", "LayoutReport",
     "Bounds", "Port", "AngledFacetMap", "JunctionOverride", "make_angled_facet_port",
     "Chi2Process", "SHGProcess", "SFGProcess", "DFGProcess",
     "Source", "Excitation", "CircuitResponse",
-    "PulsedSource", "PulsedProcess", "Poling", "PulseResponse",
+    "PulsedSource", "PulsedProcess", "Poling", "PulseResponse", "PulseMeasurement", "PulseFit", "RankReport",
     "Monitor", "PlaneField", "BeamCoupling",
+    "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
+    "ConvergenceStep", "ConvergenceStage", "ConvergenceResult",
     "SMatrix",
     "PlotImage",
     "FreeSpaceProjection",

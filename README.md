@@ -76,6 +76,20 @@ emode-install --uninstall --install-dir /opt/bin  # Remove from custom location
 | `EMODE_INTERACTIVE=1` | Use interactive installer GUI |
 | `UNINSTALL_EMODE=y` | Accept the uninstallation non-interactively |
 
+## Wire protocol
+
+`emodeconnection` talks to the EMode executable over a local socket. Each
+message is a 4-byte big-endian length followed by that many bytes of UTF-8
+JSON. A NumPy array travels as `{"__ndarray__": <base64>, "dtype", "shape"}`,
+and a result object (such as `SMatrix`) carries its class name in
+`__data_type__`.
+
+Every dictionary reply from EMode is stamped with the protocol version,
+`"__version__": 1`. A reply without the stamp is a plain value (a number, a
+string, a list, an array or `None`) and is returned unchanged. A reply stamped
+with any version other than 1 comes from a newer protocol than this client
+reads, and raises an `EModeError` asking you to upgrade `emodeconnection`.
+
 ## Documentation
 
 Full documentation is available at [docs.emodephotonix.com](https://docs.emodephotonix.com).
@@ -83,9 +97,3 @@ Full documentation is available at [docs.emodephotonix.com](https://docs.emodeph
 ## License
 
 See [LICENSE](LICENSE) for details.
-
-## MATLAB
-
-A legacy MATLAB interface (`emodeconnection.m`) is included in this repository
-for historical reference. It is no longer supported as of EMode 0.2.5 and may
-not work with newer versions. No support is provided for MATLAB usage.

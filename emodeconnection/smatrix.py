@@ -9,7 +9,7 @@ from functools import cached_property
 from typing import Literal
 
 import numpy as np
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator, model_validator
 
 from .types import TaggedModel, register_type
 
@@ -98,6 +98,10 @@ class SMatrix(TaggedModel, PortIndexed):
     wavelengths carry one entry per port (parallel to port_sizes) so ports
     can be addressed by name instead of bare index, e.g.
     ``S.transmission(from_port='left', to_port='right')``.
+
+    mode_power, when present, holds the real power each mode carries, one
+    entry per mode in the same order as the rows of data. A lossy mode
+    carries little or no real power. An older solver does not send it.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -106,6 +110,23 @@ class SMatrix(TaggedModel, PortIndexed):
     data: np.ndarray  # complex, shape (total_modes, total_modes)
     port_names: tuple[str, ...] | None = None
     wavelengths: tuple[float, ...] | None = None
+    mode_power: np.ndarray | None = None  # real, shape (total_modes,)
+
+    @field_validator('mode_power', mode='before')
+    @classmethod
+    def _mode_power_as_array(cls, v: object) -> object:
+        if v is None:
+            return None
+        return np.asarray(v, dtype=float)
+
+    @model_validator(mode='after')
+    def _check_mode_power(self) -> 'SMatrix':
+        if self.mode_power is not None and self.mode_power.shape != (self.total_modes,):
+            raise ValueError(
+                f'mode_power has shape {self.mode_power.shape}, expected ({self.total_modes},), '
+                'one entry per mode'
+            )
+        return self
 
     def block(
         self,
@@ -118,23 +139,85 @@ class SMatrix(TaggedModel, PortIndexed):
         return self.data[np.ix_(row_idx, col_idx)]
 
     def transmission(self, from_port: int | str = 0, to_port: int | str = 1) -> np.ndarray:
+        """Complex transmission amplitudes from from_port to to_port (2-port only).
+
+        These are amplitudes, not powers. When the modes carry unequal power
+        their squared magnitudes are not the transmitted power, so use
+        `power` for that.
+        """
         if self.num_ports != 2:
             raise ValueError('transmission() only valid for 2-port S-matrices')
         return self.block(to_port, from_port)
 
     def reflection(self, port: int | str = 0) -> np.ndarray:
+        """Complex reflection amplitudes back into port (2-port only).
+
+        These are amplitudes, not powers. Use `power` for the reflected power.
+        """
         if self.num_ports != 2:
             raise ValueError('reflection() only valid for 2-port S-matrices')
         return self.block(port, port)
 
-    def unitarity_error(self) -> float:
-        """||S^H S - I||_fro."""
-        data = self.block(list(range(self.num_ports)), list(range(self.num_ports)))
-        return float(np.linalg.norm(data.conj().T @ data - np.eye(self.total_modes)))
+    def unitarity_error(self, from_ports: int | str | list[int | str] | None = None) -> float:
+        """How far the S-matrix is from conserving power.
+
+        Each mode that carries positive real power is scaled to unit power,
+        ``S'_ij = sqrt(P_i) S_ij / sqrt(P_j)`` with P the mode_power, and the
+        result is ``||S'^H S' - I||_fro / sqrt(n)`` over the n incident modes
+        counted. Modes that carry no positive real power (lossy modes) have no
+        power to conserve and drop out. A lossless S-matrix reads 0, a 10% gain
+        on every mode reads 0.1, and the value depends neither on the matrix
+        size nor on the power scale.
+
+        Without mode_power every mode counts as carrying unit power, which
+        measures power conservation only when the modes are power-orthonormal.
+
+        Parameters
+        ----------
+        from_ports : int, str or list, optional
+            Count only the modes incident from these ports (by index or name).
+            Every outgoing mode still counts. A port whose basis is truncated
+            cannot receive all that another port sends, so the whole matrix
+            then loses power while the balance from the other port holds.
+            All ports by default.
+        """
+        n = self.total_modes
+        power = np.ones(n) if self.mode_power is None else self.mode_power
+        carries = power > 1e-9 * power.max() if power.max() > 0 else np.zeros(n, dtype=bool)
+        rows = np.flatnonzero(carries)
+        incident = np.arange(n) if from_ports is None else self._gather_indices(from_ports)
+        cols = incident[carries[incident]]
+        if cols.size == 0:
+            return 0.0
+        root = np.sqrt(power[rows])
+        scaled = self.data[np.ix_(rows, rows)] * root[:, None] / root[None, :]
+        gram = scaled.conj().T @ scaled[:, np.searchsorted(rows, cols)]
+        identity = (rows[:, None] == cols[None, :]).astype(float)
+        return float(np.linalg.norm(gram - identity) / np.sqrt(cols.size))
+
+    def power(self, from_port: int | str = 0, to_port: int | str = 1) -> np.ndarray:
+        """Power carried from each mode of from_port into each mode of to_port.
+
+        Entry (i, j) is ``|S_ij|^2 P_i / P_j``, the fraction of the power in
+        mode j of from_port that leaves in mode i of to_port, where P is
+        mode_power. Without mode_power it is the plain ``|S_ij|^2``. Name the
+        same port twice for the reflected power, as in `reflection`.
+        """
+        row_idx = self._gather_indices(to_port)
+        col_idx = self._gather_indices(from_port)
+        squared = np.abs(self.data[np.ix_(row_idx, col_idx)]) ** 2
+        if self.mode_power is None:
+            return squared
+        return squared * self.mode_power[row_idx][:, None] / self.mode_power[col_idx][None, :]
 
     def insertion_loss_dB(self, from_port: int | str, to_port: int | str, mode: int = 0) -> float:
-        col = self.block(to_port, from_port)[:, mode]
-        return float(-10 * np.log10(np.sum(np.abs(col) ** 2)))
+        """Loss in dB of the power that mode of from_port sends into to_port.
+
+        The power is ``sum_i |S_ij|^2 P_i / P_j`` over the modes i of to_port,
+        with P the mode_power when present, and the plain sum of ``|S_ij|^2``
+        otherwise.
+        """
+        return float(-10 * np.log10(np.sum(self.power(from_port, to_port)[:, mode])))
 
     def plot(self, kind: Literal['abs**2', 'phase'] = 'abs**2', ax=None):
         """

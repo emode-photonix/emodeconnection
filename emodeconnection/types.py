@@ -1,6 +1,8 @@
 from collections.abc import Iterator, Mapping
 from typing import Any, Type, TypeVar, Optional, Union, get_origin, get_args
+import inspect
 import sys
+from logging import getLogger
 
 if sys.version_info >= (3, 10):
     from types import UnionType
@@ -11,12 +13,19 @@ from enum import Enum
 from pydantic import (
     BaseModel,
     ConfigDict,
+    SerializerFunctionWrapHandler,
+    ValidationError,
     ValidationInfo,
     computed_field,
     field_validator,
+    model_serializer,
+    model_validator,
 )
 import math
 import numpy as np
+from pydantic.fields import FieldInfo
+
+logger = getLogger(__name__)
 
 
 def serialize(data: Any):
@@ -35,12 +44,135 @@ def serialize(data: Any):
     elif isinstance(data, np.ndarray):
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
-        return data.model_dump()
+        return serialize(wire_dump(data))
     if type(data).__module__ == np.__name__:
         # final catchall
         data = np.squeeze(data).tolist()
     else:
         return data
+
+def _is_default(value: Any, info: FieldInfo) -> bool:
+    """Whether a field holds its default, compared without raising on arrays."""
+    if info.is_required():
+        return False
+    default = info.get_default(call_default_factory=True)
+    if value is default:
+        return True
+    if isinstance(value, np.ndarray) or isinstance(default, np.ndarray):
+        return (
+            isinstance(value, np.ndarray)
+            and isinstance(default, np.ndarray)
+            and value.shape == default.shape
+            and value.dtype == default.dtype
+            and bool(np.array_equal(value, default))
+        )
+    try:
+        same = value == default
+    except Exception:
+        return False
+    return same is True or (isinstance(same, np.bool_) and bool(same))
+
+
+def non_default_fields(model: BaseModel) -> Iterator[tuple[str, Any]]:
+    """The fields of `model` that differ from their defaults, as (name, value)."""
+    for name, info in type(model).model_fields.items():
+        value = getattr(model, name)
+        if not _is_default(value, info):
+            yield name, value
+
+
+def _prune_defaults(value: Any, dumped: Any) -> None:
+    """Remove from `dumped`, in place, every field `value` holds at its default.
+
+    Only a registered wire type is pruned (`is_wire_type`). The other side
+    reads any other model as a plain dict, so it keeps every field.
+    """
+    if isinstance(value, BaseModel):
+        if not isinstance(dumped, dict) or not is_wire_type(value):
+            return
+        for name, info in type(value).model_fields.items():
+            if name not in dumped:
+                continue  # a custom serializer laid the model out differently
+            field_value = getattr(value, name)
+            if _is_default(field_value, info):
+                del dumped[name]
+            else:
+                _prune_defaults(field_value, dumped[name])
+    elif isinstance(value, (list, tuple)) and isinstance(dumped, (list, tuple)):
+        if len(value) == len(dumped):
+            for item, dumped_item in zip(value, dumped):
+                _prune_defaults(item, dumped_item)
+    elif isinstance(value, dict) and isinstance(dumped, dict):
+        for key, item in value.items():
+            if key in dumped:
+                _prune_defaults(item, dumped[key])
+
+
+def is_wire_type(obj: Any) -> bool:
+    """Whether `obj` is an instance of the wire type registered under its class name.
+
+    Those are the objects the other side rebuilds into its own class, which
+    fills in any default `wire_dump` leaves out. Anything else that is tagged
+    (a solver's own model, even one sharing a wire type's name) is read there
+    as a plain dict, so it has to be sent with every field.
+    """
+    cls = type(obj)
+    return isinstance(obj, BaseModel) and _TYPE_REGISTRY.get(cls.__name__) is cls
+
+
+def wire_dump(model: BaseModel) -> dict:
+    """`model` as it crosses the wire: its tag and the fields that differ from their defaults.
+
+    A field left at its default is not sent, at any depth, in any registered
+    wire type (a model the other side does not rebuild keeps every field,
+    since it is read there as a plain dict). The other side
+    fills it in from its own class. That is what lets an older EMode or
+    emodeconnection read a wire type that has gained fields since (several
+    wire types refuse fields they do not know), and what keeps a default that
+    changed between versions (None for "the solver's choice") from reaching a
+    side that cannot hold it.
+    """
+    dumped = model.model_dump()
+    _prune_defaults(model, dumped)
+    return dumped
+
+
+def from_wire(cls: type, fields: dict) -> Any:
+    """Build `cls` from what the other side sent, ignoring what this version does not know.
+
+    A newer sender may add fields. A type that refuses unknown fields
+    (``extra='forbid'``) does so to catch a user's typo, which still raises
+    when the type is built directly, and only here are unknown fields dropped.
+    An error type takes the arguments its constructor knows, with None for any
+    the sender left out, and keeps the rest as attributes.
+    """
+    if isinstance(cls, type) and issubclass(cls, BaseException):
+        return _error_from_wire(cls, fields)
+    model_fields = getattr(cls, "model_fields", None)
+    if model_fields is not None and cls.model_config.get("extra") == "forbid":  # type: ignore[attr-defined]
+        unknown = [key for key in fields if key not in model_fields]
+        if unknown:
+            logger.debug(f"ignored the fields {unknown} of {cls.__name__}, which this version does not know")
+            fields = {key: value for key, value in fields.items() if key in model_fields}
+    return cls(**fields)
+
+
+def _error_from_wire(cls: type, fields: dict) -> BaseException:
+    params = [
+        p
+        for p in list(inspect.signature(cls.__init__).parameters.values())[1:]
+        if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+    ]
+    names = {p.name for p in params}
+    kwargs = {key: value for key, value in fields.items() if key in names}
+    for p in params:
+        if p.name not in kwargs and p.default is p.empty:
+            kwargs[p.name] = None
+    error = cls(**kwargs)
+    for key, value in fields.items():
+        if key not in names and not key.startswith("_"):
+            setattr(error, key, value)
+    return error
 
 def _allows_none(tp: Any) -> bool:
     """
@@ -68,8 +200,8 @@ class TaggedModel(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def _nan_to_none(cls, v: Any, info: ValidationInfo):
-        # this is necessary because matlab doesn't support None, so they are all
-        # changed to NaNs in serialization.
+        # A .mat file has no null, so None is written there as NaN. Read a NaN
+        # back as None wherever the field allows None.
         if not (isinstance(v, float) and math.isnan(v)):
             return v  # nothing to do
         if info.field_name is None:
@@ -317,6 +449,145 @@ class WavelengthDict(TaggedModel, Mapping):
     def __str__(self) -> str:
         return repr(self)
 
+@register_type
+class Confinement(TaggedModel, Mapping):
+    """A read-only mapping from shape name to the confinement factor of each mode.
+
+    Returned by `confinement()`. Each shape name (or ``'vs'`` for a polygon
+    given by ``vertices``) maps to a `dict` from mode index to that mode's
+    confinement factor, so ``result['core'][0]`` is the fundamental mode's
+    factor in the shape ``'core'``. It behaves like a `dict` keyed by shape
+    name: index it, iterate it, call ``.keys()``, ``.values()``, ``.items()``
+    or ``.get()``, or turn it into a plain `dict` with ``dict(result)``.
+
+    It exists because JSON object keys are always strings. A plain dict keyed
+    by mode index would arrive here keyed by ``'0'``. This type carries its
+    mode indices through validation, which turns them back into integers.
+
+    On the wire the shape names sit at the top level beside the type tag, so
+    an emodeconnection that predates this type reads the reply as the plain
+    dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
+    entry).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    factors: dict[str, dict[int, float]]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_wire(cls, values: Any) -> Any:
+        """Accept the flat wire form, ``{shape: {mode: factor}}``, as well as ``factors=``."""
+        if not isinstance(values, Mapping):
+            return values
+        factors = values.get("factors")
+        if (
+            set(values) == {"factors"}
+            and isinstance(factors, Mapping)
+            and all(isinstance(modes, Mapping) for modes in factors.values())
+        ):
+            return values
+        return {"factors": dict(values)}
+
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        dumped = handler(self)
+        return {"__data_type__": dumped["__data_type__"], **dumped["factors"]}
+
+    def __getitem__(self, shape: str) -> dict[int, float]:
+        return self.factors[shape]
+
+    def __iter__(self) -> Iterator[str]:  # type: ignore[override]
+        return iter(self.factors)
+
+    def __len__(self) -> int:
+        return len(self.factors)
+
+    def __contains__(self, shape: object) -> bool:
+        return shape in self.factors
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Confinement):
+            return self.factors == other.factors
+        if isinstance(other, Mapping):
+            return self.factors == dict(other)
+        return NotImplemented
+
+    # Unhashable, like the dict it stands in for.
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"Confinement({self.factors!r})"
+
+    def __str__(self) -> str:
+        return repr(self)
+
+@register_type
+class ModeDict(TaggedModel, Mapping):
+    """A read-only mapping from mode index to one result per mode.
+
+    A shape returned by ``get_shape()`` carries one under
+    ``metadata['confinement']``, the confinement factor of each mode in that
+    shape, so ``shape['metadata']['confinement'][0]`` is the fundamental mode's.
+    It behaves like a `dict` keyed by integer mode index: index it, iterate it,
+    call ``.keys()``, ``.values()``, ``.items()`` or ``.get()``, or turn it into
+    a plain `dict` with ``dict(result)``.
+
+    It exists because JSON object keys are always strings. A plain dict keyed
+    by mode index would arrive here keyed by ``'0'``. This type carries its
+    mode indices through validation, which turns them back into integers.
+
+    On the wire the mode indices sit at the top level beside the type tag, so
+    an emodeconnection that predates this type reads the reply as the plain
+    dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
+    entry).
+    """
+
+    model_config = ConfigDict(frozen=True)
+    data: dict[int, Any]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_wire(cls, values: Any) -> Any:
+        """Accept the flat wire form, ``{mode: value}``, as well as ``data=``."""
+        if not isinstance(values, Mapping):
+            return values
+        if set(values) == {"data"} and isinstance(values["data"], Mapping):
+            return values
+        return {"data": dict(values)}
+
+    @model_serializer(mode="wrap")
+    def _to_wire(self, handler: SerializerFunctionWrapHandler) -> dict[Any, Any]:
+        dumped = handler(self)
+        return {"__data_type__": dumped["__data_type__"], **dumped["data"]}
+
+    def __getitem__(self, mode: int) -> Any:
+        return self.data[mode]
+
+    def __iter__(self) -> Iterator[int]:  # type: ignore[override]
+        return iter(self.data)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    def __contains__(self, mode: object) -> bool:
+        return mode in self.data
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ModeDict):
+            return self.data == other.data
+        if isinstance(other, Mapping):
+            return self.data == dict(other)
+        return NotImplemented
+
+    # Unhashable, like the dict it stands in for.
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"ModeDict({self.data!r})"
+
+    def __str__(self) -> str:
+        return repr(self)
+
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
     Reconstructs an exception from its serialized form.
@@ -335,7 +606,9 @@ def reconstruct(data: Any) -> Any:
     Recursively rebuild registered wire types anywhere in a decoded payload.
 
     Any dict carrying a known "__data_type__" tag becomes an instance of the
-    registered class; dicts with an unknown tag are left as plain dicts.
+    registered class, ignoring fields this version does not know (`from_wire`).
+    Dicts with an unknown tag, or with values the class refuses, are left as
+    plain dicts.
     Containers are walked bottom-up so nested tagged objects are rebuilt
     before their parent.
     """
@@ -343,8 +616,21 @@ def reconstruct(data: Any) -> Any:
         data = {key: reconstruct(value) for key, value in data.items()}
         name = data.get("__data_type__")
         if name in _TYPE_REGISTRY:
+            cls = _TYPE_REGISTRY[name]
             fields = {key: value for key, value in data.items() if key != "__data_type__"}
-            return _TYPE_REGISTRY[name](**fields)
+            if isinstance(cls, type) and issubclass(cls, BaseException):
+                return from_wire(cls, fields)
+            try:
+                return from_wire(cls, fields)
+            except (ValidationError, EModeError, TypeError, ValueError) as e:
+                # A newer sender may hold a value this version's class refuses
+                # (a new choice of a Literal, say). The plain dict keeps the
+                # rest of the reply readable.
+                logger.warning(
+                    f"this emodeconnection cannot read the {name} it received, so it is "
+                    f"returned as a plain dict. Upgrading emodeconnection may help. ({e})"
+                )
+                return data
         return data
     if isinstance(data, list):
         return [reconstruct(item) for item in data]

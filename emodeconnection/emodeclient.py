@@ -14,6 +14,10 @@ from .types import EModeError, reconstruct, serialize
 
 logger = getLogger(__name__)
 
+# The wire protocol version this client reads. The solver stamps it on every
+# dictionary reply as "__version__".
+PROTOCOL_VERSION = 1
+
 
 def obj_hook(dct: dict) -> Optional[Union[np.ndarray, dict]]:
     if "__ndarray__" in dct:
@@ -170,19 +174,35 @@ class EModeClient:
 
         return conn_msg + ide
 
-    def recv(self) -> dict:
+    def recv(self) -> Any:
+        """Read one reply from the solver.
+
+        A dictionary reply is stamped with the protocol version in
+        ``__version__``. A reply without a stamp (a scalar, a list, an array
+        or None) is a plain value and is returned as is. A stamp other than
+        `PROTOCOL_VERSION` raises an `EModeError`, and so does an error of a
+        type this client does not know, with the solver's message.
+        """
         logger.debug("")
         data = self._recv_msg()
         json_data = json.loads(data.decode("utf-8"), object_hook=obj_hook)
-        if isinstance(json_data, dict):
-            if version := json_data.pop("__version__", None):
-                if version == 1:
-                    o = reconstruct(json_data)
-                    if isinstance(o, EModeError):
-                        raise o
-                    else:
-                        return o
-        return json_data
+        if not (isinstance(json_data, dict) and "__version__" in json_data):
+            return json_data
+        version = json_data.pop("__version__")
+        if version != PROTOCOL_VERSION:
+            raise EModeError(
+                f"this emodeconnection does not understand protocol version {version} "
+                f"(it reads version {PROTOCOL_VERSION}). Upgrade it with "
+                "'pip install --upgrade emodeconnection'."
+            )
+        o = reconstruct(json_data)
+        if isinstance(o, EModeError):
+            raise o
+        name = o.get("__data_type__") if isinstance(o, dict) else None
+        if isinstance(name, str) and name.endswith("Error") and "msg" in o:
+            # An error type a newer solver added and this client predates.
+            raise EModeError(f"{name}: {o['msg']}")
+        return o
 
     def send(self, data):
         logger.debug(f"sending {data=}")

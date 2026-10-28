@@ -3,7 +3,9 @@
 A pulsed simulation is declared with three objects and returns one:
 
 - `PulsedSource`, the excitation: a femtosecond pulse (or a CW reference)
-  launched into one port, declared with `settings(excitation=...)`.
+  launched into one port, declared with `settings(excitation=...)`. A
+  measured pulse is given as a `PulseMeasurement` (sampled spectrum or
+  temporal trace), which the solver fits before it launches it.
 - `PulsedProcess`, attached to a section with its `nonlinear=` argument: which
   nonlinearities act there, which modes are tracked, and how the section's
   dispersion is sampled.
@@ -11,7 +13,9 @@ A pulsed simulation is declared with three objects and returns one:
   period that varies along the section, or explicit domain walls.
 - `PulseResponse`, returned by `get('pulse_response')` after `EME()` or
   `pulse_propagate()`: the spectrum of every tracked mode at the recorded
-  positions, with band energy and power computed here on the client.
+  positions, with band energy and power computed here on the client. For a
+  measured pulse it also carries the `PulseFit` the solver accepted, and a
+  `RankReport` says how well the field patterns represent the tracked modes.
 
 Units, as in the rest of the API: wavelengths and lengths in nm, durations
 in fs, energies in pJ, powers in W, repetition rates in Hz. Arrays returned
@@ -22,15 +26,163 @@ alongside.
 from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from .types import ArgumentError, TaggedModel, register_type
 
 _C0 = 299792458.0
 
 
+class _LoadsOlderVersions:
+    """Fills the fields an earlier version did not have when a pickled object is loaded.
+
+    Simulation files store these objects pickled. A file written before a
+    field existed has no value for it, and pydantic would then raise on first
+    access, so the field's default is filled in instead.
+    """
+
+    def __setstate__(self, state: Dict) -> None:
+        values = state.get('__dict__', {})
+        for name, info in type(self).model_fields.items():
+            if name not in values and not info.is_required():
+                values[name] = info.get_default(call_default_factory=True)
+        super().__setstate__(state)
+
+
+def _sample_list(value):
+    """A 1D array or sequence of samples as a plain list of floats."""
+    if value is None:
+        return None
+    return np.asarray(value, dtype=float).ravel().tolist()
+
+
 @register_type
-class PulsedSource(TaggedModel):
+class PulseMeasurement(_LoadsOlderVersions, TaggedModel):
+    """A measured pulse, sampled in wavelength or in time, for `PulsedSource(shape='measured')`.
+
+    Give exactly one of `wavelength` (nm), for a measured spectrum, and `time`
+    (fs), for a temporal trace, with `intensity` on the same samples. A
+    spectrum's intensity is per unit wavelength, as a spectrometer records
+    it. The scale is arbitrary, since the source's `energy` or `peak_power`
+    sets it. `phase` (rad), optional, is the retrieved spectral or temporal
+    phase (from FROG or SPIDER, for example), in the convention of those
+    retrievals: the group delay is d phase / d omega, so a positive quadratic
+    spectral phase is a positive GDD, and the instantaneous angular frequency
+    is omega_0 - d phase / dt. Without a phase the pulse is taken as transform
+    limited, and the solver warns.
+
+    `background`, optional, is a constant offset (dark counts, stray light)
+    subtracted from `intensity` before the fit, on the same scale as
+    `intensity`. `background='auto'` estimates it from the outer samples at
+    both ends, which must then be flat and at one level, and the solver
+    refuses the measurement when they are not.
+
+    The solver fits the samples before it launches the pulse. `fit='smooth'`
+    (the default) is a smoothing spline of the intensity with a polynomial
+    phase whose order (2 to 4) the fit chooses, or, when no polynomial reaches
+    `min_fit_quality`, a smoothing spline of the phase weighted by the
+    intensity. `fit='sech'` or `'gaussian'` fits the analytic shapes of
+    `PulsedSource` (width, center and chirp). The fit's quality is 1 minus its
+    normalized residual: the R^2 of the intensity, less the intensity-weighted
+    mean of 1 - cos of the phase error when a phase is given. A fit below
+    `min_fit_quality` is refused with an error stating the quality reached and
+    where the residual is largest.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    wavelength: Optional[List[float]] = None
+    time: Optional[List[float]] = None
+    intensity: List[float]
+    phase: Optional[List[float]] = None
+    fit: Literal['smooth', 'sech', 'gaussian'] = 'smooth'
+    min_fit_quality: float = 0.99
+    background: Optional[Union[float, Literal['auto']]] = None
+
+    @field_validator('wavelength', 'time', 'intensity', 'phase', mode='before')
+    @classmethod
+    def _as_lists(cls, value):
+        return _sample_list(value)
+
+    @model_validator(mode='after')
+    def _validate(self) -> 'PulseMeasurement':
+        name = 'PulseMeasurement'
+        if (self.wavelength is None) == (self.time is None):
+            raise ArgumentError('give exactly one of wavelength and time', name, 'wavelength')
+        axis_name = 'wavelength' if self.wavelength is not None else 'time'
+        axis = np.asarray(self.wavelength if self.wavelength is not None else self.time)
+        intensity = np.asarray(self.intensity)
+        if axis.size != intensity.size:
+            raise ArgumentError(f'{axis_name} and intensity must have the same length', name, 'intensity')
+        if self.phase is not None and len(self.phase) != axis.size:
+            raise ArgumentError(f'phase and {axis_name} must have the same length', name, 'phase')
+        if axis.size < 8:
+            raise ArgumentError('a measurement needs at least 8 samples', name, axis_name)
+        values = [axis, intensity] + ([np.asarray(self.phase)] if self.phase is not None else [])
+        if not all(np.all(np.isfinite(v)) for v in values):
+            raise ArgumentError('every sample must be finite', name, axis_name)
+        if self.wavelength is not None and np.any(axis <= 0):
+            raise ArgumentError('every wavelength must be > 0', name, 'wavelength')
+        if np.unique(axis).size != axis.size:
+            raise ArgumentError(f'the {axis_name} samples must be distinct', name, axis_name)
+        if np.max(intensity) <= 0:
+            raise ArgumentError('the intensity needs a positive peak', name, 'intensity')
+        if not 0 <= self.min_fit_quality <= 1:
+            raise ArgumentError('min_fit_quality must be in [0, 1]', name, 'min_fit_quality')
+        if isinstance(self.background, float):
+            peak = float(np.max(intensity))
+            if not (np.isfinite(self.background) and 0 <= self.background < peak):
+                raise ArgumentError(
+                    f'background must be at least 0 and below the intensity peak {peak:g}, '
+                    f'got {self.background:g}',
+                    name,
+                    'background',
+                )
+        return self
+
+    @property
+    def domain(self) -> Literal['spectral', 'temporal']:
+        """'spectral' for a sampled spectrum, 'temporal' for a sampled trace."""
+        return 'spectral' if self.wavelength is not None else 'temporal'
+
+
+@register_type
+class PulseFit(_LoadsOlderVersions, TaggedModel):
+    """The fit the solver accepted for a measured pulse, reported on the `PulseResponse`.
+
+    `model` is the fitted model and `quality` its goodness of fit (see
+    `PulseMeasurement`). The rest describe the launched pulse: `fwhm` (fs) its
+    intensity FWHM, `center_wavelength` (nm) its spectral centroid, `gdd`
+    (fs^2) and `tod` (fs^3) the second and third derivatives of its spectral
+    phase in the convention of `PulseMeasurement`, and `chirp` the fitted C of
+    a 'sech' or 'gaussian' model (None for 'smooth'). `transform_limited` is
+    True when the measurement had no phase. `energy_outside` is the fraction
+    of the fitted pulse's energy that fell outside the source's
+    `wavelength_range` (or time window) and was cut. `residual_peak` is where
+    the fit's residual is largest, on the measurement's own axis
+    (`residual_axis`, 'wavelength' in nm or 'time' in fs). `background` is the
+    constant background subtracted before the fit, as a fraction of the
+    samples' peak (0 when none was).
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    model: Literal['smooth', 'sech', 'gaussian']
+    quality: float
+    fwhm: float
+    center_wavelength: float
+    gdd: float
+    tod: float
+    chirp: Optional[float] = None
+    transform_limited: bool
+    energy_outside: float = 0.0
+    residual_peak: float
+    residual_axis: Literal['wavelength', 'time']
+    background: float = 0.0
+
+
+@register_type
+class PulsedSource(_LoadsOlderVersions, TaggedModel):
     """A pulse launched into one port of the circuit.
 
     `mode` is the tracked mode index that carries the pulse, or a dict
@@ -40,6 +192,12 @@ class PulsedSource(TaggedModel):
     fs. `chirp` is the dimensionless C of exp(j C t^2 / (2 T0^2)): positive
     raises the instantaneous frequency across the pulse. `shape='cw'` launches
     a continuous wave of `peak_power` at `center_wavelength` (no `duration`).
+    `shape='measured'` launches the `measurement` (a `PulseMeasurement`),
+    fitted by the solver and scaled to `energy` or `peak_power`, with no
+    `duration` or `chirp` (the measurement carries both). A measured spectrum
+    sits at its own wavelengths, and `center_wavelength` stays the wavelength
+    at which the circuit is refined. A measured trace is centered on
+    `center_wavelength`.
 
     The pulse is resolved on `num_points` frequencies spanning
     `wavelength_range` (nm). The time window is `num_points` over the
@@ -55,8 +213,9 @@ class PulsedSource(TaggedModel):
     peak_power: Optional[float] = None
     port: str = 'left'
     mode: Union[int, Dict[int, complex]] = 0
-    shape: Literal['sech', 'gaussian', 'cw'] = 'sech'
+    shape: Literal['sech', 'gaussian', 'cw', 'measured'] = 'sech'
     chirp: float = 0.0
+    measurement: Optional[PulseMeasurement] = None
     repetition_rate: Optional[float] = None
     wavelength_range: Tuple[float, float] = (450.0, 3500.0)
     num_points: int = 16384
@@ -72,9 +231,20 @@ class PulsedSource(TaggedModel):
             raise ArgumentError('wavelength_range must be (min, max) with 0 < min < max', name, 'wavelength_range')
         if not lo < self.center_wavelength < hi:
             raise ArgumentError('center_wavelength must lie inside wavelength_range', name, 'center_wavelength')
+        if self.measurement is not None and self.shape != 'measured':
+            raise ArgumentError("a measurement goes with shape='measured'", name, 'measurement')
         if self.shape == 'cw':
             if self.peak_power is None or self.energy is not None:
                 raise ArgumentError("a 'cw' source takes peak_power (W) and no energy", name, 'peak_power')
+        elif self.shape == 'measured':
+            if self.measurement is None:
+                raise ArgumentError("shape='measured' needs a measurement (PulseMeasurement)", name, 'measurement')
+            if self.duration is not None:
+                raise ArgumentError('a measured source takes no duration: the measurement sets it', name, 'duration')
+            if self.chirp != 0:
+                raise ArgumentError('a measured source takes no chirp: the measurement sets it', name, 'chirp')
+            if (self.energy is None) == (self.peak_power is None):
+                raise ArgumentError('give exactly one of energy (pJ) and peak_power (W)', name, 'energy')
         else:
             if self.duration is None or self.duration <= 0:
                 raise ArgumentError('duration (fs FWHM) must be > 0', name, 'duration')
@@ -107,11 +277,18 @@ class Poling(TaggedModel):
     """The chi(2) domain pattern of a section, in nm along the section.
 
     Give exactly one of: `period` (constant), `z_knots` with `periods` (a local
-    period interpolated between knots, the form an optimizer varies), or
-    `domain_walls` (explicit positions). `duty_cycle` is the fraction of each
-    period in the first (positive) domain. `inverted_first` starts in the
-    inverted domain. `jitter_rms` displaces every wall by Gaussian noise (nm)
-    drawn with `seed`, for fabrication-tolerance studies.
+    period interpolated between knots), `domain_walls` (explicit positions),
+    or `domain_lengths` (the length of every domain in order, each one free in
+    an inverse design). `duty_cycle` is the fraction of each period in the
+    first (positive) domain. `inverted_first` starts in the inverted domain.
+    `jitter_rms` displaces every wall by Gaussian noise (nm) drawn with
+    `seed`, for fabrication-tolerance studies.
+
+    The walls of `domain_lengths` are its running sum. A wall at or past the
+    end of the section is dropped, and when the domains end before the
+    section does, the sign flips once more and the last domain runs to the
+    end. `walls(section_length)` gives the walls of any form, and
+    `to_domain_lengths(section_length)` converts any form to domain lengths.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -120,6 +297,7 @@ class Poling(TaggedModel):
     z_knots: Optional[List[float]] = None
     periods: Optional[List[float]] = None
     domain_walls: Optional[List[float]] = None
+    domain_lengths: Optional[List[float]] = None
     duty_cycle: float = 0.5
     interpolation: Literal['linear', 'spline'] = 'linear'
     inverted_first: bool = False
@@ -129,9 +307,16 @@ class Poling(TaggedModel):
     @model_validator(mode='after')
     def _validate(self) -> 'Poling':
         name = 'Poling'
-        forms = [self.period is not None, self.z_knots is not None, self.domain_walls is not None]
+        forms = [
+            self.period is not None,
+            self.z_knots is not None,
+            self.domain_walls is not None,
+            self.domain_lengths is not None,
+        ]
         if sum(forms) != 1:
-            raise ArgumentError('give exactly one of period, z_knots/periods and domain_walls', name, 'period')
+            raise ArgumentError(
+                'give exactly one of period, z_knots/periods, domain_walls and domain_lengths', name, 'period'
+            )
         if self.period is not None and self.period <= 0:
             raise ArgumentError('period must be > 0', name, 'period')
         if self.z_knots is not None:
@@ -145,15 +330,117 @@ class Poling(TaggedModel):
             b <= a for a, b in zip(self.domain_walls[:-1], self.domain_walls[1:])
         ):
             raise ArgumentError('domain_walls must be strictly increasing', name, 'domain_walls')
+        if self.domain_lengths is not None:
+            if not self.domain_lengths:
+                raise ArgumentError('domain_lengths needs at least one domain', name, 'domain_lengths')
+            if any(not v > 0 for v in self.domain_lengths):
+                raise ArgumentError('every domain length must be > 0', name, 'domain_lengths')
         if not 0 < self.duty_cycle < 1:
             raise ArgumentError('duty_cycle must be in (0, 1)', name, 'duty_cycle')
         if self.jitter_rms < 0:
             raise ArgumentError('jitter_rms must be >= 0', name, 'jitter_rms')
         return self
 
+    @property
+    def total_length(self) -> Optional[float]:
+        """The summed length (nm) of `domain_lengths`, None for the other forms."""
+        return None if self.domain_lengths is None else float(sum(self.domain_lengths))
+
+    def walls(self, section_length: float) -> List[float]:
+        """The domain walls (nm from the start of the section) over a section of `section_length` nm."""
+        if self.period is not None:
+            walls = _walls_from_period(section_length, self.period, self.duty_cycle)
+        elif self.z_knots is not None:
+            walls = _walls_from_knots(
+                section_length, self.z_knots, self.periods or [], self.duty_cycle, self.interpolation
+            )
+        elif self.domain_lengths is not None:
+            walls = [float(w) for w in np.cumsum(self.domain_lengths) if w < section_length]
+        else:
+            walls = [float(w) for w in self.domain_walls or [] if 0 < w < section_length]
+        if self.jitter_rms > 0:
+            walls = _jitter(walls, self.jitter_rms, self.seed)
+        return walls
+
+    def to_domain_lengths(self, section_length: float) -> List[float]:
+        """The length (nm) of every domain over a section of `section_length` nm.
+
+        The lengths sum to the section length, so `Poling(domain_lengths=...)`
+        with the same `inverted_first` has the same walls. A run can start
+        from a fixed or chirped poling and free every domain from there.
+        """
+        edges = [0.0, *self.walls(section_length), float(section_length)]
+        return [float(b - a) for a, b in zip(edges[:-1], edges[1:])]
+
+
+def _walls_from_phase(z: np.ndarray, phase: np.ndarray, duty_cycle: float) -> List[float]:
+    """Walls where the grating phase crosses 2 pi (k + D) (to -) and 2 pi (k + 1) (to +)."""
+    total = phase[-1] / (2 * np.pi)
+    targets = []
+    k = 0
+    while True:
+        down, up = 2 * np.pi * (k + duty_cycle), 2 * np.pi * (k + 1)
+        if down >= phase[-1] * (1 - 1e-12):
+            break
+        targets.append(down)
+        if up >= phase[-1] * (1 - 1e-12):
+            break
+        targets.append(up)
+        k += 1
+        if k > total + 2:
+            break
+    return [float(v) for v in np.interp(targets, phase, z)]
+
+
+def _walls_from_period(length: float, period: float, duty_cycle: float) -> List[float]:
+    """Walls of a constant-period grating over [0, length]."""
+    walls = []
+    k = 0
+    while True:
+        for offset in (duty_cycle, 1.0):
+            w = (k + offset) * period
+            if w >= length * (1 - 1e-12):
+                return walls
+            walls.append(w)
+        k += 1
+
+
+def _walls_from_knots(
+    length: float,
+    z_knots: List[float],
+    periods: List[float],
+    duty_cycle: float,
+    interpolation: str,
+    samples: int = 200001,
+) -> List[float]:
+    """Walls of a grating whose local period is interpolated between (z, period) knots.
+
+    The local grating phase, the integral of 2 pi / period(z), is integrated on
+    `samples` points and a wall placed at every half cycle (shifted by the duty
+    cycle).
+    """
+    from scipy.integrate import cumulative_trapezoid
+    from scipy.interpolate import CubicSpline
+
+    zk = np.asarray(z_knots, dtype=float)
+    pk = np.asarray(periods, dtype=float)
+    z = np.linspace(0.0, length, samples)
+    local = np.interp(z, zk, pk) if interpolation == 'linear' else CubicSpline(zk, pk)(z)
+    phase = cumulative_trapezoid(2 * np.pi / local, z, initial=0.0)
+    return _walls_from_phase(z, phase, duty_cycle)
+
+
+def _jitter(walls: List[float], rms: float, seed: Optional[int]) -> List[float]:
+    """Walls displaced by Gaussian noise of `rms`, refusing noise that reorders two walls."""
+    w = np.asarray(walls, dtype=float)
+    out = w + np.random.default_rng(seed).normal(0.0, rms, size=w.shape)
+    if np.any(np.diff(out) <= 0):
+        raise ArgumentError('the jitter reordered two domain walls: reduce jitter_rms', 'Poling', 'jitter_rms')
+    return [float(v) for v in out]
+
 
 @register_type
-class PulsedProcess(TaggedModel):
+class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     """The nonlinear optics of one section for a pulsed simulation.
 
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
@@ -161,9 +448,30 @@ class PulsedProcess(TaggedModel):
     modes). `tpa=None` turns two-photon absorption on wherever a material has
     a two-photon coefficient. The section's cross-sections are solved at
     `dispersion_samples` wavelengths (Chebyshev nodes over the source's
-    `wavelength_range`); the tracked fields are expanded in patterns whose
+    `wavelength_range`), by default as many as the band's width needs. The
+    tracked fields are expanded in patterns whose
     singular values stay above `pattern_threshold` relative to the first, at
-    most `max_rank` of them.
+    most `max_rank` of them. `PulseResponse.rank_report` says where `max_rank`
+    binds and how much of each mode's field that drops.
+
+    A chi(2) section adds the second-harmonic modes it phase-matches to the
+    first tracked mode, ranked by their chi(2) overlap with it times the length
+    they build over: at most `max_harmonic_modes` of them (0 adds none), and
+    none below `harmonic_coupling` of the strongest. Several chi(2) sections
+    over one cross-section share its modes, which take the largest
+    `max_harmonic_modes` and the smallest `harmonic_coupling` among them. An
+    unpoled section's modal phase matches are searched for where the pump
+    drives them, as set by `modal_search`:
+
+    - `'broadened'` (the default): where the launched pulse's spectrum is
+      within 30 dB of its peak, and where the pump's spectrum is within 30 dB
+      of its peak anywhere in the section, as it broadens. When a match lies
+      outside the launched spectrum, a quick run of the pump alone (one mode,
+      one field pattern, no second-harmonic modes) finds that first, which adds
+      its time to `EME()`.
+    - `'launch'`: only where the launched pulse's spectrum is within 30 dB of
+      its peak (the behavior before this option existed).
+    - `(min, max)`: at the fundamental wavelengths (nm) in that band.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
@@ -175,14 +483,25 @@ class PulsedProcess(TaggedModel):
     tpa: Optional[bool] = None
     modes: Optional[List[int]] = None
     poling: Optional[Poling] = None
-    dispersion_samples: int = 24
+    dispersion_samples: Optional[int] = None
     pattern_threshold: float = 1e-3
     max_rank: int = 12
+    max_harmonic_modes: int = 3
+    harmonic_coupling: float = 0.1
+    modal_search: Union[Literal['launch', 'broadened'], Tuple[float, float]] = 'broadened'
 
     @model_validator(mode='after')
     def _validate(self) -> 'PulsedProcess':
         name = 'PulsedProcess'
-        if self.dispersion_samples < 4:
+        if self.max_harmonic_modes < 0:
+            raise ArgumentError('max_harmonic_modes must be >= 0', name, 'max_harmonic_modes')
+        if not 0 <= self.harmonic_coupling <= 1:
+            raise ArgumentError('harmonic_coupling must be in [0, 1]', name, 'harmonic_coupling')
+        if isinstance(self.modal_search, tuple) and not 0 < self.modal_search[0] < self.modal_search[1]:
+            raise ArgumentError(
+                'a modal_search band must be (min, max) in nm with 0 < min < max', name, 'modal_search'
+            )
+        if self.dispersion_samples is not None and self.dispersion_samples < 4:
             raise ArgumentError('dispersion_samples must be at least 4', name, 'dispersion_samples')
         if not 0 <= self.pattern_threshold < 1:
             raise ArgumentError('pattern_threshold must be in [0, 1)', name, 'pattern_threshold')
@@ -194,7 +513,47 @@ class PulsedProcess(TaggedModel):
 
 
 @register_type
-class PulseResponse(TaggedModel):
+class RankReport(TaggedModel):
+    """How well each slice's field patterns represent its tracked modes.
+
+    Per slice of the chain, in order: the `section` it belongs to, the `rank`
+    (number of field patterns) used, the `natural_rank` its process's
+    `pattern_threshold` asks for, and the `max_rank` that caps it (all 0 for a
+    slice with no nonlinear process). `dropped_weight[slice][mode]` is the
+    share of each tracked mode's field weight (its squared field, weighted
+    where the nonlinearity lives, over every dispersion sample) that the
+    patterns leave out, in the order of `PulseResponse.modes`. Where the rank
+    reaches `natural_rank` it is negligible. Where `max_rank` binds, the
+    nonlinear coupling of a mode that drops more than about `limit` is not
+    converged in rank, and the solver warns.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    section: List[Optional[str]]
+    rank: List[int]
+    max_rank: List[int]
+    natural_rank: List[int]
+    dropped_weight: List[List[float]]
+    limit: float
+
+    def binding(self, limit: Optional[float] = None) -> List[int]:
+        """The slices where `max_rank` binds and some mode drops more than `limit`
+        (default: the report's own) of its field weight."""
+        level = self.limit if limit is None else limit
+        return [
+            i
+            for i, (used, natural, dropped) in enumerate(zip(self.rank, self.natural_rank, self.dropped_weight))
+            if natural > used and max(dropped, default=0.0) > level
+        ]
+
+    def largest_dropped_weight(self) -> float:
+        """The largest share of any mode's field weight that any slice drops."""
+        return max((max(d, default=0.0) for d in self.dropped_weight), default=0.0)
+
+
+@register_type
+class PulseResponse(_LoadsOlderVersions, TaggedModel):
     """The pulse at the recorded positions along the chain.
 
     `spectrum` is (records, modes, points), complex, in sqrt(J/Hz) on
@@ -202,10 +561,19 @@ class PulseResponse(TaggedModel):
     record positions from the launch port. `energy` (records, modes) is in pJ.
     `junction_loss` is, per junction in chain order, the fraction of the
     arriving energy that left the tracked modes there (reflected or
-    converted to untracked modes). `edge_energy` is, per record, the fraction
-    of the energy in the outer 5 % of the time window: above about 1e-3 the
-    pulse is wrapping around the window, and `num_points` should grow (the
-    solver warns there).
+    converted to untracked modes). `window_gap` is, per record, the longest
+    stretch of the time window, as a fraction of it, that holds almost none
+    of the energy of all the tracked modes together. The window is periodic,
+    so below about 0.05 the leading and trailing content have met around it
+    and wrapped onto each other, and `num_points` should grow (the solver
+    warns there). It does not depend on the comoving frame. `edge_energy` is,
+    per record, the fraction of the energy in the outer 5 % of the window
+    around the comoving frame (the first tracked mode's group delay). It says
+    where the content sits relative to that frame, not whether it wraps onto
+    itself, and can be large in a run that is fine. `measured_fit` is the
+    `PulseFit` of a measured source (None for an analytic one). `rank_report`
+    is the `RankReport` of the field patterns behind `rank_per_slice` (None
+    from a server that predates it).
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -224,6 +592,9 @@ class PulseResponse(TaggedModel):
     rank_per_slice: List[int]
     samples_per_slice: List[int]
     repetition_rate: Optional[float] = None
+    measured_fit: Optional[PulseFit] = None
+    window_gap: np.ndarray = Field(default_factory=lambda: np.zeros(0))
+    rank_report: Optional[RankReport] = None
 
     @property
     def wavelength(self) -> np.ndarray:
@@ -240,10 +611,16 @@ class PulseResponse(TaggedModel):
 
     def energy_outside_window(self) -> float:
         """The largest fraction of the pulse energy, at any record, in the outer 5 % of
-        the time window on either side. Above about 1e-3 the pulse is wrapping
-        around the window: widen it (a narrower `wavelength_range` per point, or
-        more `num_points`)."""
+        the time window on either side of the comoving frame. It depends on the
+        frame: `smallest_window_gap` says whether the content wraps onto itself."""
         return float(np.max(self.edge_energy)) if len(self.edge_energy) else 0.0
+
+    def smallest_window_gap(self) -> Optional[float]:
+        """The smallest `window_gap` at any record, or None for a response saved
+        before it was reported. Below about 0.05 the pulse has wrapped onto itself
+        around the time window: widen it (more `num_points` over the same
+        `wavelength_range`)."""
+        return float(np.min(self.window_gap)) if len(self.window_gap) else None
 
     def band_energy(
         self,
