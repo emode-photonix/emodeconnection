@@ -104,6 +104,18 @@ def _prune_defaults(value: Any, dumped: Any) -> None:
                 _prune_defaults(item, dumped[key])
 
 
+def is_wire_type(obj: Any) -> bool:
+    """Whether `obj` is an instance of the wire type registered under its class name.
+
+    Those are the objects the other side rebuilds into its own class, which
+    fills in any default `wire_dump` leaves out. Anything else that is tagged
+    (a solver's own model, even one sharing a wire type's name) is read there
+    as a plain dict, so it has to be sent with every field.
+    """
+    cls = type(obj)
+    return isinstance(obj, BaseModel) and _TYPE_REGISTRY.get(cls.__name__) is cls
+
+
 def wire_dump(model: BaseModel) -> dict:
     """`model` as it crosses the wire: its tag and the fields that differ from their defaults.
 

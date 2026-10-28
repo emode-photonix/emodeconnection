@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator
 
 import numpy as np
 import pytest
@@ -395,13 +395,13 @@ def test_a_released_clients_argument_reconstructs_into_todays_types(client: str,
 
 
 class _NotOnTheWire(TaggedModel):
-    port: Optional[str] = None
+    port: str | None = None
 
 
 class Grid(TaggedModel):
     """Named like a registered wire type, as a solver's own classes may be."""
 
-    port: Optional[str] = None
+    port: str | None = None
 
 
 def test_a_registered_wire_type_is_one() -> None:
