@@ -40,7 +40,7 @@ class _Client:
 
     def recv(self) -> Any:
         if not self.replies:
-            raise AssertionError('close() waited for a reply that EMode never sends')
+            raise AssertionError("close() waited for a reply that EMode never sends")
         self.reads.append(self.sent[-1])
         reply = self.replies.pop(0)
         if isinstance(reply, BaseException):
@@ -53,10 +53,10 @@ class _Client:
 
 def _session(*replies: Any) -> tuple[EMode, _Client]:
     em = EMode.__new__(EMode)
-    em._dsim = 'emode'
+    em._dsim = "emode"
     em._save = False
     em._in_flight = False
-    em._emode_version_cache = '1.0.7'
+    em._emode_version_cache = "1.0.7"
     em.running = True
     em._proc = _Proc()  # type: ignore[assignment]
     client = _Client(*replies)
@@ -66,13 +66,13 @@ def _session(*replies: Any) -> tuple[EMode, _Client]:
 
 
 @pytest.mark.parametrize(
-    'failure',
+    "failure",
     [
-        ValueError('a field this client does not accept'),
-        AttributeError('no such attribute'),
-        json.JSONDecodeError('Expecting value', '', 0),
+        ValueError("a field this client does not accept"),
+        AttributeError("no such attribute"),
+        json.JSONDecodeError("Expecting value", "", 0),
     ],
-    ids=['validation', 'attribute', 'json'],
+    ids=["validation", "attribute", "json"],
 )
 def test_close_after_a_reply_that_failed_to_decode_goes_straight_to_close(
     failure: Exception,
@@ -81,21 +81,21 @@ def test_close_after_a_reply_that_failed_to_decode_goes_straight_to_close(
     with pytest.raises(type(failure)):
         em.report()
     em.close()
-    assert client.reads == ['EM_report', 'EM_close']
+    assert client.reads == ["EM_report", "EM_close"]
     assert not em.running
 
 
 def test_close_after_an_error_reply_goes_straight_to_close() -> None:
-    em, client = _session(EModeError('bad argument'), None)
+    em, client = _session(EModeError("bad argument"), None)
     with pytest.raises(EModeError):
         em.report()
     em.close()
-    assert client.reads == ['EM_report', 'EM_close']
+    assert client.reads == ["EM_report", "EM_close"]
 
 
 def test_close_after_an_interrupted_read_drains_the_reply_first() -> None:
-    em, client = _session(KeyboardInterrupt(), 'the interrupted reply', None)
+    em, client = _session(KeyboardInterrupt(), "the interrupted reply", None)
     with pytest.raises(KeyboardInterrupt):
         em.report()
     em.close()
-    assert client.reads == ['EM_report', 'EM_report', 'EM_close']
+    assert client.reads == ["EM_report", "EM_report", "EM_close"]

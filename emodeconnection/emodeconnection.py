@@ -303,14 +303,18 @@ class EMode:
 
         try:
             rv = self._client.recv()
-        except EModeError:
-            # an error reply is still a complete reply
-            self._in_flight = False
-            raise
         except ConnectionError:
             logger.debug("connection closed by EMode, shutting down")
             self._client.close()
             self.running = False
+            raise
+        except OSError:
+            # a read cut short leaves the reply in flight for close() to drain
+            raise
+        except Exception:
+            # The reply arrived in full: an error reply, or one this client
+            # could not decode. Nothing is left for close() to drain (#90).
+            self._in_flight = False
             raise
 
         self._in_flight = False
