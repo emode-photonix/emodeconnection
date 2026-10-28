@@ -322,7 +322,7 @@ class EMode:
             return None
         return rv
 
-    def _emode_version(self) -> Optional[str]:
+    def _emode_version(self) -> "str | None":
         """The version of the EMode this session talks to, asked once a session.
 
         None for an EMode older than 1.0.7, which has no ``version()`` and
