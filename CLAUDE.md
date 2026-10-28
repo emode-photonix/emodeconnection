@@ -138,7 +138,9 @@ message. Four rules keep that from happening:
   `types.wire_dump`, its tag and the fields that differ from their defaults, at any depth.
   An older solver then reads any argument that leaves the newer options alone, and a
   default that changed (None for "the solver's choice") never reaches a side that cannot
-  hold it.
+  hold it. Only a registered wire type is pruned (`types.is_wire_type`), since only those
+  are rebuilt on the other side with their own defaults. Any other tagged model is read
+  there as a plain dict and keeps every field.
 - **Refuse a new option before sending it.** `compat.py` records the first EMode release
   that reads each wire type and field added after EMode 1.0.6. When a call uses one,
   `EMode` asks the solver its version once a session (`version()`, which a solver older
