@@ -59,7 +59,7 @@ def serialize(data: Any, ndarray: bool = False):
     elif isinstance(data, np.bool_):
         return bool(data)
     elif isinstance(data, np.ndarray):
-        if ndarray:
+        if ndarray and data.dtype.kind in "biufc":
             return encode_ndarray(data)
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
