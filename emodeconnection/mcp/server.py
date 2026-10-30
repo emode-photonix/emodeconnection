@@ -17,6 +17,7 @@ return, so it does not reach the agent.
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -27,7 +28,7 @@ from typing import Any, Literal, TypeVar
 import anyio.to_thread
 import numpy as np
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.utilities.types import Image
 from pydantic import BaseModel, Field
 
@@ -36,9 +37,12 @@ from ..optimize import Constraint, Objective, Parameter
 from ..plot import PlotImage
 from ..types import EModeError
 from .convert import FileStore, to_jsonable
+from .docs import DocsError, read_page
 from .specs import ConstraintSpec, ObjectiveSpec, ParameterSpec, SettingsSpec, ShapeSpec
 
 T = TypeVar("T")
+
+SKILL_PATH = Path(__file__).with_name("SKILL.md")
 
 # A sweep or an optimization longer than this asks for confirmation first.
 CONFIRM_ABOVE_POINTS = 20
@@ -247,12 +251,17 @@ def _drop_none(**kwargs: Any) -> dict[str, Any]:
 def create_server(
     client_factory: Callable[..., Any] = EMode,
     output_dir: Path | str | None = None,
+    docs_dir: Path | str | None = None,
+    docs_fetch: Callable[[str], str] | None = None,
 ) -> MCPServer:
     """Build the MCP server.
 
     ``client_factory`` makes the EMode client for a session. It is ``EMode``
     itself, and tests pass a stand-in. Large results and plots are written to
-    ``output_dir``, by default a new temporary directory.
+    ``output_dir``, by default a new temporary directory, and its array files
+    are deleted when the server shuts down. Docs pages are read from
+    ``docs_dir`` (default: the ``EMODE_DOCS_DIR`` environment variable) and
+    otherwise fetched with ``docs_fetch`` (default: HTTP GET) from the docs site.
     """
     if output_dir is None:
         store = FileStore(lambda: Path(tempfile.mkdtemp(prefix="emode-mcp-")))
@@ -268,8 +277,16 @@ def create_server(
             # A client that disconnects without emode_close must not hold the license.
             if session.em is not None:
                 await _blocking(session.shut)
+            store.cleanup()
 
     server = MCPServer("emode", instructions=INSTRUCTIONS, lifespan=lifespan)
+
+    def tool(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        def register(fn: Callable[..., Any]) -> Callable[..., Any]:
+            description = inspect.cleandoc(fn.__doc__ or "")
+            return server.tool(name=name, description=description)(fn)
+
+        return register
 
     def done(data: Any, warnings: list[str], written_before: int) -> ToolResult:
         return ToolResult(
@@ -281,7 +298,7 @@ def create_server(
     def needs_confirmation(message: str) -> ToolResult:
         return ToolResult(status="confirmation_required", message=message)
 
-    @server.tool(name="emode_open")
+    @tool("emode_open")
     async def emode_open(
         simulation_name: str = "emode",
         license_type: Literal["2d", "3d", "default"] = "default",
@@ -327,7 +344,7 @@ def create_server(
             simulation_name=simulation_name, shapes=[s.name for s in shapes or []]
         )
 
-    @server.tool(name="emode_settings")
+    @tool("emode_settings")
     async def emode_settings(settings: SettingsSpec) -> ToolResult:
         """Change the solver settings of the open session (wavelength, resolution, window, modes)."""
         em = session.require()
@@ -336,7 +353,7 @@ def create_server(
             await _blocking(em.settings, **applied)
         return done(applied, warnings, len(store.written))
 
-    @server.tool(name="emode_shape")
+    @tool("emode_shape")
     async def emode_shape(shape: ShapeSpec) -> ToolResult:
         """Draw one more shape in the open session's cross-section, on top of the earlier ones."""
         em = session.require()
@@ -344,7 +361,7 @@ def create_server(
             await _blocking(em.shape, **_set_kwargs(shape))
         return done({"name": shape.name}, warnings, len(store.written))
 
-    @server.tool(name="emode_material")
+    @tool("emode_material")
     async def emode_material(
         action: Literal["add", "index"],
         name: str,
@@ -381,7 +398,7 @@ def create_server(
                 )
         return done(data, warnings, len(store.written))
 
-    @server.tool(name="emode_solve")
+    @tool("emode_solve")
     async def emode_solve(
         wavelength: float | None = None,
         num_modes: int | None = None,
@@ -406,7 +423,7 @@ def create_server(
                 loss = None
         return SolveResult(modes=_mode_results(n_eff, loss), warnings=warnings)
 
-    @server.tool(name="emode_section")
+    @tool("emode_section")
     async def emode_section(
         kind: Literal["straight", "taper", "bend", "gds", "pwd"],
         name: str,
@@ -463,7 +480,7 @@ def create_server(
             await _blocking(getattr(em, method), **given)
         return done({"section": name, "kind": kind}, warnings, len(store.written))
 
-    @server.tool(name="emode_eme")
+    @tool("emode_eme")
     async def emode_eme(warm_start: bool = False) -> ToolResult:
         """Build and solve the declared sections as an EME circuit and return its S-matrix.
 
@@ -478,7 +495,7 @@ def create_server(
             s_matrix = await _blocking(em.get, "S_matrix")
         return done(s_matrix, warnings, before)
 
-    @server.tool(name="emode_sweep")
+    @tool("emode_sweep")
     async def emode_sweep(
         key: str,
         values: list[float | str] | None = None,
@@ -536,7 +553,7 @@ def create_server(
             data = await _blocking(em.sweep, **kwargs)
         return done(data, warnings, before)
 
-    @server.tool(name="emode_converge")
+    @tool("emode_converge")
     async def emode_converge(
         setting: Literal["resolution", "window", "pml", "modes", "all"] | None = None,
         target: Literal["effective_index", "group_index", "loss", "orthogonality"]
@@ -565,7 +582,7 @@ def create_server(
         data["table"] = str(report)
         return done(data, warnings, len(store.written))
 
-    @server.tool(name="emode_evaluate")
+    @tool("emode_evaluate")
     async def emode_evaluate(
         parameters: dict[str, float | list[float]],
         results: str | list[str] = "effective_index",
@@ -582,7 +599,7 @@ def create_server(
             data = await _blocking(em.evaluate, parameters=parameters, results=results)
         return done(data, warnings, before)
 
-    @server.tool(name="emode_optimize")
+    @tool("emode_optimize")
     async def emode_optimize(
         parameters: list[ParameterSpec],
         objective: list[ObjectiveSpec],
@@ -660,7 +677,7 @@ def create_server(
         ]
         return done(data, warnings, before)
 
-    @server.tool(name="emode_get")
+    @tool("emode_get")
     async def emode_get(
         key: str | None = None, profile: str | None = None
     ) -> ToolResult:
@@ -679,7 +696,7 @@ def create_server(
                 data = await _blocking(em.get, key, **extra)
         return done(data, warnings, before)
 
-    @server.tool(name="emode_plot")
+    @tool("emode_plot")
     async def emode_plot(
         component: str | None = None,
         mode: int = 0,
@@ -714,9 +731,32 @@ def create_server(
             path.write_bytes(png)
         return [Image(data=png, format="png"), f"Saved to {path}"]
 
-    @server.tool(name="emode_close")
+    @tool("emode_close")
     async def emode_close(save: bool = False) -> CloseResult:
         """Close the session and release the license. Harmless when no session is open."""
         return CloseResult(closed=await _blocking(session.shut, save=save))
+
+    @server.resource(
+        "emode://skill",
+        name="skill",
+        title="How to use EMode well",
+        description="Guidance for an assistant: converge first, sweep with interpolation, check passivity.",
+        mime_type="text/markdown",
+    )
+    def skill() -> str:
+        return SKILL_PATH.read_text()
+
+    @server.resource(
+        "emode://docs/{+page}",
+        name="docs",
+        title="EMode documentation page",
+        description="A docs page as Markdown, such as examples/Ring_Design or emodeguide/setup.",
+        mime_type="text/markdown",
+    )
+    def docs_page(page: str) -> str:
+        try:
+            return read_page(page, docs_dir, docs_fetch)
+        except DocsError as err:
+            raise ResourceError(str(err)) from err
 
     return server

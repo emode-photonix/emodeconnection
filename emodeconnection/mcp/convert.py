@@ -19,6 +19,7 @@ class FileStore:
 
     def __init__(self, directory: Path | Callable[[], Path]) -> None:
         self._directory = directory
+        self._owned = callable(directory)
         self._counter = itertools.count()
         self.written: list[str] = []
 
@@ -28,6 +29,20 @@ class FileStore:
             self._directory = self._directory()
         self._directory.mkdir(parents=True, exist_ok=True)
         return self._directory
+
+    def cleanup(self) -> None:
+        """Delete the array files written, and the directory if this store made it and it is empty.
+
+        Plots are kept, since the agent may have shown them to the user.
+        """
+        for name in self.written:
+            if name.endswith(".npy"):
+                Path(name).unlink(missing_ok=True)
+        if self._owned and not callable(self._directory):
+            try:
+                self._directory.rmdir()
+            except OSError:
+                pass  # plots remain in it
 
     def new_path(self, stem: str, suffix: str) -> Path:
         return self.directory / f"{stem}-{next(self._counter):03d}{suffix}"

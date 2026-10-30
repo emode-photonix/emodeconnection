@@ -47,7 +47,9 @@ def test_tool_descriptions_are_dedented() -> None:
 
 def test_shutdown_deletes_the_array_files_it_wrote(tmp_path: Path) -> None:
     FakeEMode.returns["get"] = lambda key: np.zeros(5000)
-    result = session(("emode_open", {}), ("emode_get", {"key": "Ex"}), output_dir=tmp_path)[1]
+    result = session(
+        ("emode_open", {}), ("emode_get", {"key": "Ex"}), output_dir=tmp_path
+    )[1]
     written = result.structured_content["files"]
     assert written
     assert not any(Path(p).exists() for p in written)
@@ -101,24 +103,39 @@ def test_a_docs_page_comes_from_the_installed_docs(tmp_path: Path) -> None:
     (tmp_path / "emodeguide" / "setup.md").write_text("# Setup\n\nInstall it.\n")
 
     async def go(client: Client) -> str:
-        return (await client.read_resource("emode://docs/emodeguide/setup")).contents[0].text
+        return (
+            (await client.read_resource("emode://docs/emodeguide/setup"))
+            .contents[0]
+            .text
+        )
 
-    assert with_client(go, docs_dir=tmp_path, docs_fetch=_no_network) == "# Setup\n\nInstall it.\n"
+    assert (
+        with_client(go, docs_dir=tmp_path, docs_fetch=_no_network)
+        == "# Setup\n\nInstall it.\n"
+    )
 
 
 def _no_network(url: str) -> str:
     raise AssertionError(f"fetched {url}")
 
 
-def test_a_page_not_installed_is_fetched_from_the_docs_site_as_markdown(tmp_path: Path) -> None:
+def test_a_page_not_installed_is_fetched_from_the_docs_site_as_markdown(
+    tmp_path: Path,
+) -> None:
     seen: list[str] = []
 
     def fetch(url: str) -> str:
         seen.append(url)
-        return "<html><body><h1>Ring</h1><p>A <code>ring</code> design.</p></body></html>"
+        return (
+            "<html><body><h1>Ring</h1><p>A <code>ring</code> design.</p></body></html>"
+        )
 
     async def go(client: Client) -> str:
-        return (await client.read_resource("emode://docs/examples/Ring_Design")).contents[0].text
+        return (
+            (await client.read_resource("emode://docs/examples/Ring_Design"))
+            .contents[0]
+            .text
+        )
 
     text = with_client(go, docs_dir=tmp_path, docs_fetch=fetch)
     assert seen == ["https://docs.emodephotonix.com/examples/Ring_Design.html"]
@@ -133,7 +150,7 @@ def test_docs_pages_cannot_leave_the_docs_directory(tmp_path: Path) -> None:
     async def go(client: Client) -> Any:
         return await client.read_resource("emode://docs/..%2Fsecret")
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - the SDK wraps it in an ExceptionGroup
         with_client(go, docs_dir=tmp_path, docs_fetch=_no_network)
 
 
@@ -141,11 +158,14 @@ def test_a_missing_page_is_an_error_that_names_it(tmp_path: Path) -> None:
     def fetch(url: str) -> str:
         raise OSError("404")
 
-    async def go(client: Client) -> Any:
-        return await client.read_resource("emode://docs/nope")
+    async def go(client: Client) -> str:
+        try:
+            await client.read_resource("emode://docs/nope")
+        except Exception as err:  # noqa: BLE001 - the error type is the SDK's
+            return str(err)
+        return ""
 
-    with pytest.raises(Exception, match="nope"):
-        with_client(go, docs_dir=tmp_path, docs_fetch=fetch)
+    assert "nope" in with_client(go, docs_dir=tmp_path, docs_fetch=fetch)
 
 
 def test_html_to_markdown_keeps_structure_and_drops_scripts() -> None:
@@ -185,7 +205,15 @@ def test_the_claude_code_plugin_manifest_runs_emode_mcp() -> None:
 
 def test_the_desktop_extension_manifest_is_complete() -> None:
     manifest = json.loads((ROOT / "packaging" / "mcpb" / "manifest.json").read_text())
-    for key in ("manifest_version", "name", "display_name", "version", "description", "author", "server"):
+    for key in (
+        "manifest_version",
+        "name",
+        "display_name",
+        "version",
+        "description",
+        "author",
+        "server",
+    ):
         assert key in manifest, key
     server = manifest["server"]
     assert server["type"] == "python"
@@ -196,7 +224,9 @@ def test_building_the_extension_stamps_the_package_version(tmp_path: Path) -> No
     build = _load(ROOT / "packaging" / "build_mcpb.py")
     out = build.build(tmp_path / "emode.mcpb", install_dependencies=False)
     version = next(
-        line.split('"')[1] for line in (ROOT / "pyproject.toml").read_text().splitlines() if line.startswith("version")
+        line.split('"')[1]
+        for line in (ROOT / "pyproject.toml").read_text().splitlines()
+        if line.startswith("version")
     )
     with zipfile.ZipFile(out) as bundle:
         names = bundle.namelist()
