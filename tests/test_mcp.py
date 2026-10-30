@@ -52,8 +52,10 @@ class FakeEMode:
         self._record("FDM", kwargs)
         return {}
 
-    def get(self, key: str) -> Any:
-        self._record("get", {"key": key})
+    def get(self, key: str, **kwargs: Any) -> Any:
+        self._record("get", {"key": key, **kwargs})
+        if "get" in FakeEMode.returns:
+            return FakeEMode.returns["get"](key=key)
         if key == "effective_index":
             return np.array([2.5 + 0j, 1.9 + 1e-4j])
         if key == "loss_dB_per_m":
@@ -63,15 +65,34 @@ class FakeEMode:
     def close(self, **kwargs: Any) -> None:
         self.closed_with = kwargs
 
+    # Every other client method records its call and answers from ``returns``.
+    returns: ClassVar[dict[str, Any]] = {}
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        def method(*args: Any, **kwargs: Any) -> Any:
+            if args:
+                kwargs["key"] = args[0]
+            self._record(name, kwargs)
+            value = FakeEMode.returns.get(name)
+            return value(**kwargs) if callable(value) else value
+
+        return method
+
 
 @pytest.fixture(autouse=True)
 def _reset_fake() -> None:
     FakeEMode.instances = []
     FakeEMode.fail_on = None
+    FakeEMode.returns = {}
 
 
-def call(tool: str, args: dict[str, Any] | None = None, server: Any = None) -> Any:
-    server = server or create_server(client_factory=FakeEMode)
+def call(
+    tool: str, args: dict[str, Any] | None = None, server: Any = None, **server_kw: Any
+) -> Any:
+    server = server or create_server(client_factory=FakeEMode, **server_kw)
 
     async def run() -> Any:
         async with Client(server) as client:
@@ -80,9 +101,9 @@ def call(tool: str, args: dict[str, Any] | None = None, server: Any = None) -> A
     return asyncio.run(run())
 
 
-def session(*steps: tuple[str, dict[str, Any]]) -> list[Any]:
+def session(*steps: tuple[str, dict[str, Any]], **server_kw: Any) -> list[Any]:
     """Call the tools in order against one server and return each result."""
-    server = create_server(client_factory=FakeEMode)
+    server = create_server(client_factory=FakeEMode, **server_kw)
 
     async def run() -> list[Any]:
         async with Client(server) as client:
@@ -100,7 +121,25 @@ WG = {
 }
 
 
-def test_the_skeleton_lists_exactly_three_tools() -> None:
+TOOLS = [
+    "emode_close",
+    "emode_converge",
+    "emode_eme",
+    "emode_evaluate",
+    "emode_get",
+    "emode_material",
+    "emode_open",
+    "emode_optimize",
+    "emode_plot",
+    "emode_section",
+    "emode_settings",
+    "emode_shape",
+    "emode_solve",
+    "emode_sweep",
+]
+
+
+def test_the_server_lists_the_plan_tools() -> None:
     server = create_server(client_factory=FakeEMode)
 
     async def run() -> Any:
@@ -108,11 +147,12 @@ def test_the_skeleton_lists_exactly_three_tools() -> None:
             return await client.list_tools()
 
     tools = asyncio.run(run()).tools
-    assert sorted(t.name for t in tools) == ["emode_close", "emode_open", "emode_solve"]
+    assert sorted(t.name for t in tools) == TOOLS
     for tool in tools:
         assert tool.description
         assert tool.input_schema["type"] == "object"
-        assert tool.output_schema is not None
+        if tool.name != "emode_plot":  # an image has no structured output
+            assert tool.output_schema is not None
 
 
 def test_open_builds_the_cross_section_through_the_public_client() -> None:
