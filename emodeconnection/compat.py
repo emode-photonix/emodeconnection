@@ -19,6 +19,7 @@ first EMode release that reads it.
 from collections.abc import Iterator
 from typing import Any
 
+import numpy as np
 from pydantic import BaseModel
 
 from .types import ArgumentError, non_default_fields
@@ -56,6 +57,41 @@ FIELD_SINCE: dict[tuple[str, str], str] = {
     ("PulsedSource", "measurement"): "1.0.7",
     ("SMatrix", "mode_power"): "1.0.7",
 }
+
+
+# The first EMode release that reads an array argument sent as `__ndarray__`.
+NDARRAY_REQUEST_SINCE = "1.0.8"
+
+
+def reads_ndarray(emode_version: str | None) -> bool:
+    """Whether an EMode of `emode_version` (None: older than 1.0.7) reads `__ndarray__`."""
+    return emode_version is not None and parse_version(emode_version) >= parse_version(
+        NDARRAY_REQUEST_SINCE
+    )
+
+
+def array_arguments(arguments: dict[str, Any]) -> dict[str, bool]:
+    """The arguments that hold a NumPy array, each True when one of them is complex."""
+    found = {}
+    for argument, value in arguments.items():
+        arrays = list(_arrays(value))
+        if arrays:
+            found[argument] = any(a.dtype.kind == "c" for a in arrays)
+    return found
+
+
+def _arrays(value: Any) -> Iterator[np.ndarray]:
+    if isinstance(value, np.ndarray):
+        yield value
+    elif isinstance(value, BaseModel):
+        for _, field_value in non_default_fields(value):
+            yield from _arrays(field_value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _arrays(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _arrays(item)
 
 
 def parse_version(version: str) -> tuple[int, ...]:

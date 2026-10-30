@@ -67,7 +67,10 @@ class _Client:
         self.sent.append(json.loads(json.dumps(serialize(data, ndarray=self.ndarray_wire))))
 
     def recv(self) -> Any:
-        return self.replies.pop(0)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
 
 
 def _session(*replies: Any) -> tuple[EMode, _Client]:
