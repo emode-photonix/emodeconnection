@@ -316,6 +316,9 @@ class MaterialSpec(TaggedModel):
     psi: Optional[float] = None
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
+    # Which of the material's index references to use, e.g. 'Zelmon 1997' for
+    # LN_MgO (default: the material's own default). Read by EMode 1.0.8 and newer.
+    reference: Optional[str] = None
 
 # Not decorated with @register_type for historical reasons (predates the decorator).
 _TYPE_REGISTRY["MaterialSpec"] = MaterialSpec

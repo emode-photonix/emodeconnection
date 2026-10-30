@@ -46,6 +46,7 @@ TYPE_SINCE: dict[str, str] = {
 
 # The first EMode release that reads each field added after EMode 1.0.6.
 FIELD_SINCE: dict[tuple[str, str], str] = {
+    ("MaterialSpec", "reference"): "1.0.8",
     ("Poling", "domain_lengths"): "1.0.7",
     ("PulseResponse", "measured_fit"): "1.0.7",
     ("PulseResponse", "rank_report"): "1.0.7",
