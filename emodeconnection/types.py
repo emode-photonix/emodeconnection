@@ -51,7 +51,6 @@ def serialize(data: Any):
     else:
         return data
 
-
 def _is_default(value: Any, info: FieldInfo) -> bool:
     """Whether a field holds its default, compared without raising on arrays."""
     if info.is_required():
@@ -153,12 +152,8 @@ def from_wire(cls: type, fields: dict) -> Any:
     if model_fields is not None and cls.model_config.get("extra") == "forbid":  # type: ignore[attr-defined]
         unknown = [key for key in fields if key not in model_fields]
         if unknown:
-            logger.debug(
-                f"ignored the fields {unknown} of {cls.__name__}, which this version does not know"
-            )
-            fields = {
-                key: value for key, value in fields.items() if key in model_fields
-            }
+            logger.debug(f"ignored the fields {unknown} of {cls.__name__}, which this version does not know")
+            fields = {key: value for key, value in fields.items() if key in model_fields}
     return cls(**fields)
 
 
@@ -179,7 +174,6 @@ def _error_from_wire(cls: type, fields: dict) -> BaseException:
             setattr(error, key, value)
     return error
 
-
 def _allows_none(tp: Any) -> bool:
     """
     Return True iff the type annotation *explicitly* admits `None`.
@@ -196,7 +190,6 @@ def _allows_none(tp: Any) -> bool:
         return _allows_none(get_args(tp)[0])
 
     return False
-
 
 class TaggedModel(BaseModel):
     @computed_field(repr=False)
@@ -220,11 +213,9 @@ class TaggedModel(BaseModel):
             return None  # safe to coerce
         return v  # leave `nan` as-is
 
-
 T = TypeVar("T")
 
 _TYPE_REGISTRY = {}
-
 
 def register_type(cls: Type[T]) -> Type[T]:
     """Class decorator to register a wire type by class name."""
@@ -234,13 +225,11 @@ def register_type(cls: Type[T]) -> Type[T]:
     _TYPE_REGISTRY[name] = cls
     return cls
 
-
 def get_type(name: str) -> Type:
     try:
         return _TYPE_REGISTRY[name]
     except KeyError:
         raise KeyError(f"Unknown exception type: {name}")
-
 
 class LicenseType(Enum):
     _2D = "2d"
@@ -277,10 +266,8 @@ class LicenseType(Enum):
         except ValueError:
             return None
 
-
 TensorType = Union[float, list[float], list[list[float]]]
 DTensorType = Union[list[list[float]]]
-
 
 class MaterialProperties(TaggedModel):
     """A user-defined material.
@@ -309,7 +296,6 @@ class MaterialProperties(TaggedModel):
     # this is necessary to support np.ndarrays here...
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-
 class MaterialSpec(TaggedModel):
     """A material and the orientation of its crystal axes in the simulation frame.
 
@@ -331,11 +317,9 @@ class MaterialSpec(TaggedModel):
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
 
-
 # Not decorated with @register_type for historical reasons (predates the decorator).
 _TYPE_REGISTRY["MaterialSpec"] = MaterialSpec
 _TYPE_REGISTRY["MaterialProperties"] = MaterialProperties
-
 
 @register_type
 class Grid(TaggedModel):
@@ -347,7 +331,6 @@ class Grid(TaggedModel):
     is_expanded: bool = False
     is_bc: bool = False
 
-
 @register_type
 class Field(TaggedModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -355,7 +338,6 @@ class Field(TaggedModel):
     field_names: list[str]
     num_modes: int
     grid: Grid
-
 
 @register_type
 class GridSet(TaggedModel):
@@ -388,7 +370,6 @@ class GridSet(TaggedModel):
     def get(self, wavelength: float, default=None):
         return self.grids.get(wavelength, default)
 
-
 @register_type
 class FieldSet(TaggedModel):
     """A `Field` for each wavelength of a multi-wavelength profile."""
@@ -419,7 +400,6 @@ class FieldSet(TaggedModel):
 
     def get(self, wavelength: float, default=None):
         return self.fields.get(wavelength, default)
-
 
 @register_type
 class WavelengthDict(TaggedModel, Mapping):
@@ -468,7 +448,6 @@ class WavelengthDict(TaggedModel, Mapping):
 
     def __str__(self) -> str:
         return repr(self)
-
 
 @register_type
 class Confinement(TaggedModel, Mapping):
@@ -542,7 +521,6 @@ class Confinement(TaggedModel, Mapping):
     def __str__(self) -> str:
         return repr(self)
 
-
 @register_type
 class ModeDict(TaggedModel, Mapping):
     """A read-only mapping from mode index to one result per mode.
@@ -610,7 +588,6 @@ class ModeDict(TaggedModel, Mapping):
     def __str__(self) -> str:
         return repr(self)
 
-
 def object_from_dict(data: dict[str, Any]) -> Any:
     """
     Reconstructs an exception from its serialized form.
@@ -623,7 +600,6 @@ def object_from_dict(data: dict[str, Any]) -> Any:
     ExcClass = get_type(name)
 
     return ExcClass(**data)
-
 
 def reconstruct(data: Any) -> Any:
     """
@@ -641,9 +617,7 @@ def reconstruct(data: Any) -> Any:
         name = data.get("__data_type__")
         if name in _TYPE_REGISTRY:
             cls = _TYPE_REGISTRY[name]
-            fields = {
-                key: value for key, value in data.items() if key != "__data_type__"
-            }
+            fields = {key: value for key, value in data.items() if key != "__data_type__"}
             if isinstance(cls, type) and issubclass(cls, BaseException):
                 return from_wire(cls, fields)
             try:
@@ -662,10 +636,9 @@ def reconstruct(data: Any) -> Any:
         return [reconstruct(item) for item in data]
     return data
 
-
 @register_type
 class EModeError(Exception):
-    def __init__(self, msg: str = "", *args, **kwargs):
+    def __init__(self, msg: str = '', *args, **kwargs):
         super().__init__(msg, *args, **kwargs)
         self._custom_fields = []
         self.msg = msg
@@ -684,7 +657,6 @@ class EModeError(Exception):
 
         return d
 
-
 @register_type
 class ArgumentError(EModeError):
     def __init__(self, msg: str, function: Optional[str], argument: Optional[str]):
@@ -695,7 +667,6 @@ class ArgumentError(EModeError):
 
     def __str__(self):
         return f'ArgumentError: the argument: ({self.argument}) to function: ({self.function}) had error: "{self.msg}"'
-
 
 @register_type
 class EPHKeyError(EModeError):
@@ -708,7 +679,6 @@ class EPHKeyError(EModeError):
     def __str__(self):
         return f'EPHKeyError: the key: ({self.key}) doesn\'t exist in the file: ({self.filename}), "{self.msg}"'
 
-
 @register_type
 class FileError(EModeError):
     def __init__(self, msg: str, filename: str):
@@ -718,7 +688,6 @@ class FileError(EModeError):
 
     def __str__(self):
         return f'FileError: the file: "{self.filename}" had error: "{self.msg}"'
-
 
 @register_type
 class LicenseError(EModeError):
@@ -734,15 +703,14 @@ class LicenseError(EModeError):
     def __str__(self):
         if self.license_type is None:
             # A session refused at launch has no current license to name.
-            return f"LicenseError: {self.msg}"
+            return f'LicenseError: {self.msg}'
         if self.license_type is LicenseType._3D:
-            emLicense = "EMode3D"
+            emLicense = 'EMode3D'
         elif self.license_type is LicenseType.demo:
-            emLicense = "EModeDEMO"
+            emLicense = 'EModeDEMO'
         else:
-            emLicense = "EMode2D"
+            emLicense = 'EMode2D'
         return f'LicenseError: current license: "{emLicense}", error msg: "{self.msg}"'
-
 
 @register_type
 class ShapeError(EModeError):
@@ -754,7 +722,6 @@ class ShapeError(EModeError):
     def __str__(self):
         return f'ShapeError: error: "{self.msg}" with shape: {self.shape_name}'
 
-
 @register_type
 class NameError(EModeError):
     def __init__(self, msg: str, type: str, name: str):
@@ -765,7 +732,6 @@ class NameError(EModeError):
 
     def __str__(self):
         return f'NameError: error: "{self.msg}" for type: {self.type} and name: {self.name}'
-
 
 @register_type
 class NotImplementedError(EModeError):

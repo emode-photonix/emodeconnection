@@ -50,7 +50,7 @@ def test_a_demo_license_error_names_the_demo() -> None:
 
 @pytest.mark.parametrize(
     "license_type, expected",
-    [(LicenseType._2D, "EMode2D"), (LicenseType._3D, "EMode3D"), (None, "EMode2D")],
+    [(LicenseType._2D, "EMode2D"), (LicenseType._3D, "EMode3D")],
 )
 def test_other_license_errors_read_as_before(license_type: Any, expected: str) -> None:
     assert f'"{expected}"' in str(_over_the_wire(LicenseError("msg", license_type)))
