@@ -24,12 +24,18 @@ classifiers = [
 [project.urls]
 Homepage = "https://github.com/emode-photonix/emodeconnection"
 
+[project.optional-dependencies]
+# The MCP server (emode-mcp). The base client does not depend on it.
+mcp = ["mcp==2.3.0"]
+
 [project.scripts]
 emode-install = "emodeconnection.installer:main"
+emode-mcp = "emodeconnection.mcp:main"
 
 [dependency-groups]
 dev = [
   "pytest",
+  "mcp==2.3.0",
 ]
 
 [build-system]

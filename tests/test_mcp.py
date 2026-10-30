@@ -11,24 +11,24 @@ import asyncio
 import io
 import json
 from contextlib import redirect_stderr
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 import pytest
 
 pytest.importorskip("mcp")
 
-from mcp.client import Client  # noqa: E402
+from mcp.client import Client
 
-from emodeconnection.mcp import main  # noqa: E402
-from emodeconnection.mcp.server import create_server  # noqa: E402
-from emodeconnection.types import EModeError  # noqa: E402
+from emodeconnection.mcp import main
+from emodeconnection.mcp.server import create_server
+from emodeconnection.types import EModeError
 
 
 class FakeEMode:
     """Records calls, answers ``get`` with a two-mode solve."""
 
-    instances: list[FakeEMode] = []
+    instances: ClassVar[list[FakeEMode]] = []
     fail_on: str | None = None
 
     def __init__(self, **kwargs: Any) -> None:
@@ -136,7 +136,12 @@ def test_open_without_settings_or_shapes_only_starts_a_session() -> None:
 
 
 def test_open_passes_the_session_options() -> None:
-    session(("emode_open", {"simulation_name": "wg", "license_type": "2d", "save_path": "/tmp/x"}))
+    session(
+        (
+            "emode_open",
+            {"simulation_name": "wg", "license_type": "2d", "save_path": "/tmp/x"},
+        )
+    )
     kw = FakeEMode.instances[0].init_kwargs
     assert kw["simulation_name"] == "wg"
     assert kw["license_type"] == "2d"
@@ -226,7 +231,9 @@ def test_shutting_the_server_down_closes_an_open_session() -> None:
     assert FakeEMode.instances[0].closed_with == {"save": False}
 
 
-def test_main_without_the_mcp_extra_says_how_to_install_it(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_without_the_mcp_extra_says_how_to_install_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import builtins
 
     real_import = builtins.__import__
@@ -237,7 +244,11 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(monkeypatch: pytest.M
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", refuse)
-    for mod in [m for m in list(__import__("sys").modules) if m.startswith("emodeconnection.mcp.")]:
+    for mod in [
+        m
+        for m in list(__import__("sys").modules)
+        if m.startswith("emodeconnection.mcp.")
+    ]:
         monkeypatch.delitem(__import__("sys").modules, mod)
     err = io.StringIO()
     with redirect_stderr(err), pytest.raises(SystemExit) as exit_info:
