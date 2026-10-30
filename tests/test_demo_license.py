@@ -117,3 +117,17 @@ def test_a_refused_launch_raises_the_license_error_and_shuts_down(
     for hook in hooks:
         hook()
     assert calls == ["EM_init"]
+
+
+def test_a_launch_refusal_with_no_license_type_shows_only_the_message() -> None:
+    error = _over_the_wire(LicenseError("No EMode license is available.", None))
+    assert error.license_type is None
+    assert str(error) == "LicenseError: No EMode license is available."
+    assert "EMode2D" not in str(error)
+
+
+def test_a_license_error_with_a_license_type_still_names_it() -> None:
+    error = LicenseError("Over the seat limit.", LicenseType._3D)
+    assert str(error) == (
+        'LicenseError: current license: "EMode3D", error msg: "Over the seat limit."'
+    )
