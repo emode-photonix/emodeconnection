@@ -1,0 +1,10 @@
+{
+  "name": "emode",
+  "description": "EMode photonic waveguide mode solver and EME simulator for Claude Code: tools to build cross-sections, solve modes, simulate devices, sweep and optimize. Needs an EMode install and license.",
+  "author": {
+    "name": "EMode, Inc.",
+    "email": "hello@emodephotonix.com"
+  },
+  "homepage": "https://github.com/emode-photonix/emodeconnection",
+  "license": "BSD-3-Clause"
+}

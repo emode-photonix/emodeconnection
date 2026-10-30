@@ -310,13 +310,27 @@ def test_get_without_a_key_lists_what_can_be_read() -> None:
 
 
 def test_a_large_array_is_saved_to_a_file_and_its_path_returned(tmp_path: Path) -> None:
+    import asyncio
+
+    from mcp.client import Client
+
     big = np.arange(5000, dtype=float).reshape(50, 100)
     FakeEMode.returns["get"] = lambda key: big
-    result = run("emode_get", {"key": "Ex"}, output_dir=tmp_path)
+    server = create_server(client_factory=FakeEMode, output_dir=tmp_path)
+
+    async def go() -> Any:
+        async with Client(server) as client:
+            await client.call_tool("emode_open", {})
+            result = await client.call_tool("emode_get", {"key": "Ex"})
+            ref = result.structured_content["data"]
+            # the file lives until the server shuts down
+            np.testing.assert_array_equal(np.load(ref["file"]), big)
+            return result
+
+    result = asyncio.run(go())
     ref = result.structured_content["data"]
     assert ref["shape"] == [50, 100]
     assert Path(ref["file"]).parent == tmp_path
-    np.testing.assert_array_equal(np.load(ref["file"]), big)
     assert ref["file"] in result.structured_content["files"]
 
 
