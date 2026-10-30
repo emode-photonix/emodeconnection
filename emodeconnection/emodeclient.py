@@ -117,6 +117,8 @@ class EModeClient:
     def __init__(self, cache: Cache, host: str = "127.0.0.1"):
         self.cache = cache
         self.host = host
+        # Whether arrays go as `__ndarray__` (an EMode of 1.0.8 or newer reads it).
+        self.ndarray_wire = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(60)
 
@@ -206,7 +208,7 @@ class EModeClient:
 
     def send(self, data):
         logger.debug(f"sending {data=}")
-        data = serialize(data)
+        data = serialize(data, ndarray=self.ndarray_wire)
         logger.debug(f"serialized {data=}")
         sendjson = json.dumps(data)
         self._send_raw(sendjson)

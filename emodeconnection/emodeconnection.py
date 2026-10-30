@@ -10,11 +10,17 @@ import signal
 from subprocess import DEVNULL, PIPE, Popen, TimeoutExpired
 from threading import Thread
 from typing import IO, Optional, Literal, Union
-from .compat import check_emode_version, required_versions
+from .compat import (
+    NDARRAY_REQUEST_SINCE,
+    array_arguments,
+    check_emode_version,
+    reads_ndarray,
+    required_versions,
+)
 from .emodeclient import EModeClient
 from .file_utils import Cache
 from .plot import PlotImage
-from .types import EModeError, LicenseError
+from .types import ArgumentError, EModeError, LicenseError
 
 logger = getLogger(__name__)
 
@@ -291,6 +297,25 @@ class EMode:
         needs = required_versions(kwargs)
         if needs:
             check_emode_version(needs, self._emode_version(), function)
+
+        # An array goes as `__ndarray__` to an EMode that reads it, which keeps its
+        # dtype and shape. An older EMode gets the list form, which cannot carry a
+        # complex value, so that is refused here rather than failing in json.dumps.
+        arrays = array_arguments(kwargs)
+        ndarray_wire = False
+        if arrays:
+            ndarray_wire = reads_ndarray(self._emode_version())
+            if not ndarray_wire:
+                for argument, is_complex in arrays.items():
+                    if is_complex:
+                        raise ArgumentError(
+                            f"A complex array needs EMode {NDARRAY_REQUEST_SINCE} or newer, "
+                            "and this EMode is older. Update EMode, or send its real and "
+                            "imaginary parts as two real arrays.",
+                            function[3:] if function.startswith("EM_") else function,
+                            argument,
+                        )
+        self._client.ndarray_wire = ndarray_wire
 
         sendset = kwargs
         sendset.update({"function": function})

@@ -21,6 +21,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+import base64
 import math
 import numpy as np
 from pydantic.fields import FieldInfo
@@ -28,13 +29,29 @@ from pydantic.fields import FieldInfo
 logger = getLogger(__name__)
 
 
-def serialize(data: Any):
+def encode_ndarray(array: np.ndarray) -> dict[str, Any]:
+    """`array` as the `__ndarray__` encoding: base64 data with its dtype and shape."""
+    contiguous = np.ascontiguousarray(array)
+    return {
+        "__ndarray__": base64.b64encode(contiguous.data).decode(),
+        "dtype": str(contiguous.dtype),
+        "shape": list(contiguous.shape),
+    }
+
+
+def serialize(data: Any, ndarray: bool = False):
+    """`data` ready for `json.dumps`.
+
+    With `ndarray` an array goes as its `__ndarray__` encoding, which keeps its
+    dtype and shape, a complex array and a size-1 axis included. Without it an array
+    goes as the list of its squeezed values, which an EMode older than 1.0.8 reads.
+    """
     if isinstance(data, dict):
         for key, value in data.items():
-            data[key] = serialize(value)
+            data[key] = serialize(value, ndarray)
         return data
     elif isinstance(data, list):
-        return [serialize(item) for item in data]
+        return [serialize(item, ndarray) for item in data]
     elif isinstance(data, np.floating):
         return float(data)
     elif isinstance(data, np.integer):
@@ -42,9 +59,11 @@ def serialize(data: Any):
     elif isinstance(data, np.bool_):
         return bool(data)
     elif isinstance(data, np.ndarray):
+        if ndarray and data.dtype.kind in "biufc":
+            return encode_ndarray(data)
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
-        return serialize(wire_dump(data))
+        return serialize(wire_dump(data), ndarray)
     if type(data).__module__ == np.__name__:
         # final catchall
         data = np.squeeze(data).tolist()
