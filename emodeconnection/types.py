@@ -701,6 +701,9 @@ class LicenseError(EModeError):
         self.license_type = license_type
 
     def __str__(self):
+        if self.license_type is None:
+            # A session refused at launch has no current license to name.
+            return f'LicenseError: {self.msg}'
         if self.license_type is LicenseType._3D:
             emLicense = 'EMode3D'
         elif self.license_type is LicenseType.demo:
