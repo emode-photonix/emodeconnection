@@ -52,8 +52,10 @@ class FakeEMode:
         self._record("FDM", kwargs)
         return {}
 
-    def get(self, key: str) -> Any:
-        self._record("get", {"key": key})
+    def get(self, key: str, **kwargs: Any) -> Any:
+        self._record("get", {"key": key, **kwargs})
+        if "get" in FakeEMode.returns:
+            return FakeEMode.returns["get"](key=key)
         if key == "effective_index":
             return np.array([2.5 + 0j, 1.9 + 1e-4j])
         if key == "loss_dB_per_m":
@@ -87,7 +89,9 @@ def _reset_fake() -> None:
     FakeEMode.returns = {}
 
 
-def call(tool: str, args: dict[str, Any] | None = None, server: Any = None, **server_kw: Any) -> Any:
+def call(
+    tool: str, args: dict[str, Any] | None = None, server: Any = None, **server_kw: Any
+) -> Any:
     server = server or create_server(client_factory=FakeEMode, **server_kw)
 
     async def run() -> Any:

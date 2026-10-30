@@ -15,7 +15,13 @@ pytest.importorskip("mcp")
 
 from test_mcp import FakeEMode, _reset_fake, call, session  # noqa: F401
 
-from emodeconnection import ConvergenceResult, Objective, OptimizationResult, Parameter, PlotImage
+from emodeconnection import (
+    ConvergenceResult,
+    Objective,
+    OptimizationResult,
+    Parameter,
+    PlotImage,
+)
 from emodeconnection.mcp import main
 from emodeconnection.mcp.server import create_server
 
@@ -46,15 +52,28 @@ def test_settings_rejects_an_unknown_name() -> None:
 
 
 def test_shape_draws_one_shape() -> None:
-    result = run("emode_shape", {"shape": {"name": "core", "material": "Si", "width": 500, "height": 220}})
+    result = run(
+        "emode_shape",
+        {"shape": {"name": "core", "material": "Si", "width": 500, "height": 220}},
+    )
     assert not result.is_error
-    assert last_call("shape") == {"name": "core", "material": "Si", "width": 500, "height": 220}
+    assert last_call("shape") == {
+        "name": "core",
+        "material": "Si",
+        "width": 500,
+        "height": 220,
+    }
 
 
 def test_material_add_passes_the_equation() -> None:
     result = run(
         "emode_material",
-        {"action": "add", "name": "glass", "refractive_index_equation": "1.45+0.001*x", "loss": 2},
+        {
+            "action": "add",
+            "name": "glass",
+            "refractive_index_equation": "1.45+0.001*x",
+            "loss": 2,
+        },
     )
     assert not result.is_error
     assert last_call("add_material") == {
@@ -70,7 +89,9 @@ def test_material_add_needs_an_equation() -> None:
 
 def test_material_index_looks_a_material_up() -> None:
     FakeEMode.returns["refractive_index"] = np.array([3.476])
-    result = run("emode_material", {"action": "index", "name": "Si", "wavelength": 1550})
+    result = run(
+        "emode_material", {"action": "index", "name": "Si", "wavelength": 1550}
+    )
     assert last_call("refractive_index") == {"material": "Si", "wavelength": 1550}
     assert result.structured_content["data"] == [3.476]
 
@@ -82,13 +103,27 @@ def test_material_index_looks_a_material_up() -> None:
     ("kind", "method", "fields"),
     [
         ("straight", "straight_section", {"name": "a", "length": 1000, "profile": "p"}),
-        ("taper", "taper_section", {"name": "t", "profile": "p", "profile_end": "q", "length": 5000}),
+        (
+            "taper",
+            "taper_section",
+            {"name": "t", "profile": "p", "profile_end": "q", "length": 5000},
+        ),
         ("bend", "bend_section", {"name": "b", "radius": 20000, "sweep_angle": 1.57}),
-        ("gds", "gds_section", {"name": "g", "gds_path": "x.gds", "layer_map": {"core": 1}}),
-        ("pwd", "pwd_section", {"name": "w", "length": 500, "material": "SiO2", "max_order": [3, 3]}),
+        (
+            "gds",
+            "gds_section",
+            {"name": "g", "gds_path": "x.gds", "layer_map": {"core": 1}},
+        ),
+        (
+            "pwd",
+            "pwd_section",
+            {"name": "w", "length": 500, "material": "SiO2", "max_order": [3, 3]},
+        ),
     ],
 )
-def test_section_kinds_call_their_client_method(kind: str, method: str, fields: dict[str, Any]) -> None:
+def test_section_kinds_call_their_client_method(
+    kind: str, method: str, fields: dict[str, Any]
+) -> None:
     result = run("emode_section", {"kind": kind, **fields})
     assert not result.is_error
     assert last_call(method) == fields
@@ -132,7 +167,9 @@ def test_a_small_sweep_runs_and_returns_the_result() -> None:
 
 
 def test_a_sweep_over_50_points_asks_first_and_runs_nothing() -> None:
-    result = run("emode_sweep", {"key": "wavelength", "start": 1500, "stop": 1600, "num": 50})
+    result = run(
+        "emode_sweep", {"key": "wavelength", "start": 1500, "stop": 1600, "num": 50}
+    )
     assert not result.is_error
     assert result.structured_content["status"] == "confirmation_required"
     assert "confirm" in result.structured_content["message"]
@@ -140,7 +177,10 @@ def test_a_sweep_over_50_points_asks_first_and_runs_nothing() -> None:
 
 
 def test_a_confirmed_sweep_runs_and_builds_its_values_from_start_stop_num() -> None:
-    result = run("emode_sweep", {"key": "wavelength", "start": 1500, "stop": 1600, "num": 50, "confirm": True})
+    result = run(
+        "emode_sweep",
+        {"key": "wavelength", "start": 1500, "stop": 1600, "num": 50, "confirm": True},
+    )
     assert result.structured_content["status"] == "done"
     values = last_call("sweep")["values"]
     assert len(values) == 50
@@ -149,7 +189,9 @@ def test_a_confirmed_sweep_runs_and_builds_its_values_from_start_stop_num() -> N
 
 
 def test_exactly_20_points_do_not_need_confirmation() -> None:
-    result = run("emode_sweep", {"key": "wavelength", "start": 1500, "stop": 1600, "num": 20})
+    result = run(
+        "emode_sweep", {"key": "wavelength", "start": 1500, "stop": 1600, "num": 20}
+    )
     assert result.structured_content["status"] == "done"
 
 
@@ -241,7 +283,9 @@ def test_a_confirmed_optimize_passes_the_public_types() -> None:
     assert result.structured_content["status"] == "done"
     sent = last_call("optimize")
     assert sent["parameters"] == [Parameter("shape, core, width", bounds=(400, 600))]
-    assert sent["objective"] == [Objective("effective_index", goal="target", target=2.4)]
+    assert sent["objective"] == [
+        Objective("effective_index", goal="target", target=2.4)
+    ]
     assert sent["max_evaluations"] == 30
     assert "confirm" not in sent
     data = result.structured_content["data"]
@@ -315,7 +359,9 @@ def test_plot_uses_the_png_bytes_when_the_solver_sends_them(tmp_path: Path) -> N
 
 def test_client_warnings_during_a_call_reach_the_agent() -> None:
     def noisy(**kwargs: Any) -> dict:
-        logging.getLogger("emodeconnection.emodeconnection").warning("the client says careful")
+        logging.getLogger("emodeconnection.emodeconnection").warning(
+            "the client says careful"
+        )
         return {}
 
     FakeEMode.returns["sweep"] = noisy
@@ -352,7 +398,9 @@ def _tools() -> list[Any]:
 
 CLIENT_METHODS = {
     line.strip()
-    for line in (Path(__file__).parent / "fixtures" / "client_methods.txt").read_text().splitlines()
+    for line in (Path(__file__).parent / "fixtures" / "client_methods.txt")
+    .read_text()
+    .splitlines()
     if line.strip()
 }
 
@@ -411,7 +459,9 @@ OMITTED = {
 def test_every_public_client_method_is_wrapped_or_deliberately_omitted() -> None:
     from emodeconnection.mcp.server import WRAPPED_METHODS
 
-    assert WRAPPED_METHODS <= CLIENT_METHODS, "a tool calls a method the client does not have"
+    assert WRAPPED_METHODS <= CLIENT_METHODS, (
+        "a tool calls a method the client does not have"
+    )
     unaccounted = CLIENT_METHODS - WRAPPED_METHODS - set(OMITTED)
     assert not unaccounted, f"wrap or omit: {sorted(unaccounted)}"
     assert not (set(OMITTED) - CLIENT_METHODS), "omitted a method that does not exist"
