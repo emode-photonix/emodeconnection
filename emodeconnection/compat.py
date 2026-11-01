@@ -55,6 +55,8 @@ FIELD_SINCE: dict[tuple[str, str], str] = {
     ("PulseResponse", "measured_fit"): "1.0.7",
     ("PulseResponse", "rank_report"): "1.0.7",
     ("PulseResponse", "window_gap"): "1.0.7",
+    ("PulsedProcess", "carrier_lifetime"): "1.0.8",
+    ("PulsedProcess", "free_carriers"): "1.0.8",
     ("PulsedProcess", "harmonic_coupling"): "1.0.7",
     ("PulsedProcess", "max_harmonic_modes"): "1.0.7",
     ("PulsedProcess", "modal_search"): "1.0.7",

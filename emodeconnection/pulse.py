@@ -449,7 +449,11 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     a two-photon coefficient, and `multi_photon=None` turns three- and
     four-photon absorption on wherever a material has a three- or four-photon
     coefficient (`True` asks for it and refuses a cross-section with none,
-    `False` turns it off). The section's cross-sections are solved at
+    `False` turns it off). `free_carriers=None` models the electron-hole pairs
+    that two- and N-photon absorption make, with their absorption and index
+    change, wherever a material has a free-carrier model (`True` refuses a
+    cross-section with none, `False` turns them off). `carrier_lifetime` (ns)
+    replaces the material's carrier lifetime, which depends on the waveguide. The section's cross-sections are solved at
     `dispersion_samples` wavelengths (Chebyshev nodes over the source's
     `wavelength_range`), by default as many as the band's width needs. The
     tracked fields are expanded in patterns whose
@@ -485,6 +489,8 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     raman_mode: Literal['dominant', 'full'] = 'dominant'
     tpa: Optional[bool] = None
     multi_photon: Optional[bool] = None
+    free_carriers: Optional[bool] = None
+    carrier_lifetime: Optional[float] = None
     modes: Optional[List[int]] = None
     poling: Optional[Poling] = None
     dispersion_samples: Optional[int] = None
@@ -511,6 +517,8 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
             raise ArgumentError('pattern_threshold must be in [0, 1)', name, 'pattern_threshold')
         if self.max_rank < 1:
             raise ArgumentError('max_rank must be >= 1', name, 'max_rank')
+        if self.carrier_lifetime is not None and not self.carrier_lifetime > 0:
+            raise ArgumentError('carrier_lifetime must be positive (ns)', name, 'carrier_lifetime')
         if self.modes is not None and (not self.modes or any(m < 0 for m in self.modes)):
             raise ArgumentError('modes must list mode indices >= 0', name, 'modes')
         return self
@@ -579,8 +587,8 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     is the `RankReport` of the field patterns behind `rank_per_slice` (None
     from a server that predates it). `absorbed_energy` is the energy (pJ) each
     nonlinear absorption process took out of the tracked modes over the whole
-    chain, keyed `'two_photon'`, `'three_photon'` and `'four_photon'`, for the
-    processes that ran.
+    chain, keyed `'two_photon'`, `'three_photon'`, `'four_photon'` and
+    `'free_carrier'`, for the processes that ran.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
