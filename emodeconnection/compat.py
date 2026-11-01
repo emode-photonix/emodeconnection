@@ -47,14 +47,18 @@ TYPE_SINCE: dict[str, str] = {
 
 # The first EMode release that reads each field added after EMode 1.0.6.
 FIELD_SINCE: dict[tuple[str, str], str] = {
+    ("MaterialProperties", "beta_3"): "1.0.8",
+    ("MaterialProperties", "beta_4"): "1.0.8",
     ("MaterialSpec", "reference"): "1.0.8",
     ("Poling", "domain_lengths"): "1.0.7",
+    ("PulseResponse", "absorbed_energy"): "1.0.8",
     ("PulseResponse", "measured_fit"): "1.0.7",
     ("PulseResponse", "rank_report"): "1.0.7",
     ("PulseResponse", "window_gap"): "1.0.7",
     ("PulsedProcess", "harmonic_coupling"): "1.0.7",
     ("PulsedProcess", "max_harmonic_modes"): "1.0.7",
     ("PulsedProcess", "modal_search"): "1.0.7",
+    ("PulsedProcess", "multi_photon"): "1.0.8",
     ("PulsedSource", "measurement"): "1.0.7",
     ("SMatrix", "mode_power"): "1.0.7",
 }

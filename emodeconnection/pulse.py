@@ -446,7 +446,10 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
     indices at the source wavelength (None tracks the source's own mode or
     modes). `tpa=None` turns two-photon absorption on wherever a material has
-    a two-photon coefficient. The section's cross-sections are solved at
+    a two-photon coefficient, and `multi_photon=None` turns three- and
+    four-photon absorption on wherever a material has a three- or four-photon
+    coefficient (`True` asks for it and refuses a cross-section with none,
+    `False` turns it off). The section's cross-sections are solved at
     `dispersion_samples` wavelengths (Chebyshev nodes over the source's
     `wavelength_range`), by default as many as the band's width needs. The
     tracked fields are expanded in patterns whose
@@ -481,6 +484,7 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     raman: bool = True
     raman_mode: Literal['dominant', 'full'] = 'dominant'
     tpa: Optional[bool] = None
+    multi_photon: Optional[bool] = None
     modes: Optional[List[int]] = None
     poling: Optional[Poling] = None
     dispersion_samples: Optional[int] = None
@@ -573,7 +577,10 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     itself, and can be large in a run that is fine. `measured_fit` is the
     `PulseFit` of a measured source (None for an analytic one). `rank_report`
     is the `RankReport` of the field patterns behind `rank_per_slice` (None
-    from a server that predates it).
+    from a server that predates it). `absorbed_energy` is the energy (pJ) each
+    nonlinear absorption process took out of the tracked modes over the whole
+    chain, keyed `'two_photon'`, `'three_photon'` and `'four_photon'`, for the
+    processes that ran.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -595,6 +602,7 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     measured_fit: Optional[PulseFit] = None
     window_gap: np.ndarray = Field(default_factory=lambda: np.zeros(0))
     rank_report: Optional[RankReport] = None
+    absorbed_energy: Dict[str, float] = Field(default_factory=dict)
 
     @property
     def wavelength(self) -> np.ndarray:
@@ -608,6 +616,10 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
         if z is None:
             return len(self.z) - 1
         return int(np.argmin(np.abs(np.asarray(self.z) - z)))
+
+    def total_absorbed_energy(self) -> float:
+        """The energy (pJ) every nonlinear absorption process took together."""
+        return float(sum(self.absorbed_energy.values()))
 
     def energy_outside_window(self) -> float:
         """The largest fraction of the pulse energy, at any record, in the outer 5 % of
