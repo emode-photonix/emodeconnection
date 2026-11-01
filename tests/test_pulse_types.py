@@ -405,3 +405,25 @@ def test_a_user_material_takes_three_and_four_photon_coefficients() -> None:
     back = _over_the_wire(m)
     assert back.beta_3 == pytest.approx(2.5e-26) and back.beta_4 == pytest.approx(1e-36)
     assert MaterialProperties(n=1.5).beta_3 is None
+
+
+# ---------------------------------------------------------------------------
+# Free carriers: the switch and the carrier lifetime
+# ---------------------------------------------------------------------------
+
+
+def test_free_carriers_default_to_wherever_a_material_has_them() -> None:
+    assert PulsedProcess().free_carriers is None
+    assert PulsedProcess().carrier_lifetime is None
+    back = _over_the_wire(PulsedProcess(free_carriers=True, carrier_lifetime=0.5))
+    assert back.free_carriers is True and back.carrier_lifetime == pytest.approx(0.5)
+
+
+def test_the_carrier_lifetime_must_be_positive() -> None:
+    with pytest.raises(ArgumentError):
+        PulsedProcess(carrier_lifetime=0.0)
+
+
+def test_a_process_saved_before_free_carriers_still_loads() -> None:
+    old = _older(PulsedProcess(), 'free_carriers', 'carrier_lifetime')
+    assert old.free_carriers is None and old.carrier_lifetime is None
