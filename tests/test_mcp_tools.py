@@ -129,6 +129,28 @@ def test_section_kinds_call_their_client_method(
     assert last_call(method) == fields
 
 
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"name": "b", "radius": [1e9, 20000], "sweep_angle": 1.57},
+        {"name": "b", "euler": {"angle": 1.57, "min_radius": 10000}},
+        {"name": "b", "curvature": [0.0, 5e-5, 0.0], "length": 30000},
+    ],
+    ids=["clothoid", "euler", "sampled"],
+)
+def test_bend_section_takes_a_varying_bend(fields: dict[str, Any]) -> None:
+    result = run("emode_section", {"kind": "bend", "profile": "p", **fields})
+    assert not result.is_error
+    assert last_call("bend_section") == {"profile": "p", **fields}
+
+
+def test_bend_section_takes_an_infinite_radius_as_a_string() -> None:
+    fields = {"name": "b", "radius": ["inf", 20000], "sweep_angle": 0.5}
+    result = run("emode_section", {"kind": "bend", **fields})
+    assert not result.is_error
+    assert last_call("bend_section")["radius"] == [float("inf"), 20000]
+
+
 def test_section_refuses_a_field_its_kind_does_not_take() -> None:
     result = run("emode_section", {"kind": "straight", "name": "a", "radius": 5})
     assert result.is_error
