@@ -299,8 +299,10 @@ class MaterialProperties(TaggedModel):
       list of `(weight, position, half_width)` damped oscillators, position and
       half width in cm^-1. The weights are normalized to sum to one.
     - `tpa`: the two-photon absorption coefficient in m/W.
-    - `bandgap`: the bandgap in eV. Two-photon absorption is zero for light
-      whose two photons carry less than the bandgap.
+    - `beta_3`: the three-photon absorption coefficient in m^3/W^2.
+    - `beta_4`: the four-photon absorption coefficient in m^5/W^3.
+    - `bandgap`: the bandgap in eV. N-photon absorption is zero for light
+      whose N photons carry less than the bandgap.
     """
 
     n: Optional[TensorType] = None
@@ -310,6 +312,8 @@ class MaterialProperties(TaggedModel):
     n2: Optional[float] = None
     raman: Optional[tuple[float, list[tuple[float, float, float]]]] = None
     tpa: Optional[float] = None
+    beta_3: Optional[float] = None
+    beta_4: Optional[float] = None
     bandgap: Optional[float] = None
 
     # this is necessary to support np.ndarrays here...
