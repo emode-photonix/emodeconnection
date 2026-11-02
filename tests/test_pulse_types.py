@@ -362,3 +362,68 @@ def test_the_rank_report_crosses_the_wire() -> None:
 def test_a_response_saved_before_the_rank_report_still_loads() -> None:
     old = _older(_response(None), 'rank_report')
     assert old.rank_report is None
+
+
+# ---------------------------------------------------------------------------
+# N-photon absorption: the PulsedProcess switch and the energy each process absorbed
+# ---------------------------------------------------------------------------
+
+
+def test_multi_photon_absorption_defaults_to_wherever_a_material_has_it() -> None:
+    # like `tpa`: None turns three- and four-photon absorption on wherever a
+    # material has a coefficient, True asks for it, False turns it off
+    assert PulsedProcess().multi_photon is None
+    assert PulsedProcess(multi_photon=False).multi_photon is False
+    back = _over_the_wire(PulsedProcess(multi_photon=True))
+    assert back.multi_photon is True
+
+
+def test_a_process_saved_before_multi_photon_absorption_still_loads() -> None:
+    old = _older(PulsedProcess(), 'multi_photon')
+    assert old.multi_photon is None
+
+
+def test_the_absorbed_energy_per_process_crosses_the_wire() -> None:
+    absorbed = {'two_photon': 12.5, 'three_photon': 0.75}
+    response = _response(None).model_copy(update={'absorbed_energy': absorbed})
+    back = _over_the_wire(response)
+    assert back.absorbed_energy == pytest.approx(absorbed)
+    assert back.total_absorbed_energy() == pytest.approx(13.25)
+    assert _response(None).absorbed_energy == {}
+
+
+def test_a_response_saved_before_the_absorbed_energy_still_loads() -> None:
+    old = _older(_response(None), 'absorbed_energy')
+    assert old.absorbed_energy == {}
+    assert old.total_absorbed_energy() == 0.0
+
+
+def test_a_user_material_takes_three_and_four_photon_coefficients() -> None:
+    from emodeconnection.types import MaterialProperties
+
+    m = MaterialProperties(n=3.4, beta_3=2.5e-26, beta_4=1e-36, bandgap=1.12)
+    back = _over_the_wire(m)
+    assert back.beta_3 == pytest.approx(2.5e-26) and back.beta_4 == pytest.approx(1e-36)
+    assert MaterialProperties(n=1.5).beta_3 is None
+
+
+# ---------------------------------------------------------------------------
+# Free carriers: the switch and the carrier lifetime
+# ---------------------------------------------------------------------------
+
+
+def test_free_carriers_default_to_wherever_a_material_has_them() -> None:
+    assert PulsedProcess().free_carriers is None
+    assert PulsedProcess().carrier_lifetime is None
+    back = _over_the_wire(PulsedProcess(free_carriers=True, carrier_lifetime=0.5))
+    assert back.free_carriers is True and back.carrier_lifetime == pytest.approx(0.5)
+
+
+def test_the_carrier_lifetime_must_be_positive() -> None:
+    with pytest.raises(ArgumentError):
+        PulsedProcess(carrier_lifetime=0.0)
+
+
+def test_a_process_saved_before_free_carriers_still_loads() -> None:
+    old = _older(PulsedProcess(), 'free_carriers', 'carrier_lifetime')
+    assert old.free_carriers is None and old.carrier_lifetime is None

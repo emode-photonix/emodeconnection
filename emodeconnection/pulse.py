@@ -446,7 +446,14 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
     indices at the source wavelength (None tracks the source's own mode or
     modes). `tpa=None` turns two-photon absorption on wherever a material has
-    a two-photon coefficient. The section's cross-sections are solved at
+    a two-photon coefficient, and `multi_photon=None` turns three- and
+    four-photon absorption on wherever a material has a three- or four-photon
+    coefficient (`True` asks for it and refuses a cross-section with none,
+    `False` turns it off). `free_carriers=None` models the electron-hole pairs
+    that two- and N-photon absorption make, with their absorption and index
+    change, wherever a material has a free-carrier model (`True` refuses a
+    cross-section with none, `False` turns them off). `carrier_lifetime` (ns)
+    replaces the material's carrier lifetime, which depends on the waveguide. The section's cross-sections are solved at
     `dispersion_samples` wavelengths (Chebyshev nodes over the source's
     `wavelength_range`), by default as many as the band's width needs. The
     tracked fields are expanded in patterns whose
@@ -481,6 +488,9 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     raman: bool = True
     raman_mode: Literal['dominant', 'full'] = 'dominant'
     tpa: Optional[bool] = None
+    multi_photon: Optional[bool] = None
+    free_carriers: Optional[bool] = None
+    carrier_lifetime: Optional[float] = None
     modes: Optional[List[int]] = None
     poling: Optional[Poling] = None
     dispersion_samples: Optional[int] = None
@@ -507,6 +517,8 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
             raise ArgumentError('pattern_threshold must be in [0, 1)', name, 'pattern_threshold')
         if self.max_rank < 1:
             raise ArgumentError('max_rank must be >= 1', name, 'max_rank')
+        if self.carrier_lifetime is not None and not self.carrier_lifetime > 0:
+            raise ArgumentError('carrier_lifetime must be positive (ns)', name, 'carrier_lifetime')
         if self.modes is not None and (not self.modes or any(m < 0 for m in self.modes)):
             raise ArgumentError('modes must list mode indices >= 0', name, 'modes')
         return self
@@ -573,7 +585,10 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     itself, and can be large in a run that is fine. `measured_fit` is the
     `PulseFit` of a measured source (None for an analytic one). `rank_report`
     is the `RankReport` of the field patterns behind `rank_per_slice` (None
-    from a server that predates it).
+    from a server that predates it). `absorbed_energy` is the energy (pJ) each
+    nonlinear absorption process took out of the tracked modes over the whole
+    chain, keyed `'two_photon'`, `'three_photon'`, `'four_photon'` and
+    `'free_carrier'`, for the processes that ran.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -595,6 +610,7 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     measured_fit: Optional[PulseFit] = None
     window_gap: np.ndarray = Field(default_factory=lambda: np.zeros(0))
     rank_report: Optional[RankReport] = None
+    absorbed_energy: Dict[str, float] = Field(default_factory=dict)
 
     @property
     def wavelength(self) -> np.ndarray:
@@ -608,6 +624,10 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
         if z is None:
             return len(self.z) - 1
         return int(np.argmin(np.abs(np.asarray(self.z) - z)))
+
+    def total_absorbed_energy(self) -> float:
+        """The energy (pJ) every nonlinear absorption process took together."""
+        return float(sum(self.absorbed_energy.values()))
 
     def energy_outside_window(self) -> float:
         """The largest fraction of the pulse energy, at any record, in the outer 5 % of
