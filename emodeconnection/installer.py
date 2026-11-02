@@ -8,6 +8,7 @@ emode-install --update --version 0.2.5   # Switch to a specific version
 emode-install --version 0.2.5            # Install a specific version
 emode-install --install-dir /opt/bin     # Custom install directory
 emode-install --variant rslab            # The lighter Linux build, without MKL
+emode-install --sha256 <hex>             # Refuse to install unless the download matches
 emode-install --list-versions            # Show available versions
 emode-install --uninstall                # Remove EMode
 emode-install --uninstall --install-dir /opt/bin  # Remove from custom location
@@ -24,8 +25,10 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import os
 import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -256,6 +259,46 @@ def list_versions() -> None:
     for ver, platforms in data.get('versions', {}).items():
         tag = ' (latest)' if ver == data['latest'] else ''
         print(f"  {ver}{tag}  —  {', '.join(platforms)}")
+
+
+# ---------------------------------------------------------------
+# Checksum
+# ---------------------------------------------------------------
+
+_SHA256_HEX = re.compile(r'[0-9a-fA-F]{64}')
+
+
+def normalize_sha256(value: str) -> str:
+    """The lower-case hex form of a SHA-256 digest, or exit with status 2 if it is not one."""
+    digest = value.strip()
+    if not _SHA256_HEX.fullmatch(digest):
+        print(f"Error: '{value}' is not a SHA-256 digest (64 hexadecimal characters).")
+        sys.exit(2)
+    return digest.lower()
+
+
+def verify_sha256(path: Path, expected: str) -> None:
+    """Exit with status 1 unless the SHA-256 of the file at `path` is `expected`."""
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != normalize_sha256(expected):
+        print("\nError: the download does not match the expected SHA-256, so nothing was installed.")
+        print(f"  expected {normalize_sha256(expected)}")
+        print(f"  got      {actual}")
+        sys.exit(1)
+    print(f"SHA-256 verified: {actual}")
+
+
+def published_sha256(data: dict, filename: str) -> Optional[str]:
+    """The digest the `/versions/` reply publishes for `filename`, if it publishes one."""
+    digests = data.get('sha256')
+    if not isinstance(digests, dict):
+        return None
+    digest = digests.get(filename)
+    return normalize_sha256(digest) if isinstance(digest, str) else None
 
 
 # ---------------------------------------------------------------
@@ -708,7 +751,16 @@ def install(
     install_dir: Optional[Path] = None,
     update:      bool = False,
     variant:     str = 'default',
+    sha256:      Optional[str] = None,
 ) -> None:
+    """Download and install EMode.
+
+    `sha256`, when given, is the digest the download must have. Without it the
+    digest the `/versions/` reply publishes for the file is used, if there is
+    one. On a mismatch nothing is installed.
+    """
+    if sha256 is not None:
+        sha256 = normalize_sha256(sha256)
     os_name         = get_os()
     platform_key, _ = resolve_platform(os_name, variant)
 
@@ -725,6 +777,7 @@ def install(
 
     # Resolve version and build filename
     version, filename = resolve_version(version, os_name, variant)
+    expected = sha256 or published_sha256(get_versions(), filename)
 
     # EULA
     if not handle_eula():
@@ -744,6 +797,11 @@ def install(
             filename     = filename,
             dest_dir     = Path(tmp_dir),
         )
+
+        if expected is not None:
+            verify_sha256(downloaded_path, expected)
+        else:
+            print("No SHA-256 to check the download against (none published, none given).")
 
         print(f"Installing EMode {version}...")
 
@@ -940,6 +998,7 @@ Examples:
   emode-install --version 0.2.5            Install a specific version
   emode-install --install-dir /opt/bin     Custom install directory
   emode-install --variant rslab            The lighter Linux build, without MKL
+  emode-install --sha256 <hex>             Refuse to install unless the download matches
   emode-install --list-versions            Show available versions
   emode-install --uninstall                Remove EMode
   emode-install --uninstall --install-dir /opt/bin  Remove from custom location
@@ -970,6 +1029,14 @@ Environment variables:
         default='default',
         help="Build to install. 'rslab' (Linux only) is the lighter Linux build "
              "without MKL, whose sparse solver is rslab only (default: default).",
+    )
+    parser.add_argument(
+        '--sha256',
+        metavar='HEX',
+        default=None,
+        help='SHA-256 the downloaded file must have (64 hexadecimal characters). '
+             'The install is refused on a mismatch. Without it, the digest the '
+             'server publishes for the file is used when there is one.',
     )
     parser.add_argument(
         '--update',
@@ -1005,6 +1072,7 @@ Environment variables:
         install_dir = install_dir,
         update      = args.update,
         variant     = args.variant,
+        sha256      = args.sha256,
     )
 
 
