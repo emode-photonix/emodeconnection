@@ -479,3 +479,57 @@ def test_every_public_client_method_is_wrapped_or_deliberately_omitted() -> None
     unaccounted = CLIENT_METHODS - WRAPPED_METHODS - set(OMITTED)
     assert not unaccounted, f"wrap or omit: {sorted(unaccounted)}"
     assert not (set(OMITTED) - CLIENT_METHODS), "omitted a method that does not exist"
+
+
+# devices on several cross-sections (emode#1067): labeled profiles and masks
+
+
+def test_profile_labels_the_cross_section_drawn_so_far() -> None:
+    result = run("emode_profile", {"name": "input"})
+    assert not result.is_error
+    assert last_call("label_profile") == {"name": "input"}
+    assert result.structured_content["data"] == {"profile": "input"}
+
+
+def test_shape_changes_a_labeled_profile_when_one_is_named() -> None:
+    result = run(
+        "emode_shape",
+        {
+            "shape": {"name": "core", "material": "Si", "height": 220, "mask": 900},
+            "profile": "input",
+        },
+    )
+    assert not result.is_error
+    assert last_call("shape") == {
+        "name": "core",
+        "material": "Si",
+        "height": 220,
+        "mask": 900,
+        "profile": "input",
+    }
+
+
+def test_shape_takes_masks_and_their_offsets() -> None:
+    shape = {
+        "name": "core",
+        "material": "Si",
+        "height": 220,
+        "etch_depth": 220,
+        "mask": [800, 800],
+        "mask_offset": [-750, 750],
+    }
+    assert not run("emode_shape", {"shape": shape}).is_error
+    assert last_call("shape") == shape
+
+
+def test_settings_take_the_background_material() -> None:
+    result = run("emode_settings", {"settings": {"background_material": "SiO2"}})
+    assert not result.is_error
+    assert last_call("settings") == {"background_material": "SiO2"}
+
+
+def test_a_parameter_key_can_name_a_labeled_profiles_shape() -> None:
+    tools = {t.name: t for t in _tools()}
+    schema = json.dumps(tools["emode_optimize"].input_schema)
+    assert "shape, <profile>, <name>, <property>" in schema
+    assert "shape, <profile>, <name>, <property>" in tools["emode_sweep"].description
