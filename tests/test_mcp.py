@@ -131,6 +131,7 @@ TOOLS = [
     "emode_open",
     "emode_optimize",
     "emode_plot",
+    "emode_profile",
     "emode_section",
     "emode_settings",
     "emode_shape",

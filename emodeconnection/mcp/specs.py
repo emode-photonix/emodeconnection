@@ -46,6 +46,10 @@ class SettingsSpec(BaseModel):
     solver: Literal["default", "FDM", "FEM"] | None = Field(
         None, description="Which solver 'default' means."
     )
+    background_material: str | None = Field(
+        None,
+        description="Material filling the window where no shape is drawn, such as 'SiO2'.",
+    )
 
 
 class ShapeSpec(BaseModel):
@@ -65,7 +69,18 @@ class ShapeSpec(BaseModel):
         None,
         description="Horizontal position, or [x, y] with 'auto' stacking on the layer below.",
     )
-    etch_depth: float | None = Field(None, description="Etch depth in nm, for a rib.")
+    etch_depth: float | None = Field(
+        None,
+        description="Etch depth in nm. The layer is etched outside its mask openings.",
+    )
+    mask: float | list[float] | None = Field(
+        None,
+        description="Width in nm of each mask opening an etched layer keeps, such as 500 or [800, 800].",
+    )
+    mask_offset: float | list[float] | None = Field(
+        None,
+        description="Center in nm of each mask opening, such as [-750, 750] for a pair.",
+    )
     sidewall_angle: float | None = Field(None, description="Sidewall angle in degrees.")
 
 
@@ -75,7 +90,11 @@ class ParameterSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     key: str = Field(
-        description="Names the quantity, such as 'shape, core, width' or 'section, coupler, length'."
+        description=(
+            "Names the quantity, such as 'shape, core, width' (a shape of the current "
+            "cross-section), 'shape, <profile>, <name>, <property>' (a shape of a labeled "
+            "profile, such as 'shape, taper_end, core, mask') or 'section, coupler, length'."
+        )
     )
     bounds: tuple[float | None, float | None] | None = Field(
         None, description="[min, max], either end null for no limit."

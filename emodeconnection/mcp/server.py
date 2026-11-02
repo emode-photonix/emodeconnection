@@ -54,6 +54,7 @@ WRAPPED_METHODS = frozenset(
         "shape",
         "add_material",
         "refractive_index",
+        "label_profile",
         "FDM",
         "FEM",
         "straight_section",
@@ -354,12 +355,35 @@ def create_server(
         return done(applied, warnings, len(store.written))
 
     @tool("emode_shape")
-    async def emode_shape(shape: ShapeSpec) -> ToolResult:
-        """Draw one more shape in the open session's cross-section, on top of the earlier ones."""
+    async def emode_shape(shape: ShapeSpec, profile: str | None = None) -> ToolResult:
+        """Draw one more shape in the open session's cross-section, or change one.
+
+        A new shape goes on top of the earlier ones. A shape with the name of
+        an existing one changes it. profile names a cross-section labeled with
+        emode_profile, to change that one instead of the current cross-section.
+        """
         em = session.require()
         with _capture_warnings() as warnings:
-            await _blocking(em.shape, **_set_kwargs(shape))
+            await _blocking(
+                em.shape, **_set_kwargs(shape), **_drop_none(profile=profile)
+            )
         return done({"name": shape.name}, warnings, len(store.written))
+
+    @tool("emode_profile")
+    async def emode_profile(name: str) -> ToolResult:
+        """Label the cross-section drawn so far, so EME sections can be built on it.
+
+        A device with several cross-sections (an input waveguide, a taper's
+        wide end, a multimode body) labels each one, then changes the shapes
+        with emode_shape for the next. Sections name a labeled cross-section
+        as their profile. The labeled copy keeps its shapes when the current
+        one changes. Change it later with emode_shape and profile, or in an
+        optimization with the key 'shape, <profile>, <name>, <property>'.
+        """
+        em = session.require()
+        with _capture_warnings() as warnings:
+            await _blocking(em.label_profile, name=name)
+        return done({"profile": name}, warnings, len(store.written))
 
     @tool("emode_material")
     async def emode_material(
@@ -513,8 +537,9 @@ def create_server(
     ) -> ToolResult:
         """Sweep a setting, shape or section property and collect results at each value.
 
-        key is a setting name such as 'wavelength', 'shape, core, width' or
-        'section, taper, length'. Give values, or start, stop and num for
+        key is a setting name such as 'wavelength', 'shape, core, width',
+        'shape, <profile>, <name>, <property>' (a shape of a labeled profile,
+        swept through EME) or 'section, taper, length'. Give values, or start, stop and num for
         evenly spaced ones. result is a get() key such as 'effective_index'
         (default), or 'S_matrix' with solve_type 'EME'. method 'interpolated'
         solves num_nodes wavelengths and interpolates a wavelength sweep of the
@@ -589,8 +614,8 @@ def create_server(
     ) -> ToolResult:
         """Evaluate the simulation at one point and return the requested results.
 
-        parameters maps keys ('wavelength', 'shape, core, width', 'section,
-        coupler, length') to values. Every evaluation starts from the same
+        parameters maps keys ('wavelength', 'shape, core, width', 'shape,
+        <profile>, <name>, <property>', 'section, coupler, length') to values. Every evaluation starts from the same
         snapshot, so the same parameters give the same results.
         """
         em = session.require()
