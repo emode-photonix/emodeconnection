@@ -448,7 +448,6 @@ OMITTED = {
     "create_profile_set": "a later tool",
     "delete_profile": "a later tool",
     "label": "a later tool",
-    "label_profile": "a later tool",
     "save": "a later tool",
     "clear_field_data": "a later tool",
     "import_database": "a later tool",

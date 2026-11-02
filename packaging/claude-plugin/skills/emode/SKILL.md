@@ -28,6 +28,26 @@ eigenmode expansion (EME). Lengths are in nm and wavelengths in nm.
    optimization ask for confirmation, so tell the user the cost first and
    repeat the call with `confirm=true`.
 
+## Devices on several cross-sections
+
+A device whose cross-section changes along its length, such as a taper or a
+multimode interference coupler, is built from labeled cross-sections:
+
+1. Draw the first cross-section and label it with `emode_profile`, such as
+   `input`.
+2. Change the shapes with `emode_shape` for the next cross-section, such as a
+   wider core or an etched layer with two mask openings for a pair of output
+   waveguides (`mask` and `mask_offset`), and label it too.
+3. Declare the sections on the labeled cross-sections: a straight section
+   names one as its `profile`, a taper names its two ends as `profile` and
+   `profile_end`.
+
+A labeled cross-section keeps its shapes when the current one changes. Change
+it with `emode_shape` and `profile`, or vary it in `emode_evaluate`,
+`emode_sweep` and `emode_optimize` with the key
+`'shape, <profile>, <name>, <property>'`, such as
+`'shape, taper_end, core, mask'`.
+
 ## Sweeps
 
 - A wavelength sweep of an S-matrix should use `method='interpolated'` with
