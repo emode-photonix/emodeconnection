@@ -443,6 +443,7 @@ OMITTED = {
     "monitor": "a later tool",
     "monitor_coupling": "a later tool",
     "monitor_field": "a later tool",
+    "farfield": "a later tool",
     "pulse_propagate": "a later tool",
     "chi2_spectrum": "a later tool",
     "create_profile_set": "a later tool",
