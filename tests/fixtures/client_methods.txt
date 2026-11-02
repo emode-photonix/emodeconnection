@@ -18,6 +18,7 @@ delete_profile
 effective_area
 electrostatic
 evaluate
+farfield
 free_space_field
 free_space_field_diagnostics
 gds_section

@@ -35,6 +35,7 @@ TYPE_SINCE: dict[str, str] = {
     "ConvergenceStage": "1.0.7",
     "ConvergenceStep": "1.0.7",
     "Evaluation": "1.0.7",
+    "FarField": "1.0.8",
     "ModeDict": "1.0.7",
     "Objective": "1.0.7",
     "OptimizationResult": "1.0.7",
@@ -43,6 +44,8 @@ TYPE_SINCE: dict[str, str] = {
     "PulseFit": "1.0.7",
     "PulseMeasurement": "1.0.7",
     "RankReport": "1.0.7",
+    "Screen": "1.0.8",
+    "ScreenField": "1.0.8",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.
