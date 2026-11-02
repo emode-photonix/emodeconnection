@@ -58,6 +58,7 @@ emode-install
 emode-install                            # Install latest version
 emode-install --help                     # Show all options
 emode-install --list-versions            # Show available versions
+emode-install --sha256 <hex>             # Refuse to install unless the download matches
 emode-install --update                   # Update to the latest version
 emode-install --update --version 0.2.5   # Switch to a specific version
 emode-install --version 0.2.5            # Install a specific version
