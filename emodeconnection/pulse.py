@@ -42,7 +42,7 @@ class _LoadsOlderVersions:
     """
 
     def __setstate__(self, state: Dict) -> None:
-        values = state.get('__dict__', {})
+        values = state.get("__dict__", {})
         for name, info in type(self).model_fields.items():
             if name not in values and not info.is_required():
                 values[name] = info.get_default(call_default_factory=True)
@@ -89,61 +89,79 @@ class PulseMeasurement(_LoadsOlderVersions, TaggedModel):
     where the residual is largest.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     wavelength: Optional[List[float]] = None
     time: Optional[List[float]] = None
     intensity: List[float]
     phase: Optional[List[float]] = None
-    fit: Literal['smooth', 'sech', 'gaussian'] = 'smooth'
+    fit: Literal["smooth", "sech", "gaussian"] = "smooth"
     min_fit_quality: float = 0.99
-    background: Optional[Union[float, Literal['auto']]] = None
+    background: Optional[Union[float, Literal["auto"]]] = None
 
-    @field_validator('wavelength', 'time', 'intensity', 'phase', mode='before')
+    @field_validator("wavelength", "time", "intensity", "phase", mode="before")
     @classmethod
     def _as_lists(cls, value):
         return _sample_list(value)
 
-    @model_validator(mode='after')
-    def _validate(self) -> 'PulseMeasurement':
-        name = 'PulseMeasurement'
+    @model_validator(mode="after")
+    def _validate(self) -> "PulseMeasurement":
+        name = "PulseMeasurement"
         if (self.wavelength is None) == (self.time is None):
-            raise ArgumentError('give exactly one of wavelength and time', name, 'wavelength')
-        axis_name = 'wavelength' if self.wavelength is not None else 'time'
+            raise ArgumentError(
+                "give exactly one of wavelength and time", name, "wavelength"
+            )
+        axis_name = "wavelength" if self.wavelength is not None else "time"
         axis = np.asarray(self.wavelength if self.wavelength is not None else self.time)
         intensity = np.asarray(self.intensity)
         if axis.size != intensity.size:
-            raise ArgumentError(f'{axis_name} and intensity must have the same length', name, 'intensity')
+            raise ArgumentError(
+                f"{axis_name} and intensity must have the same length",
+                name,
+                "intensity",
+            )
         if self.phase is not None and len(self.phase) != axis.size:
-            raise ArgumentError(f'phase and {axis_name} must have the same length', name, 'phase')
+            raise ArgumentError(
+                f"phase and {axis_name} must have the same length", name, "phase"
+            )
         if axis.size < 8:
-            raise ArgumentError('a measurement needs at least 8 samples', name, axis_name)
-        values = [axis, intensity] + ([np.asarray(self.phase)] if self.phase is not None else [])
+            raise ArgumentError(
+                "a measurement needs at least 8 samples", name, axis_name
+            )
+        values = [axis, intensity] + (
+            [np.asarray(self.phase)] if self.phase is not None else []
+        )
         if not all(np.all(np.isfinite(v)) for v in values):
-            raise ArgumentError('every sample must be finite', name, axis_name)
+            raise ArgumentError("every sample must be finite", name, axis_name)
         if self.wavelength is not None and np.any(axis <= 0):
-            raise ArgumentError('every wavelength must be > 0', name, 'wavelength')
+            raise ArgumentError("every wavelength must be > 0", name, "wavelength")
         if np.unique(axis).size != axis.size:
-            raise ArgumentError(f'the {axis_name} samples must be distinct', name, axis_name)
+            raise ArgumentError(
+                f"the {axis_name} samples must be distinct", name, axis_name
+            )
         if np.max(intensity) <= 0:
-            raise ArgumentError('the intensity needs a positive peak', name, 'intensity')
+            raise ArgumentError(
+                "the intensity needs a positive peak", name, "intensity"
+            )
         if not 0 <= self.min_fit_quality <= 1:
-            raise ArgumentError('min_fit_quality must be in [0, 1]', name, 'min_fit_quality')
+            raise ArgumentError(
+                "min_fit_quality must be in [0, 1]", name, "min_fit_quality"
+            )
         if isinstance(self.background, float):
             peak = float(np.max(intensity))
             if not (np.isfinite(self.background) and 0 <= self.background < peak):
                 raise ArgumentError(
-                    f'background must be at least 0 and below the intensity peak {peak:g}, '
-                    f'got {self.background:g}',
+                    f"background must be at least 0 and below the intensity peak {peak:g}, "
+                    f"got {self.background:g}",
                     name,
-                    'background',
+                    "background",
                 )
         return self
 
     @property
-    def domain(self) -> Literal['spectral', 'temporal']:
+    def domain(self) -> Literal["spectral", "temporal"]:
         """'spectral' for a sampled spectrum, 'temporal' for a sampled trace."""
-        return 'spectral' if self.wavelength is not None else 'temporal'
+        return "spectral" if self.wavelength is not None else "temporal"
 
 
 @register_type
@@ -165,9 +183,9 @@ class PulseFit(_LoadsOlderVersions, TaggedModel):
     samples' peak (0 when none was).
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    model: Literal['smooth', 'sech', 'gaussian']
+    model: Literal["smooth", "sech", "gaussian"]
     quality: float
     fwhm: float
     center_wavelength: float
@@ -177,7 +195,7 @@ class PulseFit(_LoadsOlderVersions, TaggedModel):
     transform_limited: bool
     energy_outside: float = 0.0
     residual_peak: float
-    residual_axis: Literal['wavelength', 'time']
+    residual_axis: Literal["wavelength", "time"]
     background: float = 0.0
 
 
@@ -205,15 +223,15 @@ class PulsedSource(_LoadsOlderVersions, TaggedModel):
     `alias` oversamples the real-field products (2 for chi(2), 3 for chi(3)).
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     center_wavelength: float
     duration: Optional[float] = None
     energy: Optional[float] = None
     peak_power: Optional[float] = None
-    port: str = 'left'
+    port: str = "left"
     mode: Union[int, Dict[int, complex]] = 0
-    shape: Literal['sech', 'gaussian', 'cw', 'measured'] = 'sech'
+    shape: Literal["sech", "gaussian", "cw", "measured"] = "sech"
     chirp: float = 0.0
     measurement: Optional[PulseMeasurement] = None
     repetition_rate: Optional[float] = None
@@ -221,46 +239,80 @@ class PulsedSource(_LoadsOlderVersions, TaggedModel):
     num_points: int = 16384
     alias: int = 2
 
-    @model_validator(mode='after')
-    def _validate(self) -> 'PulsedSource':
-        name = 'PulsedSource'
+    @model_validator(mode="after")
+    def _validate(self) -> "PulsedSource":
+        name = "PulsedSource"
         if self.center_wavelength <= 0:
-            raise ArgumentError('center_wavelength must be > 0', name, 'center_wavelength')
+            raise ArgumentError(
+                "center_wavelength must be > 0", name, "center_wavelength"
+            )
         lo, hi = self.wavelength_range
         if not 0 < lo < hi:
-            raise ArgumentError('wavelength_range must be (min, max) with 0 < min < max', name, 'wavelength_range')
+            raise ArgumentError(
+                "wavelength_range must be (min, max) with 0 < min < max",
+                name,
+                "wavelength_range",
+            )
         if not lo < self.center_wavelength < hi:
-            raise ArgumentError('center_wavelength must lie inside wavelength_range', name, 'center_wavelength')
-        if self.measurement is not None and self.shape != 'measured':
-            raise ArgumentError("a measurement goes with shape='measured'", name, 'measurement')
-        if self.shape == 'cw':
+            raise ArgumentError(
+                "center_wavelength must lie inside wavelength_range",
+                name,
+                "center_wavelength",
+            )
+        if self.measurement is not None and self.shape != "measured":
+            raise ArgumentError(
+                "a measurement goes with shape='measured'", name, "measurement"
+            )
+        if self.shape == "cw":
             if self.peak_power is None or self.energy is not None:
-                raise ArgumentError("a 'cw' source takes peak_power (W) and no energy", name, 'peak_power')
-        elif self.shape == 'measured':
+                raise ArgumentError(
+                    "a 'cw' source takes peak_power (W) and no energy",
+                    name,
+                    "peak_power",
+                )
+        elif self.shape == "measured":
             if self.measurement is None:
-                raise ArgumentError("shape='measured' needs a measurement (PulseMeasurement)", name, 'measurement')
+                raise ArgumentError(
+                    "shape='measured' needs a measurement (PulseMeasurement)",
+                    name,
+                    "measurement",
+                )
             if self.duration is not None:
-                raise ArgumentError('a measured source takes no duration: the measurement sets it', name, 'duration')
+                raise ArgumentError(
+                    "a measured source takes no duration: the measurement sets it",
+                    name,
+                    "duration",
+                )
             if self.chirp != 0:
-                raise ArgumentError('a measured source takes no chirp: the measurement sets it', name, 'chirp')
+                raise ArgumentError(
+                    "a measured source takes no chirp: the measurement sets it",
+                    name,
+                    "chirp",
+                )
             if (self.energy is None) == (self.peak_power is None):
-                raise ArgumentError('give exactly one of energy (pJ) and peak_power (W)', name, 'energy')
+                raise ArgumentError(
+                    "give exactly one of energy (pJ) and peak_power (W)", name, "energy"
+                )
         else:
             if self.duration is None or self.duration <= 0:
-                raise ArgumentError('duration (fs FWHM) must be > 0', name, 'duration')
+                raise ArgumentError("duration (fs FWHM) must be > 0", name, "duration")
             if (self.energy is None) == (self.peak_power is None):
-                raise ArgumentError('give exactly one of energy (pJ) and peak_power (W)', name, 'energy')
-        for field, value in (('energy', self.energy), ('peak_power', self.peak_power)):
+                raise ArgumentError(
+                    "give exactly one of energy (pJ) and peak_power (W)", name, "energy"
+                )
+        for field, value in (("energy", self.energy), ("peak_power", self.peak_power)):
             if value is not None and value <= 0:
-                raise ArgumentError(f'{field} must be > 0', name, field)
+                raise ArgumentError(f"{field} must be > 0", name, field)
         if self.num_points < 16 or self.num_points % 2:
-            raise ArgumentError('num_points must be even and at least 16', name, 'num_points')
+            raise ArgumentError(
+                "num_points must be even and at least 16", name, "num_points"
+            )
         if self.alias not in (1, 2, 3):
-            raise ArgumentError('alias must be 1, 2 or 3', name, 'alias')
+            raise ArgumentError("alias must be 1, 2 or 3", name, "alias")
         if self.repetition_rate is not None and self.repetition_rate <= 0:
-            raise ArgumentError('repetition_rate must be > 0', name, 'repetition_rate')
+            raise ArgumentError("repetition_rate must be > 0", name, "repetition_rate")
         if isinstance(self.mode, dict) and not self.mode:
-            raise ArgumentError('mode must name at least one mode', name, 'mode')
+            raise ArgumentError("mode must name at least one mode", name, "mode")
         return self
 
     @property
@@ -291,7 +343,7 @@ class Poling(TaggedModel):
     `to_domain_lengths(section_length)` converts any form to domain lengths.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     period: Optional[float] = None
     z_knots: Optional[List[float]] = None
@@ -299,14 +351,14 @@ class Poling(TaggedModel):
     domain_walls: Optional[List[float]] = None
     domain_lengths: Optional[List[float]] = None
     duty_cycle: float = 0.5
-    interpolation: Literal['linear', 'spline'] = 'linear'
+    interpolation: Literal["linear", "spline"] = "linear"
     inverted_first: bool = False
     jitter_rms: float = 0.0
     seed: Optional[int] = None
 
-    @model_validator(mode='after')
-    def _validate(self) -> 'Poling':
-        name = 'Poling'
+    @model_validator(mode="after")
+    def _validate(self) -> "Poling":
+        name = "Poling"
         forms = [
             self.period is not None,
             self.z_knots is not None,
@@ -315,30 +367,46 @@ class Poling(TaggedModel):
         ]
         if sum(forms) != 1:
             raise ArgumentError(
-                'give exactly one of period, z_knots/periods, domain_walls and domain_lengths', name, 'period'
+                "give exactly one of period, z_knots/periods, domain_walls and domain_lengths",
+                name,
+                "period",
             )
         if self.period is not None and self.period <= 0:
-            raise ArgumentError('period must be > 0', name, 'period')
+            raise ArgumentError("period must be > 0", name, "period")
         if self.z_knots is not None:
-            if self.periods is None or len(self.periods) != len(self.z_knots) or len(self.z_knots) < 2:
-                raise ArgumentError('z_knots and periods need the same length, at least 2', name, 'periods')
+            if (
+                self.periods is None
+                or len(self.periods) != len(self.z_knots)
+                or len(self.z_knots) < 2
+            ):
+                raise ArgumentError(
+                    "z_knots and periods need the same length, at least 2",
+                    name,
+                    "periods",
+                )
             if any(p <= 0 for p in self.periods):
-                raise ArgumentError('every period must be > 0', name, 'periods')
+                raise ArgumentError("every period must be > 0", name, "periods")
         elif self.periods is not None:
-            raise ArgumentError('periods goes with z_knots', name, 'periods')
+            raise ArgumentError("periods goes with z_knots", name, "periods")
         if self.domain_walls is not None and any(
             b <= a for a, b in zip(self.domain_walls[:-1], self.domain_walls[1:])
         ):
-            raise ArgumentError('domain_walls must be strictly increasing', name, 'domain_walls')
+            raise ArgumentError(
+                "domain_walls must be strictly increasing", name, "domain_walls"
+            )
         if self.domain_lengths is not None:
             if not self.domain_lengths:
-                raise ArgumentError('domain_lengths needs at least one domain', name, 'domain_lengths')
+                raise ArgumentError(
+                    "domain_lengths needs at least one domain", name, "domain_lengths"
+                )
             if any(not v > 0 for v in self.domain_lengths):
-                raise ArgumentError('every domain length must be > 0', name, 'domain_lengths')
+                raise ArgumentError(
+                    "every domain length must be > 0", name, "domain_lengths"
+                )
         if not 0 < self.duty_cycle < 1:
-            raise ArgumentError('duty_cycle must be in (0, 1)', name, 'duty_cycle')
+            raise ArgumentError("duty_cycle must be in (0, 1)", name, "duty_cycle")
         if self.jitter_rms < 0:
-            raise ArgumentError('jitter_rms must be >= 0', name, 'jitter_rms')
+            raise ArgumentError("jitter_rms must be >= 0", name, "jitter_rms")
         return self
 
     @property
@@ -352,12 +420,20 @@ class Poling(TaggedModel):
             walls = _walls_from_period(section_length, self.period, self.duty_cycle)
         elif self.z_knots is not None:
             walls = _walls_from_knots(
-                section_length, self.z_knots, self.periods or [], self.duty_cycle, self.interpolation
+                section_length,
+                self.z_knots,
+                self.periods or [],
+                self.duty_cycle,
+                self.interpolation,
             )
         elif self.domain_lengths is not None:
-            walls = [float(w) for w in np.cumsum(self.domain_lengths) if w < section_length]
+            walls = [
+                float(w) for w in np.cumsum(self.domain_lengths) if w < section_length
+            ]
         else:
-            walls = [float(w) for w in self.domain_walls or [] if 0 < w < section_length]
+            walls = [
+                float(w) for w in self.domain_walls or [] if 0 < w < section_length
+            ]
         if self.jitter_rms > 0:
             walls = _jitter(walls, self.jitter_rms, self.seed)
         return walls
@@ -373,7 +449,9 @@ class Poling(TaggedModel):
         return [float(b - a) for a, b in zip(edges[:-1], edges[1:])]
 
 
-def _walls_from_phase(z: np.ndarray, phase: np.ndarray, duty_cycle: float) -> List[float]:
+def _walls_from_phase(
+    z: np.ndarray, phase: np.ndarray, duty_cycle: float
+) -> List[float]:
     """Walls where the grating phase crosses 2 pi (k + D) (to -) and 2 pi (k + 1) (to +)."""
     total = phase[-1] / (2 * np.pi)
     targets = []
@@ -425,7 +503,9 @@ def _walls_from_knots(
     zk = np.asarray(z_knots, dtype=float)
     pk = np.asarray(periods, dtype=float)
     z = np.linspace(0.0, length, samples)
-    local = np.interp(z, zk, pk) if interpolation == 'linear' else CubicSpline(zk, pk)(z)
+    local = (
+        np.interp(z, zk, pk) if interpolation == "linear" else CubicSpline(zk, pk)(z)
+    )
     phase = cumulative_trapezoid(2 * np.pi / local, z, initial=0.0)
     return _walls_from_phase(z, phase, duty_cycle)
 
@@ -435,7 +515,11 @@ def _jitter(walls: List[float], rms: float, seed: Optional[int]) -> List[float]:
     w = np.asarray(walls, dtype=float)
     out = w + np.random.default_rng(seed).normal(0.0, rms, size=w.shape)
     if np.any(np.diff(out) <= 0):
-        raise ArgumentError('the jitter reordered two domain walls: reduce jitter_rms', 'Poling', 'jitter_rms')
+        raise ArgumentError(
+            "the jitter reordered two domain walls: reduce jitter_rms",
+            "Poling",
+            "jitter_rms",
+        )
     return [float(v) for v in out]
 
 
@@ -446,10 +530,10 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
     indices at the source wavelength (None tracks the source's own mode or
     modes). `tpa=None` turns two-photon absorption on wherever a material has
-    a two-photon coefficient, and `multi_photon=None` turns three- and
-    four-photon absorption on wherever a material has a three- or four-photon
-    coefficient (`True` asks for it and refuses a cross-section with none,
-    `False` turns it off). `free_carriers=None` models the electron-hole pairs
+    a two-photon coefficient. Three- and four-photon absorption are off by
+    default (`multi_photon=None` or `False`): `multi_photon=True` turns them on
+    wherever a material has a three- or four-photon coefficient and refuses a
+    cross-section with none. `free_carriers=None` models the electron-hole pairs
     that two- and N-photon absorption make, with their absorption and index
     change, wherever a material has a free-carrier model (`True` refuses a
     cross-section with none, `False` turns them off). `carrier_lifetime` (ns)
@@ -481,12 +565,12 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     - `(min, max)`: at the fundamental wavelengths (nm) in that band.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     chi2: bool = True
     chi3: bool = True
     raman: bool = True
-    raman_mode: Literal['dominant', 'full'] = 'dominant'
+    raman_mode: Literal["dominant", "full"] = "dominant"
     tpa: Optional[bool] = None
     multi_photon: Optional[bool] = None
     free_carriers: Optional[bool] = None
@@ -498,29 +582,48 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     max_rank: int = 12
     max_harmonic_modes: int = 3
     harmonic_coupling: float = 0.1
-    modal_search: Union[Literal['launch', 'broadened'], Tuple[float, float]] = 'broadened'
+    modal_search: Union[Literal["launch", "broadened"], Tuple[float, float]] = (
+        "broadened"
+    )
 
-    @model_validator(mode='after')
-    def _validate(self) -> 'PulsedProcess':
-        name = 'PulsedProcess'
+    @model_validator(mode="after")
+    def _validate(self) -> "PulsedProcess":
+        name = "PulsedProcess"
         if self.max_harmonic_modes < 0:
-            raise ArgumentError('max_harmonic_modes must be >= 0', name, 'max_harmonic_modes')
-        if not 0 <= self.harmonic_coupling <= 1:
-            raise ArgumentError('harmonic_coupling must be in [0, 1]', name, 'harmonic_coupling')
-        if isinstance(self.modal_search, tuple) and not 0 < self.modal_search[0] < self.modal_search[1]:
             raise ArgumentError(
-                'a modal_search band must be (min, max) in nm with 0 < min < max', name, 'modal_search'
+                "max_harmonic_modes must be >= 0", name, "max_harmonic_modes"
+            )
+        if not 0 <= self.harmonic_coupling <= 1:
+            raise ArgumentError(
+                "harmonic_coupling must be in [0, 1]", name, "harmonic_coupling"
+            )
+        if (
+            isinstance(self.modal_search, tuple)
+            and not 0 < self.modal_search[0] < self.modal_search[1]
+        ):
+            raise ArgumentError(
+                "a modal_search band must be (min, max) in nm with 0 < min < max",
+                name,
+                "modal_search",
             )
         if self.dispersion_samples is not None and self.dispersion_samples < 4:
-            raise ArgumentError('dispersion_samples must be at least 4', name, 'dispersion_samples')
+            raise ArgumentError(
+                "dispersion_samples must be at least 4", name, "dispersion_samples"
+            )
         if not 0 <= self.pattern_threshold < 1:
-            raise ArgumentError('pattern_threshold must be in [0, 1)', name, 'pattern_threshold')
+            raise ArgumentError(
+                "pattern_threshold must be in [0, 1)", name, "pattern_threshold"
+            )
         if self.max_rank < 1:
-            raise ArgumentError('max_rank must be >= 1', name, 'max_rank')
+            raise ArgumentError("max_rank must be >= 1", name, "max_rank")
         if self.carrier_lifetime is not None and not self.carrier_lifetime > 0:
-            raise ArgumentError('carrier_lifetime must be positive (ns)', name, 'carrier_lifetime')
-        if self.modes is not None and (not self.modes or any(m < 0 for m in self.modes)):
-            raise ArgumentError('modes must list mode indices >= 0', name, 'modes')
+            raise ArgumentError(
+                "carrier_lifetime must be positive (ns)", name, "carrier_lifetime"
+            )
+        if self.modes is not None and (
+            not self.modes or any(m < 0 for m in self.modes)
+        ):
+            raise ArgumentError("modes must list mode indices >= 0", name, "modes")
         return self
 
 
@@ -540,7 +643,7 @@ class RankReport(TaggedModel):
     converged in rank, and the solver warns.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     section: List[Optional[str]]
     rank: List[int]
@@ -555,7 +658,9 @@ class RankReport(TaggedModel):
         level = self.limit if limit is None else limit
         return [
             i
-            for i, (used, natural, dropped) in enumerate(zip(self.rank, self.natural_rank, self.dropped_weight))
+            for i, (used, natural, dropped) in enumerate(
+                zip(self.rank, self.natural_rank, self.dropped_weight)
+            )
             if natural > used and max(dropped, default=0.0) > level
         ]
 
@@ -655,7 +760,9 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
         mode numbers; None sums them.
         """
         lam = self.wavelength
-        band = (lam >= min(wavelength_min, wavelength_max)) & (lam <= max(wavelength_min, wavelength_max))
+        band = (lam >= min(wavelength_min, wavelength_max)) & (
+            lam <= max(wavelength_min, wavelength_max)
+        )
         a = np.asarray(self.spectrum)[self._record(z)]
         if mode is not None:
             a = a[self.modes.index(mode)][None]
@@ -673,8 +780,9 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
         rate = repetition_rate or self.repetition_rate
         if rate is None:
             raise ArgumentError(
-                'band_power needs a repetition rate (Hz): give repetition_rate= here or on the PulsedSource',
-                'band_power', 'repetition_rate',
+                "band_power needs a repetition rate (Hz): give repetition_rate= here or on the PulsedSource",
+                "band_power",
+                "repetition_rate",
             )
         return self.band_energy(wavelength_min, wavelength_max, z, mode) * 1e-12 * rate
 
@@ -687,7 +795,9 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
         per_nm = per_hz * self.frequency**2 / (_C0 * 1e9) * 1e12  # pJ/nm
         return 10 * np.log10(np.maximum(per_nm, 1e-300))
 
-    def envelope(self, z: Optional[float] = None, mode: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
+    def envelope(
+        self, z: Optional[float] = None, mode: Optional[int] = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """(time in fs, complex envelope in sqrt(W)) of the pulse at the record nearest `z`."""
         a = np.asarray(self.spectrum)[self._record(z)]
         a = a[self.modes.index(mode) if mode is not None else 0]
