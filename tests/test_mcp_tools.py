@@ -779,3 +779,8 @@ def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
     assert "one [min, max] pair per entry" in schema
     assert "domain_lengths" in tool.description
     assert "its own shape" in tool.description
+    skill = (
+        Path(__file__).parents[1] / "emodeconnection" / "mcp" / "SKILL.md"
+    ).read_text()
+    assert "one\n  `[min, max]` pair per entry" in skill
+    assert "its own shape" in skill
