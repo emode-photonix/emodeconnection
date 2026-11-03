@@ -556,6 +556,72 @@ def test_settings_take_the_background_material() -> None:
     assert last_call("settings") == {"background_material": "SiO2"}
 
 
+def _settings_calls() -> list[dict[str, Any]]:
+    return [c[1] for c in FakeEMode.instances[0].calls if c[0] == "settings"]
+
+
+def test_settings_change_the_current_cross_section_only_by_default() -> None:
+    # a labeled cross-section keeps the settings it was labeled with (emode#1327)
+    session(
+        OPEN,
+        ("emode_profile", {"name": "input"}),
+        ("emode_settings", {"settings": {"x_resolution": 4}}),
+    )
+    assert _settings_calls() == [{"x_resolution": 4}]
+
+
+def test_settings_change_a_labeled_cross_section_when_one_is_named() -> None:
+    result = session(
+        OPEN,
+        ("emode_profile", {"name": "input"}),
+        ("emode_settings", {"settings": {"x_resolution": 4}, "profile": "input"}),
+    )[2]
+    assert not result.is_error
+    assert _settings_calls() == [{"x_resolution": 4, "profile": "input"}]
+    assert result.structured_content["data"]["profiles"] == ["input"]
+
+
+def test_settings_change_every_cross_section_with_all() -> None:
+    result = session(
+        OPEN,
+        ("emode_profile", {"name": "input"}),
+        ("emode_profile", {"name": "mmi"}),
+        ("emode_profile", {"name": "input"}),
+        ("emode_settings", {"settings": {"x_resolution": 10, "num_modes": 6}, "profile": "all"}),
+    )[4]
+    assert not result.is_error
+    assert _settings_calls() == [
+        {"x_resolution": 10, "num_modes": 6},
+        {"x_resolution": 10, "num_modes": 6, "profile": "input"},
+        {"x_resolution": 10, "num_modes": 6, "profile": "mmi"},
+    ]
+    assert result.structured_content["data"]["profiles"] == ["_default", "input", "mmi"]
+
+
+def test_a_new_session_forgets_the_labels_of_the_last() -> None:
+    session(
+        OPEN,
+        ("emode_profile", {"name": "input"}),
+        ("emode_close", {}),
+        OPEN,
+        ("emode_settings", {"settings": {"x_resolution": 10}, "profile": "all"}),
+    )
+    last = FakeEMode.instances[-1]
+    assert [c[1] for c in last.calls if c[0] == "settings"] == [{"x_resolution": 10}]
+
+
+def test_the_settings_tool_says_labeled_cross_sections_keep_their_own() -> None:
+    tools = {t.name: t for t in _tools()}
+    text = tools["emode_settings"].description + json.dumps(tools["emode_settings"].input_schema)
+    assert "labeled" in text and "'all'" in text
+
+
+def test_converge_can_converge_a_labeled_cross_section() -> None:
+    FakeEMode.returns["converge"] = _convergence()
+    run("emode_converge", {"setting": "resolution", "profile": "mmi"})
+    assert last_call("converge") == {"setting": "resolution", "profile": "mmi"}
+
+
 def test_a_parameter_key_can_name_a_labeled_profiles_shape() -> None:
     tools = {t.name: t for t in _tools()}
     schema = json.dumps(tools["emode_optimize"].input_schema)
