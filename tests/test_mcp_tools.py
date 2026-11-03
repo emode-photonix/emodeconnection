@@ -262,6 +262,12 @@ def test_converge_returns_the_report_the_solver_made() -> None:
     assert "converged" in data["table"]
 
 
+def test_converge_passes_its_memory_budget() -> None:
+    FakeEMode.returns["converge"] = _convergence()
+    run("emode_converge", {"setting": "all", "max_time": 300, "max_memory": 4})
+    assert last_call("converge") == {"setting": "all", "max_time": 300, "max_memory": 4}
+
+
 def test_evaluate_passes_parameters_and_results() -> None:
     FakeEMode.returns["evaluate"] = {"index": 0, "results": {"effective_index": 2.4}}
     result = run(
