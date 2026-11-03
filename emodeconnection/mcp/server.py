@@ -601,19 +601,24 @@ def create_server(
         apply: bool | None = None,
         max_solves: int | None = None,
         max_time: float | None = None,
+        max_memory: float | None = None,
         mode: int | None = None,
     ) -> ToolResult:
         """Find the resolution, window, PML thickness or mode count a result needs.
 
         Varies the setting until the target of the watched mode stops changing,
         and returns the convergence report (status, chosen settings, one row
-        per solve, and the report as a text table). Run this before trusting a
-        solve. apply=true writes the chosen settings to the session.
+        per solve, a message saying why it stopped if it did not converge, and
+        the report as a text table). Run this before trusting a solve.
+        apply=true writes the chosen settings to the session. max_time (s) and
+        max_memory (GB, default half the machine's memory) are budgets: a step
+        predicted to pass either is not started, and the run stops with status
+        'budget' at the finest settings it solved.
         """
         em = session.require()
         kwargs = _drop_none(
             setting=setting, target=target, tolerance=tolerance, apply=apply,
-            max_solves=max_solves, max_time=max_time, mode=mode,
+            max_solves=max_solves, max_time=max_time, max_memory=max_memory, mode=mode,
         )  # fmt: skip
         with _capture_warnings() as warnings:
             report = await _blocking(em.converge, **kwargs)
