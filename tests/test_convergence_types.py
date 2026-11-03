@@ -112,6 +112,23 @@ def test_the_status_must_be_one_of_the_routine_s() -> None:
         ConvergenceStage(setting='resolution', status='finished', chosen={}, solves=0, seconds=0)
 
 
+def test_a_result_says_why_it_stopped() -> None:
+    message = (
+        'stopped before the resolution step at 1.97 nm: it would need about 9.1 GB, '
+        'over the max_memory of 8 GB'
+    )
+    result = _result().model_copy(update={'message': message})
+    back = _over_the_wire(result)
+    assert back.message == message
+    assert message in result.table().splitlines()
+
+
+def test_a_result_without_a_message_prints_none() -> None:
+    result = _result()
+    assert result.message == ''
+    assert result.table().splitlines()[-1].startswith('budget at')
+
+
 def test_the_history_is_plain_json() -> None:
     data = _result().to_json()
     assert json.loads(json.dumps(data))['history'][2]['value'] == 20.0
