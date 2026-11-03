@@ -91,7 +91,12 @@ _SECTION_FIELDS: dict[str, tuple[str, frozenset[str]]] = {
         frozenset({"name", "profile", "length", "offset"}),
     ),
     "taper": ("taper_section", frozenset({"name", "profile", "profile_end", "length"})),
-    "bend": ("bend_section", frozenset({"name", "profile", "radius", "sweep_angle"})),
+    "bend": (
+        "bend_section",
+        frozenset(
+            {"name", "profile", "radius", "sweep_angle", "euler", "curvature", "length"}
+        ),
+    ),
     "gds": (
         "gds_section",
         frozenset(
@@ -455,8 +460,10 @@ def create_server(
         profile_end: str | None = None,
         length: float | None = None,
         offset: float | list[float] | None = None,
-        radius: float | None = None,
+        radius: float | list[float] | None = None,
         sweep_angle: float | None = None,
+        euler: dict[str, float] | None = None,
+        curvature: list[float] | None = None,
         gds_path: str | None = None,
         layer_map: dict[str, int] | None = None,
         cell_index: int | str | None = None,
@@ -470,7 +477,12 @@ def create_server(
         """Declare a section of an EME circuit. Sections connect in the order declared.
 
         kind straight: profile, length, offset. taper: profile, profile_end,
-        length. bend: profile, radius (nm), sweep_angle (radians). gds:
+        length. bend: profile plus one curve. radius (nm) with sweep_angle
+        (radians) is a circular arc. A list of radii with sweep_angle is a
+        clothoid whose curvature varies linearly from the first radius to the
+        last ("inf" is a straight end). euler is {"angle": radians,
+        "min_radius": nm} for a symmetric Euler bend. curvature is a list of
+        signed curvatures (1/nm) equally spaced along length (nm). gds:
         gds_path, layer_map, profile, length, cell_index, scale. pwd (plane
         waves): length, material, window, offset, max_order, max_kt, num_modes.
         Lengths are in nm. A field the kind does not take is refused.
@@ -485,6 +497,8 @@ def create_server(
             offset=offset,
             radius=radius,
             sweep_angle=sweep_angle,
+            euler=euler,
+            curvature=curvature,
             gds_path=gds_path,
             layer_map=layer_map,
             cell_index=cell_index,
