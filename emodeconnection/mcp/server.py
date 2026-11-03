@@ -228,6 +228,8 @@ class _Session:
         self.client_factory = client_factory
         self.store = store
         self.em: Any = None
+        # the cross-sections labeled in this session, in the order labeled
+        self.labels: list[str] = []
 
     def require(self) -> Any:
         if self.em is None:
@@ -236,6 +238,7 @@ class _Session:
 
     def shut(self, *, save: bool = False) -> bool:
         em, self.em = self.em, None
+        self.labels = []
         if em is None:
             return False
         em.close(save=save)
@@ -351,13 +354,33 @@ def create_server(
         )
 
     @tool("emode_settings")
-    async def emode_settings(settings: SettingsSpec) -> ToolResult:
-        """Change the solver settings of the open session (wavelength, resolution, window, modes)."""
+    async def emode_settings(
+        settings: SettingsSpec, profile: str | None = None
+    ) -> ToolResult:
+        """Change the solver settings (wavelength, resolution, window, modes) of a cross-section.
+
+        Without profile, the settings change the current cross-section only.
+        A cross-section labeled with emode_profile keeps the settings it was
+        labeled with, so set what every cross-section shares before labeling
+        them. profile names a labeled cross-section to change instead, or is
+        'all' for the current one and every labeled one, such as a coarser
+        grid for a search and the converged grid again for the check.
+        """
         em = session.require()
         applied = _set_kwargs(settings)
+        if profile is None:
+            targets: list[str | None] = [None]
+        elif profile == "all":
+            targets = [None, *session.labels]
+        else:
+            targets = [profile]
         with _capture_warnings() as warnings:
-            await _blocking(em.settings, **applied)
-        return done(applied, warnings, len(store.written))
+            for target in targets:
+                await _blocking(em.settings, **applied, **_drop_none(profile=target))
+        if profile is None:
+            return done(applied, warnings, len(store.written))
+        changed = [t or "_default" for t in targets]
+        return done({**applied, "profiles": changed}, warnings, len(store.written))
 
     @tool("emode_shape")
     async def emode_shape(shape: ShapeSpec, profile: str | None = None) -> ToolResult:
@@ -388,6 +411,8 @@ def create_server(
         em = session.require()
         with _capture_warnings() as warnings:
             await _blocking(em.label_profile, name=name)
+        if name not in session.labels:
+            session.labels.append(name)
         return done({"profile": name}, warnings, len(store.written))
 
     @tool("emode_material")
@@ -603,6 +628,7 @@ def create_server(
         max_time: float | None = None,
         max_memory: float | None = None,
         mode: int | None = None,
+        profile: str | None = None,
     ) -> ToolResult:
         """Find the resolution, window, PML thickness or mode count a result needs.
 
@@ -610,7 +636,9 @@ def create_server(
         and returns the convergence report (status, chosen settings, one row
         per solve, a message saying why it stopped if it did not converge, and
         the report as a text table). Run this before trusting a solve.
-        apply=true writes the chosen settings to the session. max_time (s) and
+        apply=true writes the chosen settings to the cross-section converged:
+        the current one, or the labeled one profile names. Copy them to the
+        others with emode_settings and profile 'all'. max_time (s) and
         max_memory (GB, default half the machine's memory) are budgets: a step
         predicted to pass either is not started, and the run stops with status
         'budget' at the finest settings it solved.
@@ -619,6 +647,7 @@ def create_server(
         kwargs = _drop_none(
             setting=setting, target=target, tolerance=tolerance, apply=apply,
             max_solves=max_solves, max_time=max_time, max_memory=max_memory, mode=mode,
+            profile=profile,
         )  # fmt: skip
         with _capture_warnings() as warnings:
             report = await _blocking(em.converge, **kwargs)

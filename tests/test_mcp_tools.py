@@ -587,7 +587,10 @@ def test_settings_change_every_cross_section_with_all() -> None:
         ("emode_profile", {"name": "input"}),
         ("emode_profile", {"name": "mmi"}),
         ("emode_profile", {"name": "input"}),
-        ("emode_settings", {"settings": {"x_resolution": 10, "num_modes": 6}, "profile": "all"}),
+        (
+            "emode_settings",
+            {"settings": {"x_resolution": 10, "num_modes": 6}, "profile": "all"},
+        ),
     )[4]
     assert not result.is_error
     assert _settings_calls() == [
@@ -612,7 +615,9 @@ def test_a_new_session_forgets_the_labels_of_the_last() -> None:
 
 def test_the_settings_tool_says_labeled_cross_sections_keep_their_own() -> None:
     tools = {t.name: t for t in _tools()}
-    text = tools["emode_settings"].description + json.dumps(tools["emode_settings"].input_schema)
+    text = tools["emode_settings"].description + json.dumps(
+        tools["emode_settings"].input_schema
+    )
     assert "labeled" in text and "'all'" in text
 
 
