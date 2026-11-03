@@ -639,9 +639,9 @@ def create_server(
         apply=true writes the chosen settings to the cross-section converged:
         the current one, or the labeled one profile names. Copy them to the
         others with emode_settings and profile 'all'. max_time (s) and
-        max_memory (GB, default half the machine's memory) are budgets: a step
-        predicted to pass either is not started, and the run stops with status
-        'budget' at the finest settings it solved.
+        max_memory (GB, default three quarters of the machine's memory) are
+        budgets: a step predicted to pass either is not started, and the run
+        stops with status 'budget' at the finest settings it solved.
         """
         em = session.require()
         kwargs = _drop_none(
