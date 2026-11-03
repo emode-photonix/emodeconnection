@@ -48,6 +48,15 @@ it with `emode_shape` and `profile`, or vary it in `emode_evaluate`,
 `'shape, <profile>, <name>, <property>'`, such as
 `'shape, taper_end, core, mask'`.
 
+A labeled cross-section also keeps the settings it was labeled with (grid,
+window, modes, boundary condition). `emode_settings` without `profile` changes
+only the current cross-section, so the sections would not see it. Converge the
+cross-section that needs the most (the widest or most multimode one), then
+copy the chosen settings to every cross-section with `emode_settings` and
+`profile='all'`. Do the same to switch every cross-section to a coarser grid
+for a search and back to the converged one for the check. `emode_get` with
+`profile` reads a labeled cross-section's settings.
+
 ## Sweeps
 
 - A wavelength sweep of an S-matrix should use `method='interpolated'` with
