@@ -497,7 +497,8 @@ class ConvergenceStage(TaggedModel):
     below the tolerance on two consecutive steps, or below it once for the
     orthogonality target), `'oscillating'` (the change flipped sign between
     two consecutive steps), `'stalled'` (the orthogonality measure stopped
-    improving), `'budget'` (`max_solves` or `max_time` ran out) or
+    improving), `'budget'` (`max_solves` or `max_time` ran out, or the next
+    step would have passed `max_time` or `max_memory`) or
     `'lost mode'` (no mode of a step matched the tracked one). `chosen` holds
     the settings the stage chose, `order` the observed order of a resolution
     stage and `estimated_error` the chosen step's estimated error.
@@ -522,7 +523,9 @@ class ConvergenceResult(TaggedModel):
     otherwise the status of the first stage that did not. `chosen` holds every
     setting the run chose, as `settings()` takes them, and `applied` says
     whether they were written to the profile. `stages` has one entry per
-    setting varied, in order, and `history` one row per solve.
+    setting varied, in order, and `history` one row per solve. `message` says
+    why a run that did not converge stopped (for a budget, which one ran out,
+    or which step it would not start), and is empty otherwise.
     """
 
     setting: Literal['resolution', 'window', 'pml', 'modes', 'all']
@@ -535,6 +538,7 @@ class ConvergenceResult(TaggedModel):
     history: List[ConvergenceStep] = []
     seconds: float = 0.0
     applied: bool = False
+    message: str = ''
 
     @property
     def converged(self) -> bool:
@@ -569,6 +573,8 @@ class ConvergenceResult(TaggedModel):
             )
             order = '' if stage.order is None else f', order {stage.order:.2f}'
             lines.append(f'{stage.setting}: {stage.status} ({chosen}{error}{order})')
+        if self.message:
+            lines.append(self.message)
         lines.append(
             f'{self.status} at {self.tolerance:g} {kind} in {self.seconds:.1f} s'
             + ('' if not self.applied else ', settings applied')
