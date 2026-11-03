@@ -24,6 +24,7 @@ from emodeconnection import (
 )
 from emodeconnection.mcp import main
 from emodeconnection.mcp.server import create_server
+from emodeconnection.types import ArgumentError, EModeError
 
 OPEN = ("emode_open", {})
 
@@ -319,6 +320,144 @@ def test_a_confirmed_optimize_passes_the_public_types() -> None:
     data = result.structured_content["data"]
     assert data["parameters"] == {"shape, core, width": 480.0}
     assert data["status"] == "converged"
+
+
+DOMAINS = "poling, pp, domain_lengths"
+
+
+def _optimize_with(*parameters: dict[str, Any]) -> Any:
+    FakeEMode.returns["optimize"] = _optimization()
+    args = {**OPT, "parameters": list(parameters), "confirm": True}
+    return run("emode_optimize", args)
+
+
+def _text(result: Any) -> str:
+    return " ".join(c.text for c in result.content if hasattr(c, "text"))
+
+
+def _optimize_ran() -> bool:
+    return "optimize" in [c[0] for c in FakeEMode.instances[0].calls]
+
+
+def test_per_entry_bounds_for_a_list_x0_reach_optimize_as_a_vector_parameter() -> None:
+    result = _optimize_with(
+        {"key": DOMAINS, "x0": [3.0, 4.0], "bounds": [[1, 5], [2, 6]]}
+    )
+    assert not result.is_error, _text(result)
+    (sent,) = last_call("optimize")["parameters"]
+    assert sent == Parameter(
+        DOMAINS, x0=[3.0, 4.0], shape=(2,), bounds=[(1, 5), (2, 6)]
+    )
+
+
+def test_one_bounds_pair_bounds_every_entry_of_a_list_x0() -> None:
+    result = _optimize_with({"key": DOMAINS, "x0": [3.0, 4.0], "bounds": [1, 5]})
+    assert not result.is_error, _text(result)
+    (sent,) = last_call("optimize")["parameters"]
+    assert sent == Parameter(DOMAINS, x0=[3.0, 4.0], shape=(2,), bounds=(1, 5))
+
+
+def test_per_entry_bounds_without_x0_give_the_vector_its_size() -> None:
+    result = _optimize_with({"key": DOMAINS, "bounds": [[1, 5], [2, 6], [3, 7]]})
+    assert not result.is_error, _text(result)
+    (sent,) = last_call("optimize")["parameters"]
+    assert sent == Parameter(DOMAINS, shape=(3,), bounds=[(1, 5), (2, 6), (3, 7)])
+
+
+def test_a_bounds_count_that_does_not_match_x0_is_refused_with_a_clear_message() -> (
+    None
+):
+    result = _optimize_with(
+        {"key": DOMAINS, "x0": [3.0, 4.0], "bounds": [[1, 5], [2, 6], [3, 7]]}
+    )
+    assert result.is_error
+    text = _text(result)
+    assert DOMAINS in text
+    assert "3 [min, max] pairs" in text
+    assert "2 entries" in text
+    assert not _optimize_ran()
+
+
+def test_bounds_written_as_a_list_of_mins_and_a_list_of_maxes_get_a_clear_message() -> (
+    None
+):
+    result = _optimize_with(
+        {"key": DOMAINS, "x0": [900, 900], "bounds": [[600], [1000]]}
+    )
+    assert result.is_error
+    text = _text(result)
+    assert "one [min, max] pair per entry" in text
+    assert "[[600, 1000], [600, 1000]]" in text
+
+
+def test_a_list_x0_for_a_key_that_takes_one_value_says_how_to_parameterize_it() -> None:
+    mask = "shape, out_taper_end, core, mask"
+    result = _optimize_with({"key": mask, "x0": [900, 900], "bounds": [600, 1000]})
+    assert result.is_error
+    text = _text(result)
+    assert mask in text
+    assert "domain_lengths" in text  # the keys that do take a list
+    assert "its own shape" in text  # how to vary each arm instead
+    assert not _optimize_ran()
+
+
+def test_a_one_entry_list_x0_is_its_one_value() -> None:
+    mask = "shape, in_taper_end, core, mask"
+    result = _optimize_with({"key": mask, "x0": [1000], "bounds": [[700, 1600]]})
+    assert not result.is_error, _text(result)
+    (sent,) = last_call("optimize")["parameters"]
+    assert sent == Parameter(mask, x0=1000, bounds=(700, 1600))
+
+
+# every tool failure carries its error's text
+
+
+def _raise(err: BaseException) -> Any:
+    def fail(**kwargs: Any) -> Any:
+        raise err
+
+    return fail
+
+
+def test_a_failure_whose_exception_has_no_message_still_says_what_went_wrong() -> None:
+    FakeEMode.returns["optimize"] = _raise(RuntimeError())
+    result = run("emode_optimize", {**OPT, "confirm": True})
+    assert result.is_error
+    text = _text(result)
+    assert text.strip() != "Error executing tool emode_optimize"
+    assert "RuntimeError" in text
+    assert "no message" in text
+
+
+def test_an_unexpected_error_in_any_tool_carries_its_type_and_message() -> None:
+    FakeEMode.returns["sweep"] = _raise(KeyError("values"))
+    result = run("emode_sweep", {"key": "wavelength", "values": [1550]})
+    assert result.is_error
+    text = _text(result)
+    assert "KeyError" in text
+    assert "values" in text
+
+
+def test_an_argument_error_names_its_function_and_argument() -> None:
+    FakeEMode.returns["evaluate"] = _raise(
+        ArgumentError("must be positive", "evaluate", "parameters")
+    )
+    result = run("emode_evaluate", {"parameters": {"shape, core, width": -1}})
+    assert result.is_error
+    text = _text(result)
+    assert "ArgumentError" in text
+    assert "must be positive" in text
+    assert "evaluate" in text
+    assert "parameters" in text
+
+
+def test_an_emode_error_without_a_message_still_names_its_type() -> None:
+    FakeEMode.returns["evaluate"] = _raise(EModeError())
+    result = run("emode_evaluate", {"parameters": {"shape, core, width": 500}})
+    assert result.is_error
+    text = _text(result)
+    assert "EModeError" in text
+    assert "no message" in text
 
 
 # get, plot
@@ -632,3 +771,16 @@ def test_a_parameter_key_can_name_a_labeled_profiles_shape() -> None:
     schema = json.dumps(tools["emode_optimize"].input_schema)
     assert "shape, <profile>, <name>, <property>" in schema
     assert "shape, <profile>, <name>, <property>" in tools["emode_sweep"].description
+
+
+def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
+    (tool,) = [t for t in _tools() if t.name == "emode_optimize"]
+    schema = json.dumps(tool.input_schema)
+    assert "one [min, max] pair per entry" in schema
+    assert "domain_lengths" in tool.description
+    assert "its own shape" in tool.description
+    skill = (
+        Path(__file__).parents[1] / "emodeconnection" / "mcp" / "SKILL.md"
+    ).read_text()
+    assert "one\n  `[min, max]` pair per entry" in skill
+    assert "its own shape" in skill

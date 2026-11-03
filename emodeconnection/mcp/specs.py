@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+Bound = tuple[float | None, float | None]
 
 
 class SettingsSpec(BaseModel):
@@ -96,12 +98,36 @@ class ParameterSpec(BaseModel):
             "profile, such as 'shape, taper_end, core, mask') or 'section, coupler, length'."
         )
     )
-    bounds: tuple[float | None, float | None] | None = Field(
-        None, description="[min, max], either end null for no limit."
+    bounds: Bound | list[Bound] | None = Field(
+        None,
+        description=(
+            "[min, max], either end null for no limit. For a key that takes a list, "
+            "one [min, max] pair per entry, such as [[600, 1000], [600, 1000]], "
+            "or one [min, max] for every entry."
+        ),
     )
     x0: float | list[float] | None = Field(
-        None, description="Starting value, by default the current one."
+        None,
+        description=(
+            "Starting value, by default the current one. A list only for a key that "
+            "takes a list of values, 'poling, <section>, domain_lengths'."
+        ),
     )
+
+    @field_validator("bounds", mode="before")
+    @classmethod
+    def _bounds_are_pairs(cls, value: Any) -> Any:
+        if (
+            isinstance(value, list)
+            and value
+            and all(isinstance(v, list) for v in value)
+            and any(len(v) != 2 for v in value)
+        ):
+            raise ValueError(
+                f"bounds is [min, max], or one [min, max] pair per entry of x0, "
+                f"such as [[600, 1000], [600, 1000]], not {value}"
+            )
+        return value
 
 
 class ObjectiveSpec(BaseModel):

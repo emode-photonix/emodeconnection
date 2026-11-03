@@ -20,6 +20,7 @@ import functools
 import inspect
 import logging
 import tempfile
+import traceback
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -30,6 +31,7 @@ import numpy as np
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.utilities.types import Image
+from mcp.shared.exceptions import MCPError
 from pydantic import BaseModel, Field
 
 from ..emodeconnection import EMode
@@ -245,12 +247,82 @@ class _Session:
         return True
 
 
+def _describe(err: BaseException) -> str:
+    """The text an agent sees for a failed tool call: the error's type, context and message.
+
+    An ``EModeError`` also names the fields it carries, such as the function and
+    argument of an ``ArgumentError``. An error with an empty message says where
+    it was raised, so the text is never blank.
+    """
+    name = type(err).__name__
+    if isinstance(err, EModeError):
+        message = str(err.msg or "")
+        fields = {
+            k: v
+            for k, v in err.to_dict().items()
+            if k not in ("__data_type__", "msg") and v is not None
+        }
+        if fields:
+            name += " (" + ", ".join(f"{k} {v!r}" for k, v in fields.items()) + ")"
+    else:
+        message = str(err)
+    if message.strip():
+        return f"{name}: {message}"
+    frames = traceback.extract_tb(err.__traceback__)
+    where = (
+        f", raised in {frames[-1].name} ({Path(frames[-1].filename).name}:{frames[-1].lineno})"
+        if frames
+        else ""
+    )
+    return f"{name} with no message{where}"
+
+
 async def _blocking(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """Run a blocking client call off the event loop, turning solver errors into tool errors."""
     try:
         return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
     except EModeError as err:
-        raise ToolError(str(err.msg or err)) from err
+        raise ToolError(_describe(err)) from err
+
+
+def _takes_a_list(key: str) -> bool:
+    """Whether ``optimize`` varies the key as a list: 'poling, <section>, domain_lengths'."""
+    parts = [p.strip() for p in key.split(",")]
+    return len(parts) == 3 and parts[0] == "poling" and parts[2] == "domain_lengths"
+
+
+def _parameter(spec: ParameterSpec) -> Parameter:
+    """The ``Parameter`` a spec names, a vector one when its x0 or bounds is a list.
+
+    A list x0 sets the vector's size, or per-entry bounds do when x0 is omitted.
+    A one-entry list for a key that takes one value is that value.
+    """
+    key, x0, bounds = spec.key, spec.x0, spec.bounds
+    if not _takes_a_list(key):
+        if isinstance(x0, list) and len(x0) == 1:
+            x0 = x0[0]
+        if isinstance(bounds, list) and len(bounds) == 1:
+            bounds = bounds[0]
+    if isinstance(x0, list):
+        size = len(x0)
+    elif isinstance(bounds, list):
+        size = len(bounds)
+    else:
+        return Parameter(key, **_drop_none(x0=x0, bounds=bounds))
+    if not _takes_a_list(key):
+        raise ToolError(
+            f"'{key}' takes one value, so its x0 and bounds cannot be lists. "
+            "optimize varies a list only for 'poling, <section>, domain_lengths'. "
+            "To vary each entry of a mask on its own, such as the two output arms of "
+            "an MMI, draw each arm as its own shape and vary its scalar keys, such as "
+            "'shape, <profile>, <arm>, width' and 'shape, <profile>, <arm>, position'."
+        )
+    if isinstance(bounds, list) and len(bounds) != size:
+        raise ToolError(
+            f"'{key}' has {len(bounds)} [min, max] pairs in bounds for the {size} entries "
+            "of x0. Give one pair per entry, or one [min, max] for every entry."
+        )
+    return Parameter(key, **_drop_none(x0=x0, bounds=bounds), shape=(size,))
 
 
 def _drop_none(**kwargs: Any) -> dict[str, Any]:
@@ -293,7 +365,20 @@ def create_server(
     def tool(name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def register(fn: Callable[..., Any]) -> Callable[..., Any]:
             description = inspect.cleandoc(fn.__doc__ or "")
-            return server.tool(name=name, description=description)(fn)
+
+            # MCP shows the agent only "Error executing tool <name>" for an
+            # exception other than ToolError, so every failure becomes one
+            # carrying the error's text.
+            @functools.wraps(fn)
+            async def run(*args: Any, **kwargs: Any) -> Any:
+                try:
+                    return await fn(*args, **kwargs)
+                except (ToolError, ResourceError, MCPError):
+                    raise
+                except Exception as err:
+                    raise ToolError(_describe(err)) from err
+
+            return server.tool(name=name, description=description)(run)
 
         return register
 
@@ -696,6 +781,13 @@ def create_server(
         An optimization makes many solves and always asks for confirmation
         first: repeat the call with confirm=true to run it. Several objectives
         form a weighted sum. The session is left solved at the best point.
+
+        Each parameter takes one value, except 'poling, <section>,
+        domain_lengths', which takes a list x0 with one [min, max] pair per
+        entry in bounds (or one [min, max] for every entry). A mask with several
+        openings cannot be varied entry by entry: to vary the two output arms
+        of an MMI, draw each arm as its own shape and vary its width and
+        position keys.
         """
         em = session.require()
         budget = max_evaluations if max_evaluations is not None else 100
@@ -710,10 +802,7 @@ def create_server(
             return Objective(fields.pop("kind"), **fields)
 
         kwargs: dict[str, Any] = {
-            "parameters": [
-                Parameter(p.key, **p.model_dump(exclude_none=True, exclude={"key"}))
-                for p in parameters
-            ],
+            "parameters": [_parameter(p) for p in parameters],
             "objective": [objective_of(o) for o in objective],
         }
         if constraints:

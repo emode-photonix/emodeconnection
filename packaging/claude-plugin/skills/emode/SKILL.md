@@ -66,6 +66,14 @@ for a search and back to the converged one for the check. `emode_get` with
 - A length sweep of a section needs no new mode solves after the first point.
 - Use `emode_evaluate` for one design point and `emode_optimize` for many.
   Give an optimizer bounds on every parameter.
+- Each optimizer parameter takes one value. The exception is
+  `'poling, <section>, domain_lengths'`, which takes a list `x0` and one
+  `[min, max]` pair per entry in `bounds`, such as `[[600, 1000], [600, 1000]]`
+  (or one `[min, max]` for every entry).
+- A mask with several openings cannot be optimized entry by entry. To vary the
+  two output arms of an MMI, draw each arm as its own shape (a core with a
+  `width` and a `position`) and vary each arm's keys, such as
+  `'shape, out_taper_end, arm_top, width'`.
 
 ## Checking a result
 
