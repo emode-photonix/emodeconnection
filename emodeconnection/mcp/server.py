@@ -611,7 +611,7 @@ def create_server(
         per solve, a message saying why it stopped if it did not converge, and
         the report as a text table). Run this before trusting a solve.
         apply=true writes the chosen settings to the session. max_time (s) and
-        max_memory (GB, default half the machine's memory) are budgets: a step
+        max_memory (GB, default three quarters of the machine's memory) are budgets: a step
         predicted to pass either is not started, and the run stops with status
         'budget' at the finest settings it solved.
         """
