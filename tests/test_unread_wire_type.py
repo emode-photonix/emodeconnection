@@ -81,7 +81,9 @@ def test_a_plain_dict_without_a_tag_stays_a_plain_dict() -> None:
 
 
 def test_unknown_types_nested_in_lists_and_dicts() -> None:
-    got = reconstruct({"results": [dict(_FUTURE), {"deep": dict(_FUTURE)}], "one": dict(_FUTURE)})
+    got = reconstruct(
+        {"results": [dict(_FUTURE), {"deep": dict(_FUTURE)}], "one": dict(_FUTURE)}
+    )
     assert type(got) is dict
     assert type(got["results"][0]) is UnreadWireType
     assert type(got["results"][1]) is dict
@@ -98,9 +100,7 @@ def test_an_unknown_type_inside_an_unknown_type() -> None:
         got.anything
 
 
-def test_a_type_this_client_knows_but_cannot_read_is_also_helpful(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_type_this_client_knows_but_cannot_read_is_also_helpful() -> None:
     # A newer EMode may send a value this client's class refuses.
     got = reconstruct({"__data_type__": "PulsedProcess", "raman_mode": "future"})
     assert type(got) is UnreadWireType
@@ -115,7 +115,10 @@ def test_the_warning_is_logged_once_per_type(caplog: pytest.LogCaptureFixture) -
         reconstruct({"__data_type__": "OnceOnlyType", "value": 1})
     reconstruct({"__data_type__": "AnotherOnceOnlyType", "value": 1})
     messages = [r.getMessage() for r in caplog.records]
-    assert sum("OnceOnlyType" in m and "AnotherOnceOnlyType" not in m for m in messages) == 1
+    assert (
+        sum("OnceOnlyType" in m and "AnotherOnceOnlyType" not in m for m in messages)
+        == 1
+    )
     assert sum("AnotherOnceOnlyType" in m for m in messages) == 1
     assert all("pip install -U emodeconnection" in m for m in messages)
 
@@ -127,5 +130,7 @@ def test_a_type_missing_from_this_client_reads_as_an_unread_type(
     payload = json.loads(json.dumps(LayoutReport().model_dump()))
     monkeypatch.delitem(_TYPE_REGISTRY, "LayoutReport")
     report = reconstruct(payload)
-    with pytest.raises(AttributeError, match="LayoutReport.*pip install -U emodeconnection"):
+    with pytest.raises(
+        AttributeError, match="LayoutReport.*pip install -U emodeconnection"
+    ):
         report.max_closure()

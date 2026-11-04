@@ -85,11 +85,11 @@ def test_the_wire_form_puts_the_shapes_at_the_top_level() -> None:
 def test_a_client_that_does_not_know_the_type_reads_it_as_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An emodeconnection from before ``Confinement`` leaves the tag as a plain dict."""
+    """An emodeconnection from before ``Confinement`` reads the tag as a dict (`UnreadWireType`)."""
     payload = json.dumps(Confinement(factors=_FACTORS).model_dump())
     monkeypatch.delitem(_TYPE_REGISTRY, "Confinement")
     got = reconstruct(json.loads(payload))
-    assert type(got) is dict
+    assert isinstance(got, dict)
     assert got["core"]["0"] == pytest.approx(0.81)
     assert got["clad"]["1"] == pytest.approx(0.58)
 

@@ -59,7 +59,9 @@ def test_the_greeting_carries_the_version_and_keeps_the_environment_last(
     assert greeting.split(" ")[-1] == environment
 
 
-def test_inside_ipython_the_environment_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_inside_ipython_the_environment_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(builtins, "get_ipython", lambda: object(), raising=False)
     greeting = _greeting(monkeypatch, {"JPY_PARENT_PID": "1"})
     assert greeting.split(" ")[-1] == "iPython-Jupyter"
@@ -70,4 +72,3 @@ def test_the_version_token_has_no_spaces(monkeypatch: pytest.MonkeyPatch) -> Non
     first, *_ = _greeting(monkeypatch, {}).split(" ")
     assert first == f"emodeconnection/{client_version()}"
     assert len(_greeting(monkeypatch, {}).split(" ")) == 4
-

@@ -10,7 +10,7 @@ import platform
 from typing import Any, Optional, Union
 from logging import getLogger
 from .file_utils import Cache
-from .types import EModeError, reconstruct, serialize
+from .types import EModeError, client_version, reconstruct, serialize
 
 logger = getLogger(__name__)
 
@@ -152,7 +152,13 @@ class EModeClient:
             self.sock.setblocking(True)  # restore blocking mode (settimeout(None) equiv.)
         return self._connected
 
-    def get_connection_string(self):
+    def get_connection_string(self) -> str:
+        """The greeting sent on connect: ``emodeconnection/<version> connected with <environment>``.
+
+        An EMode takes the last space-separated token as the client's
+        environment (``Python-cmd``, ``iPython-Jupyter``, ...), so that token
+        stays the last one. The version comes first.
+        """
         try:
             _ = get_ipython()  # type: ignore
             conn_msg = "connected with iPython"
@@ -174,7 +180,7 @@ class EModeClient:
         else:
             ide = "-cmd"
 
-        return conn_msg + ide
+        return f"emodeconnection/{client_version()} {conn_msg}{ide}"
 
     def recv(self) -> Any:
         """Read one reply from the solver.
