@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 import base64
+import importlib.metadata
 import math
 import numpy as np
 from pydantic.fields import FieldInfo
@@ -627,14 +628,65 @@ def object_from_dict(data: dict[str, Any]) -> Any:
 
     return ExcClass(**data)
 
+def client_version() -> str:
+    """The version of this emodeconnection, or ``'unknown'`` without package metadata."""
+    try:
+        return importlib.metadata.version("emodeconnection")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+class UnreadWireType(dict):
+    """A result of a type this emodeconnection cannot read, kept as its plain dict.
+
+    An emodeconnection older than its EMode receives result types it has no
+    class for. EMode also tags some replies with types of its own that no
+    emodeconnection has a class for, so an unknown tag is not logged. Such a
+    result is still a full dict (it compares equal to the plain dict, and
+    pickles and serializes as one), so code that reads it as a dict keeps
+    working. Reading a missing attribute from it raises an `AttributeError`
+    that names the type and says how to update, in place of
+    ``'dict' object has no attribute ...``.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        raise AttributeError(
+            f"{name!r} is not available: this result is a {self.get('__data_type__')}, which "
+            f"this emodeconnection ({client_version()}) has no class for, so it arrived as a "
+            "plain dict. If EMode is newer than emodeconnection, update it with "
+            "'pip install -U emodeconnection'."
+        )
+
+
+# The types already warned about, so a reply of many objects warns once per type.
+_WARNED_TYPES: set[str] = set()
+
+
+def _refused(name: str, data: dict[str, Any], reason: str) -> UnreadWireType:
+    """`data`, which the class for `name` refused, with one warning per type for the session."""
+    if name not in _WARNED_TYPES:
+        _WARNED_TYPES.add(name)
+        logger.warning(
+            f"this emodeconnection ({client_version()}) cannot read the {name} it received "
+            f"({reason}), so it is returned as a plain dict. "
+            "Run 'pip install -U emodeconnection' to update it."
+        )
+    return UnreadWireType(data)
+
+
 def reconstruct(data: Any) -> Any:
     """
     Recursively rebuild registered wire types anywhere in a decoded payload.
 
     Any dict carrying a known "__data_type__" tag becomes an instance of the
     registered class, ignoring fields this version does not know (`from_wire`).
-    Dicts with an unknown tag, or with values the class refuses, are left as
-    plain dicts.
+    Dicts with an unknown tag, or with values the class refuses, become an
+    `UnreadWireType`: still a dict, but one whose missing attributes say how
+    to update.
     Containers are walked bottom-up so nested tagged objects are rebuilt
     before their parent.
     """
@@ -650,13 +702,13 @@ def reconstruct(data: Any) -> Any:
                 return from_wire(cls, fields)
             except (ValidationError, EModeError, TypeError, ValueError) as e:
                 # A newer sender may hold a value this version's class refuses
-                # (a new choice of a Literal, say). The plain dict keeps the
-                # rest of the reply readable.
-                logger.warning(
-                    f"this emodeconnection cannot read the {name} it received, so it is "
-                    f"returned as a plain dict. Upgrading emodeconnection may help. ({e})"
-                )
-                return data
+                # (a new choice of a Literal, say). The dict keeps the rest of
+                # the reply readable.
+                return _refused(name, data, str(e))
+        if isinstance(name, str):
+            # No warning: EMode's own types arrive here too, and updating
+            # would not change them. The guidance waits for an attribute read.
+            return UnreadWireType(data)
         return data
     if isinstance(data, list):
         return [reconstruct(item) for item in data]

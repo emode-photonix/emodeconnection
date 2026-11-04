@@ -150,8 +150,10 @@ message. Four rules keep that from happening:
   of the first EMode release that reads it.
 - **Read tolerantly.** `reconstruct` builds a wire type through `types.from_wire`, which
   drops fields this version does not know, and returns a type it does not know (or a
-  value its class refuses) as a plain dict. An unknown error type is raised as an
-  `EModeError` with the solver's message. A typo in a user's own constructor still
+  value its class refuses) as an `UnreadWireType`. That is still a dict, but reading a
+  missing attribute from it names the type and says to run
+  `pip install -U emodeconnection`. An unknown error type is raised as an `EModeError`
+  with the solver's message. A typo in a user's own constructor still
   raises, since only the wire path drops fields.
 - **Never change a field's meaning in place.** A new behavior is a new field or a new
   value, with an entry in `compat.py`.

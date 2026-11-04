@@ -23,6 +23,9 @@ import pytest
 
 import emodeconnection.installer as installer
 
+# The PyPI lookup, before the `downloads` fixture stubs it out.
+_LATEST_EMODECONNECTION = installer.latest_emodeconnection
+
 BINARY = b'#!/bin/sh\necho emode\n'
 VERSION = '1.0.7'
 
@@ -73,6 +76,8 @@ def downloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(installer, 'handle_eula', lambda: True)
     monkeypatch.setattr(installer, 'prompt_credentials', lambda: ('a@b.c', 'pw'))
     monkeypatch.setattr(installer, 'login', lambda email, password: 'token')
+    # No PyPI lookup unless a test asks for one.
+    monkeypatch.setattr(installer, 'latest_emodeconnection', lambda: None)
 
     def download_release(
         token: str, platform_key: str, version: str, filename: str, dest_dir: Path
@@ -536,3 +541,113 @@ def test_uninstall_finds_a_user_install(
     _tty(monkeypatch, False)
     installer.uninstall()
     assert not exe.exists()
+
+
+# ---------------------------------------------------------------
+# The hint to update emodeconnection
+# ---------------------------------------------------------------
+
+_HINT = 'pip install -U emodeconnection'
+
+
+def _client_at(monkeypatch: pytest.MonkeyPatch, installed: str, latest: str | None) -> None:
+    monkeypatch.setattr(installer, 'client_version', lambda: installed)
+    monkeypatch.setattr(installer, 'latest_emodeconnection', lambda: latest)
+
+
+def test_a_newer_emodeconnection_is_pointed_out(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.20', '1.1.25')
+    installer.install()
+    out = capsys.readouterr().out
+    assert 'installed successfully' in out
+    assert _HINT in out
+    assert '1.1.25' in out and '1.1.20' in out
+    # It comes after the install is reported, as the last thing printed.
+    assert out.index(_HINT) > out.index('installed successfully')
+
+
+def test_the_same_emodeconnection_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.25', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+def test_a_development_emodeconnection_newer_than_pypi_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.26', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+def test_an_unknown_installed_version_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, 'unknown', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    'error',
+    [
+        installer.http_requests.exceptions.Timeout('slow'),
+        installer.http_requests.exceptions.ConnectionError('offline'),
+        installer.http_requests.exceptions.HTTPError('503'),
+        ValueError('not json'),
+    ],
+)
+def test_a_failed_lookup_says_nothing_and_the_install_succeeds(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception,
+) -> None:
+    def get(url: str, timeout: float, **kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(installer, 'latest_emodeconnection', _LATEST_EMODECONNECTION)
+    monkeypatch.setattr(installer, 'client_version', lambda: '1.1.20')
+    monkeypatch.setattr(installer.http_requests, 'get', get)
+    installer.install()
+    out = capsys.readouterr().out
+    assert 'installed successfully' in out
+    assert _HINT not in out
+    assert (linux['system'] / 'emode').exists()
+
+
+class _Reply:
+    def __init__(self, body: Any) -> None:
+        self.body = body
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> Any:
+        return self.body
+
+
+def test_the_lookup_reads_pypi_with_a_short_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[tuple[str, float]] = []
+
+    def get(url: str, timeout: float, **kwargs: Any) -> _Reply:
+        asked.append((url, timeout))
+        return _Reply({'info': {'version': '1.1.25'}})
+
+    monkeypatch.setattr(installer.http_requests, 'get', get)
+    assert _LATEST_EMODECONNECTION() == '1.1.25'
+    [(url, timeout)] = asked
+    assert url == 'https://pypi.org/pypi/emodeconnection/json'
+    assert timeout <= 5
+
+
+@pytest.mark.parametrize('body', [{}, {'info': {}}, [], {'info': {'version': 3}}])
+def test_a_malformed_pypi_reply_is_no_version(monkeypatch: pytest.MonkeyPatch, body: Any) -> None:
+    monkeypatch.setattr(installer.http_requests, 'get', lambda url, timeout, **kw: _Reply(body))
+    assert _LATEST_EMODECONNECTION() is None

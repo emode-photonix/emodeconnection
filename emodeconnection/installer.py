@@ -39,8 +39,12 @@ from pathlib import Path
 from typing import Optional
 import requests as http_requests
 
+from .compat import parse_version
+from .types import client_version
+
 
 API_BASE     = 'https://emodephotonix.com/wp-json/custom/v1'
+PYPI_URL     = 'https://pypi.org/pypi/emodeconnection/json'
 EULA_URL     = 'https://emodephotonix.com/legal/eula.pdf'
 
 # Default install locations per platform
@@ -825,6 +829,33 @@ def install(
     if os_name != 'Windows':
         print(f"Location: {exe_path}")
     print('Get started by logging in:\n\tpython -c "import emodeconnection as emc; emc.EModeLogin()"')
+    suggest_client_update()
+
+
+def latest_emodeconnection(timeout: float = 3.0) -> Optional[str]:
+    """The newest emodeconnection on PyPI, or None when PyPI cannot say in `timeout` seconds."""
+    try:
+        resp = http_requests.get(PYPI_URL, timeout=timeout)
+        resp.raise_for_status()
+        version = resp.json()['info']['version']
+    except (http_requests.exceptions.RequestException, ValueError, KeyError, TypeError):
+        return None
+    return version if isinstance(version, str) else None
+
+
+def suggest_client_update() -> None:
+    """Print how to update emodeconnection when PyPI has a newer one.
+
+    emode-install updates EMode but not the emodeconnection it runs from, and
+    an emodeconnection older than its EMode cannot read the newer result
+    types. The lookup is best effort: any failure prints nothing.
+    """
+    installed = parse_version(client_version())
+    latest = latest_emodeconnection()
+    if not installed or latest is None or parse_version(latest) <= installed:
+        return
+    print(f"\nA newer emodeconnection is available ({client_version()} is installed, "
+          f"{latest} is the latest). Update it with:\n\tpip install -U emodeconnection")
 
 
 def install_linux(zip_path: Path, install_dir: Path, explicit_dir: bool) -> Path:
