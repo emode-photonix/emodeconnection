@@ -640,10 +640,12 @@ class UnreadWireType(dict):
     """A result of a type this emodeconnection cannot read, kept as its plain dict.
 
     An emodeconnection older than its EMode receives result types it has no
-    class for. Such a result is still a full dict (it compares equal to the
-    plain dict, and pickles and serializes as one), so code that reads it as a
-    dict keeps working. Reading a missing attribute from it raises an
-    `AttributeError` that names the type and says how to update, in place of
+    class for. EMode also tags some replies with types of its own that no
+    emodeconnection has a class for, so an unknown tag is not logged. Such a
+    result is still a full dict (it compares equal to the plain dict, and
+    pickles and serializes as one), so code that reads it as a dict keeps
+    working. Reading a missing attribute from it raises an `AttributeError`
+    that names the type and says how to update, in place of
     ``'dict' object has no attribute ...``.
     """
 
@@ -654,8 +656,9 @@ class UnreadWireType(dict):
             raise AttributeError(name)
         raise AttributeError(
             f"{name!r} is not available: this result is a {self.get('__data_type__')}, which "
-            f"emodeconnection {client_version()} cannot read, so it arrived as a plain dict. "
-            "Run 'pip install -U emodeconnection' to update it."
+            f"this emodeconnection ({client_version()}) has no class for, so it arrived as a "
+            "plain dict. If EMode is newer than emodeconnection, update it with "
+            "'pip install -U emodeconnection'."
         )
 
 
@@ -663,8 +666,8 @@ class UnreadWireType(dict):
 _WARNED_TYPES: set[str] = set()
 
 
-def _unread(name: str, data: dict[str, Any], reason: str) -> UnreadWireType:
-    """`data` as an `UnreadWireType`, with one warning per type for the session."""
+def _refused(name: str, data: dict[str, Any], reason: str) -> UnreadWireType:
+    """`data`, which the class for `name` refused, with one warning per type for the session."""
     if name not in _WARNED_TYPES:
         _WARNED_TYPES.add(name)
         logger.warning(
@@ -701,9 +704,11 @@ def reconstruct(data: Any) -> Any:
                 # A newer sender may hold a value this version's class refuses
                 # (a new choice of a Literal, say). The dict keeps the rest of
                 # the reply readable.
-                return _unread(name, data, str(e))
+                return _refused(name, data, str(e))
         if isinstance(name, str):
-            return _unread(name, data, "a type it does not know")
+            # No warning: EMode's own types arrive here too, and updating
+            # would not change them. The guidance waits for an attribute read.
+            return UnreadWireType(data)
         return data
     if isinstance(data, list):
         return [reconstruct(item) for item in data]

@@ -15,6 +15,7 @@ import pickle
 
 import pytest
 
+from emodeconnection import types
 from emodeconnection.geometry import LayoutReport
 from emodeconnection.types import _TYPE_REGISTRY, UnreadWireType, reconstruct
 
@@ -109,17 +110,42 @@ def test_a_type_this_client_knows_but_cannot_read_is_also_helpful() -> None:
         got.max_rank
 
 
-def test_the_warning_is_logged_once_per_type(caplog: pytest.LogCaptureFixture) -> None:
+def test_an_unknown_type_logs_no_warning(caplog: pytest.LogCaptureFixture) -> None:
+    # EMode also tags some replies with its own types that no emodeconnection
+    # has a class for, so an unknown tag alone is no reason to suggest an update.
+    caplog.set_level(logging.DEBUG, logger="emodeconnection.types")
+    got = reconstruct(
+        {"__data_type__": "Shape", "name": "core", "inner": dict(_FUTURE)}
+    )
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    with pytest.raises(AttributeError) as info:
+        got.max_closure()
+    message = str(info.value)
+    assert "Shape" in message
+    assert "pip install -U emodeconnection" in message
+
+
+def test_the_message_does_not_promise_an_update_fixes_it() -> None:
+    got = reconstruct(dict(_FUTURE))
+    with pytest.raises(AttributeError) as info:
+        got.max_closure
+    message = str(info.value)
+    assert "has no class for" in message
+    assert "If EMode is newer than emodeconnection" in message
+
+
+def test_a_refused_value_is_warned_about_once_per_type(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(types, "_WARNED_TYPES", set())
     caplog.set_level(logging.WARNING, logger="emodeconnection.types")
     for _ in range(3):
-        reconstruct({"__data_type__": "OnceOnlyType", "value": 1})
-    reconstruct({"__data_type__": "AnotherOnceOnlyType", "value": 1})
+        reconstruct({"__data_type__": "PulsedProcess", "raman_mode": "future"})
+    reconstruct({"__data_type__": "LayoutReport", "closures": "not a list"})
     messages = [r.getMessage() for r in caplog.records]
-    assert (
-        sum("OnceOnlyType" in m and "AnotherOnceOnlyType" not in m for m in messages)
-        == 1
-    )
-    assert sum("AnotherOnceOnlyType" in m for m in messages) == 1
+    assert sum("PulsedProcess" in m for m in messages) == 1
+    assert sum("LayoutReport" in m for m in messages) == 1
+    assert len(messages) == 2
     assert all("pip install -U emodeconnection" in m for m in messages)
 
 
