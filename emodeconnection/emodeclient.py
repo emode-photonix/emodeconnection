@@ -10,7 +10,7 @@ import platform
 from typing import Any, Optional, Union
 from logging import getLogger
 from .file_utils import Cache
-from .types import EModeError, reconstruct, serialize
+from .types import EModeError, client_version, reconstruct, serialize
 
 logger = getLogger(__name__)
 
@@ -117,6 +117,8 @@ class EModeClient:
     def __init__(self, cache: Cache, host: str = "127.0.0.1"):
         self.cache = cache
         self.host = host
+        # Whether arrays go as `__ndarray__` (an EMode of 1.0.8 or newer reads it).
+        self.ndarray_wire = False
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.settimeout(60)
 
@@ -150,7 +152,13 @@ class EModeClient:
             self.sock.setblocking(True)  # restore blocking mode (settimeout(None) equiv.)
         return self._connected
 
-    def get_connection_string(self):
+    def get_connection_string(self) -> str:
+        """The greeting sent on connect: ``emodeconnection/<version> connected with <environment>``.
+
+        An EMode takes the last space-separated token as the client's
+        environment (``Python-cmd``, ``iPython-Jupyter``, ...), so that token
+        stays the last one. The version comes first.
+        """
         try:
             _ = get_ipython()  # type: ignore
             conn_msg = "connected with iPython"
@@ -172,7 +180,7 @@ class EModeClient:
         else:
             ide = "-cmd"
 
-        return conn_msg + ide
+        return f"emodeconnection/{client_version()} {conn_msg}{ide}"
 
     def recv(self) -> Any:
         """Read one reply from the solver.
@@ -206,7 +214,7 @@ class EModeClient:
 
     def send(self, data):
         logger.debug(f"sending {data=}")
-        data = serialize(data)
+        data = serialize(data, ndarray=self.ndarray_wire)
         logger.debug(f"serialized {data=}")
         sendjson = json.dumps(data)
         self._send_raw(sendjson)

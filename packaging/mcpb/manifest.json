@@ -1,0 +1,30 @@
+{
+  "manifest_version": "0.2",
+  "name": "emode",
+  "display_name": "EMode",
+  "version": "0.0.0",
+  "description": "EMode photonic waveguide mode solver and EME simulator. Build cross-sections, solve modes, simulate devices, sweep and optimize.",
+  "long_description": "Runs on your computer through your installed EMode and license. Nothing leaves your machine. EMode must be installed (see https://github.com/emode-photonix/emodeconnection) and you must be logged in.",
+  "author": {
+    "name": "EMode, Inc.",
+    "email": "hello@emodephotonix.com"
+  },
+  "homepage": "https://github.com/emode-photonix/emodeconnection",
+  "license": "BSD-3-Clause",
+  "server": {
+    "type": "python",
+    "entry_point": "server/main.py",
+    "mcp_config": {
+      "command": "python",
+      "args": ["${__dirname}/server/main.py"],
+      "env": {
+        "PYTHONPATH": "${__dirname}/server/lib"
+      }
+    }
+  },
+  "keywords": ["photonics", "waveguide", "simulation", "eigenmode expansion"],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {"python": ">=3.10"}
+  }
+}

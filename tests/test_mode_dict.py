@@ -72,11 +72,11 @@ def test_inside_a_shape_s_metadata_it_is_rebuilt() -> None:
 def test_a_client_that_does_not_know_the_type_reads_it_as_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An emodeconnection from before ``ModeDict`` leaves the tag as a plain dict."""
+    """An emodeconnection from before ``ModeDict`` reads the tag as a dict (`UnreadWireType`)."""
     payload = json.dumps(ModeDict(data=_FACTORS).model_dump())
     monkeypatch.delitem(_TYPE_REGISTRY, "ModeDict")
     got = reconstruct(json.loads(payload))
-    assert type(got) is dict
+    assert isinstance(got, dict)
     assert got["0"] == pytest.approx(0.81)
 
 

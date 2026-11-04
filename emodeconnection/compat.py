@@ -19,6 +19,7 @@ first EMode release that reads it.
 from collections.abc import Iterator
 from typing import Any
 
+import numpy as np
 from pydantic import BaseModel
 
 from .types import ArgumentError, non_default_fields
@@ -34,6 +35,7 @@ TYPE_SINCE: dict[str, str] = {
     "ConvergenceStage": "1.0.7",
     "ConvergenceStep": "1.0.7",
     "Evaluation": "1.0.7",
+    "FarField": "1.0.8",
     "ModeDict": "1.0.7",
     "Objective": "1.0.7",
     "OptimizationResult": "1.0.7",
@@ -42,20 +44,64 @@ TYPE_SINCE: dict[str, str] = {
     "PulseFit": "1.0.7",
     "PulseMeasurement": "1.0.7",
     "RankReport": "1.0.7",
+    "Screen": "1.0.8",
+    "ScreenField": "1.0.8",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.
 FIELD_SINCE: dict[tuple[str, str], str] = {
+    ("MaterialProperties", "beta_3"): "1.0.8",
+    ("MaterialProperties", "beta_4"): "1.0.8",
+    ("MaterialSpec", "reference"): "1.0.8",
     ("Poling", "domain_lengths"): "1.0.7",
+    ("PulseResponse", "absorbed_energy"): "1.0.8",
     ("PulseResponse", "measured_fit"): "1.0.7",
     ("PulseResponse", "rank_report"): "1.0.7",
     ("PulseResponse", "window_gap"): "1.0.7",
+    ("PulsedProcess", "carrier_lifetime"): "1.0.8",
+    ("PulsedProcess", "free_carriers"): "1.0.8",
     ("PulsedProcess", "harmonic_coupling"): "1.0.7",
     ("PulsedProcess", "max_harmonic_modes"): "1.0.7",
     ("PulsedProcess", "modal_search"): "1.0.7",
+    ("PulsedProcess", "multi_photon"): "1.0.8",
     ("PulsedSource", "measurement"): "1.0.7",
     ("SMatrix", "mode_power"): "1.0.7",
 }
+
+
+# The first EMode release that reads an array argument sent as `__ndarray__`.
+NDARRAY_REQUEST_SINCE = "1.0.8"
+
+
+def reads_ndarray(emode_version: str | None) -> bool:
+    """Whether an EMode of `emode_version` (None: older than 1.0.7) reads `__ndarray__`."""
+    return emode_version is not None and parse_version(emode_version) >= parse_version(
+        NDARRAY_REQUEST_SINCE
+    )
+
+
+def array_arguments(arguments: dict[str, Any]) -> dict[str, bool]:
+    """The arguments that hold a NumPy array, each True when one of them is complex."""
+    found = {}
+    for argument, value in arguments.items():
+        arrays = list(_arrays(value))
+        if arrays:
+            found[argument] = any(a.dtype.kind == "c" for a in arrays)
+    return found
+
+
+def _arrays(value: Any) -> Iterator[np.ndarray]:
+    if isinstance(value, np.ndarray):
+        yield value
+    elif isinstance(value, BaseModel):
+        for _, field_value in non_default_fields(value):
+            yield from _arrays(field_value)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _arrays(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _arrays(item)
 
 
 def parse_version(version: str) -> tuple[int, ...]:

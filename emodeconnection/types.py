@@ -21,6 +21,8 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+import base64
+import importlib.metadata
 import math
 import numpy as np
 from pydantic.fields import FieldInfo
@@ -28,13 +30,29 @@ from pydantic.fields import FieldInfo
 logger = getLogger(__name__)
 
 
-def serialize(data: Any):
+def encode_ndarray(array: np.ndarray) -> dict[str, Any]:
+    """`array` as the `__ndarray__` encoding: base64 data with its dtype and shape."""
+    contiguous = np.ascontiguousarray(array)
+    return {
+        "__ndarray__": base64.b64encode(contiguous.data).decode(),
+        "dtype": str(contiguous.dtype),
+        "shape": list(contiguous.shape),
+    }
+
+
+def serialize(data: Any, ndarray: bool = False):
+    """`data` ready for `json.dumps`.
+
+    With `ndarray` an array goes as its `__ndarray__` encoding, which keeps its
+    dtype and shape, a complex array and a size-1 axis included. Without it an array
+    goes as the list of its squeezed values, which an EMode older than 1.0.8 reads.
+    """
     if isinstance(data, dict):
         for key, value in data.items():
-            data[key] = serialize(value)
+            data[key] = serialize(value, ndarray)
         return data
     elif isinstance(data, list):
-        return [serialize(item) for item in data]
+        return [serialize(item, ndarray) for item in data]
     elif isinstance(data, np.floating):
         return float(data)
     elif isinstance(data, np.integer):
@@ -42,9 +60,11 @@ def serialize(data: Any):
     elif isinstance(data, np.bool_):
         return bool(data)
     elif isinstance(data, np.ndarray):
+        if ndarray and data.dtype.kind in "biufc":
+            return encode_ndarray(data)
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
-        return serialize(wire_dump(data))
+        return serialize(wire_dump(data), ndarray)
     if type(data).__module__ == np.__name__:
         # final catchall
         data = np.squeeze(data).tolist()
@@ -280,8 +300,10 @@ class MaterialProperties(TaggedModel):
       list of `(weight, position, half_width)` damped oscillators, position and
       half width in cm^-1. The weights are normalized to sum to one.
     - `tpa`: the two-photon absorption coefficient in m/W.
-    - `bandgap`: the bandgap in eV. Two-photon absorption is zero for light
-      whose two photons carry less than the bandgap.
+    - `beta_3`: the three-photon absorption coefficient in m^3/W^2.
+    - `beta_4`: the four-photon absorption coefficient in m^5/W^3.
+    - `bandgap`: the bandgap in eV. N-photon absorption is zero for light
+      whose N photons carry less than the bandgap.
     """
 
     n: Optional[TensorType] = None
@@ -291,6 +313,8 @@ class MaterialProperties(TaggedModel):
     n2: Optional[float] = None
     raman: Optional[tuple[float, list[tuple[float, float, float]]]] = None
     tpa: Optional[float] = None
+    beta_3: Optional[float] = None
+    beta_4: Optional[float] = None
     bandgap: Optional[float] = None
 
     # this is necessary to support np.ndarrays here...
@@ -316,6 +340,9 @@ class MaterialSpec(TaggedModel):
     psi: Optional[float] = None
     x: Optional[float] = None
     loss: Optional[float] = None  # dB/m
+    # Which of the material's index references to use, e.g. 'Zelmon 1997' for
+    # LN_MgO (default: the material's own default). Read by EMode 1.0.8 and newer.
+    reference: Optional[str] = None
 
 # Not decorated with @register_type for historical reasons (predates the decorator).
 _TYPE_REGISTRY["MaterialSpec"] = MaterialSpec
@@ -601,14 +628,65 @@ def object_from_dict(data: dict[str, Any]) -> Any:
 
     return ExcClass(**data)
 
+def client_version() -> str:
+    """The version of this emodeconnection, or ``'unknown'`` without package metadata."""
+    try:
+        return importlib.metadata.version("emodeconnection")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+class UnreadWireType(dict):
+    """A result of a type this emodeconnection cannot read, kept as its plain dict.
+
+    An emodeconnection older than its EMode receives result types it has no
+    class for. EMode also tags some replies with types of its own that no
+    emodeconnection has a class for, so an unknown tag is not logged. Such a
+    result is still a full dict (it compares equal to the plain dict, and
+    pickles and serializes as one), so code that reads it as a dict keeps
+    working. Reading a missing attribute from it raises an `AttributeError`
+    that names the type and says how to update, in place of
+    ``'dict' object has no attribute ...``.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        raise AttributeError(
+            f"{name!r} is not available: this result is a {self.get('__data_type__')}, which "
+            f"this emodeconnection ({client_version()}) has no class for, so it arrived as a "
+            "plain dict. If EMode is newer than emodeconnection, update it with "
+            "'pip install -U emodeconnection'."
+        )
+
+
+# The types already warned about, so a reply of many objects warns once per type.
+_WARNED_TYPES: set[str] = set()
+
+
+def _refused(name: str, data: dict[str, Any], reason: str) -> UnreadWireType:
+    """`data`, which the class for `name` refused, with one warning per type for the session."""
+    if name not in _WARNED_TYPES:
+        _WARNED_TYPES.add(name)
+        logger.warning(
+            f"this emodeconnection ({client_version()}) cannot read the {name} it received "
+            f"({reason}), so it is returned as a plain dict. "
+            "Run 'pip install -U emodeconnection' to update it."
+        )
+    return UnreadWireType(data)
+
+
 def reconstruct(data: Any) -> Any:
     """
     Recursively rebuild registered wire types anywhere in a decoded payload.
 
     Any dict carrying a known "__data_type__" tag becomes an instance of the
     registered class, ignoring fields this version does not know (`from_wire`).
-    Dicts with an unknown tag, or with values the class refuses, are left as
-    plain dicts.
+    Dicts with an unknown tag, or with values the class refuses, become an
+    `UnreadWireType`: still a dict, but one whose missing attributes say how
+    to update.
     Containers are walked bottom-up so nested tagged objects are rebuilt
     before their parent.
     """
@@ -624,13 +702,13 @@ def reconstruct(data: Any) -> Any:
                 return from_wire(cls, fields)
             except (ValidationError, EModeError, TypeError, ValueError) as e:
                 # A newer sender may hold a value this version's class refuses
-                # (a new choice of a Literal, say). The plain dict keeps the
-                # rest of the reply readable.
-                logger.warning(
-                    f"this emodeconnection cannot read the {name} it received, so it is "
-                    f"returned as a plain dict. Upgrading emodeconnection may help. ({e})"
-                )
-                return data
+                # (a new choice of a Literal, say). The dict keeps the rest of
+                # the reply readable.
+                return _refused(name, data, str(e))
+        if isinstance(name, str):
+            # No warning: EMode's own types arrive here too, and updating
+            # would not change them. The guidance waits for an attribute read.
+            return UnreadWireType(data)
         return data
     if isinstance(data, list):
         return [reconstruct(item) for item in data]
@@ -701,6 +779,9 @@ class LicenseError(EModeError):
         self.license_type = license_type
 
     def __str__(self):
+        if self.license_type is None:
+            # A session refused at launch has no current license to name.
+            return f'LicenseError: {self.msg}'
         if self.license_type is LicenseType._3D:
             emLicense = 'EMode3D'
         elif self.license_type is LicenseType.demo:

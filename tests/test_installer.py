@@ -10,6 +10,7 @@ errors) so the tests run the same on any machine.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 import subprocess
@@ -21,6 +22,9 @@ from typing import Any, Iterator
 import pytest
 
 import emodeconnection.installer as installer
+
+# The PyPI lookup, before the `downloads` fixture stubs it out.
+_LATEST_EMODECONNECTION = installer.latest_emodeconnection
 
 BINARY = b'#!/bin/sh\necho emode\n'
 VERSION = '1.0.7'
@@ -72,6 +76,8 @@ def downloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(installer, 'handle_eula', lambda: True)
     monkeypatch.setattr(installer, 'prompt_credentials', lambda: ('a@b.c', 'pw'))
     monkeypatch.setattr(installer, 'login', lambda email, password: 'token')
+    # No PyPI lookup unless a test asks for one.
+    monkeypatch.setattr(installer, 'latest_emodeconnection', lambda: None)
 
     def download_release(
         token: str, platform_key: str, version: str, filename: str, dest_dir: Path
@@ -217,6 +223,142 @@ def test_the_help_describes_the_variant(
     out = ' '.join(capsys.readouterr().out.split())
     assert '--variant {default,rslab}' in out
     assert 'without MKL' in out
+
+
+# ---------------------------------------------------------------
+# --sha256
+# ---------------------------------------------------------------
+
+
+def _release_digest(tmp_path: Path) -> str:
+    """The SHA-256 of the release zip the stubbed download writes."""
+    path = tmp_path / 'reference.zip'
+    _write_release(path)
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _publish_digests(monkeypatch: pytest.MonkeyPatch, digests: dict[str, str]) -> None:
+    versions = {
+        'latest': VERSION,
+        'versions': {VERSION: ['Linux', 'Linux-rslab', 'Mac', 'Mac-x86', 'Windows']},
+        'sha256': digests,
+    }
+    monkeypatch.setattr(installer, 'get_versions', lambda: versions)
+
+
+def test_a_matching_sha256_installs(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder, tmp_path: Path
+) -> None:
+    installer.install(sha256=_release_digest(tmp_path))
+    assert (linux['system'] / 'emode').read_bytes() == BINARY
+
+
+def test_the_sha256_is_not_case_sensitive(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder, tmp_path: Path
+) -> None:
+    installer.install(sha256=_release_digest(tmp_path).upper())
+    assert (linux['system'] / 'emode').exists()
+
+
+def test_a_mismatched_sha256_refuses_to_install(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        installer.install(sha256='0' * 64)
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert 'SHA-256' in out
+    assert '0' * 64 in out
+    assert not (linux['system'] / 'emode').exists()
+    assert run.sudo_calls() == []
+
+
+@pytest.mark.parametrize('bad', ['abc', 'z' * 64, '0' * 63, ''])
+def test_a_malformed_sha256_is_refused_before_any_download(
+    bad: str, linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder
+) -> None:
+    with pytest.raises(SystemExit) as exc:
+        installer.install(sha256=bad)
+    assert exc.value.code == 2
+    assert downloads == []
+
+
+def test_a_digest_published_for_the_file_is_checked(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _publish_digests(monkeypatch, {f'EMode-{VERSION}-Linux.zip': 'f' * 64})
+    with pytest.raises(SystemExit) as exc:
+        installer.install()
+    assert exc.value.code == 1
+    assert 'SHA-256' in capsys.readouterr().out
+    assert not (linux['system'] / 'emode').exists()
+
+
+def test_a_published_digest_that_matches_installs(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _publish_digests(monkeypatch, {f'EMode-{VERSION}-Linux.zip': _release_digest(tmp_path)})
+    installer.install()
+    assert (linux['system'] / 'emode').exists()
+
+
+def test_the_given_sha256_wins_over_a_published_one(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _publish_digests(monkeypatch, {f'EMode-{VERSION}-Linux.zip': 'f' * 64})
+    installer.install(sha256=_release_digest(tmp_path))
+    assert (linux['system'] / 'emode').exists()
+
+
+def test_a_digest_published_for_another_file_is_not_applied(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _publish_digests(monkeypatch, {f'EMode-{VERSION}-Mac.pkg': 'f' * 64})
+    installer.install()
+    assert (linux['system'] / 'emode').exists()
+
+
+def test_the_cli_takes_the_sha256(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        sys, 'argv', ['emode-install', '--variant', 'rslab', '--sha256', '0' * 64]
+    )
+    with pytest.raises(SystemExit) as exc:
+        installer.main()
+    assert exc.value.code == 1
+    assert not (linux['system'] / 'emode').exists()
+
+
+def test_verify_sha256_hashes_a_large_file_in_chunks(tmp_path: Path) -> None:
+    path = tmp_path / 'big.bin'
+    data = os.urandom(3 * 1024 * 1024 + 7)
+    path.write_bytes(data)
+    installer.verify_sha256(path, hashlib.sha256(data).hexdigest())
+    with pytest.raises(SystemExit):
+        installer.verify_sha256(path, hashlib.sha256(data + b'x').hexdigest())
 
 
 # ---------------------------------------------------------------
@@ -399,3 +541,113 @@ def test_uninstall_finds_a_user_install(
     _tty(monkeypatch, False)
     installer.uninstall()
     assert not exe.exists()
+
+
+# ---------------------------------------------------------------
+# The hint to update emodeconnection
+# ---------------------------------------------------------------
+
+_HINT = 'pip install -U emodeconnection'
+
+
+def _client_at(monkeypatch: pytest.MonkeyPatch, installed: str, latest: str | None) -> None:
+    monkeypatch.setattr(installer, 'client_version', lambda: installed)
+    monkeypatch.setattr(installer, 'latest_emodeconnection', lambda: latest)
+
+
+def test_a_newer_emodeconnection_is_pointed_out(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.20', '1.1.25')
+    installer.install()
+    out = capsys.readouterr().out
+    assert 'installed successfully' in out
+    assert _HINT in out
+    assert '1.1.25' in out and '1.1.20' in out
+    # It comes after the install is reported, as the last thing printed.
+    assert out.index(_HINT) > out.index('installed successfully')
+
+
+def test_the_same_emodeconnection_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.25', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+def test_a_development_emodeconnection_newer_than_pypi_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, '1.1.26', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+def test_an_unknown_installed_version_says_nothing(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _client_at(monkeypatch, 'unknown', '1.1.25')
+    installer.install()
+    assert _HINT not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    'error',
+    [
+        installer.http_requests.exceptions.Timeout('slow'),
+        installer.http_requests.exceptions.ConnectionError('offline'),
+        installer.http_requests.exceptions.HTTPError('503'),
+        ValueError('not json'),
+    ],
+)
+def test_a_failed_lookup_says_nothing_and_the_install_succeeds(
+    linux: dict[str, Path], downloads: list[dict[str, Any]], run: _Recorder,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], error: Exception,
+) -> None:
+    def get(url: str, timeout: float, **kwargs: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(installer, 'latest_emodeconnection', _LATEST_EMODECONNECTION)
+    monkeypatch.setattr(installer, 'client_version', lambda: '1.1.20')
+    monkeypatch.setattr(installer.http_requests, 'get', get)
+    installer.install()
+    out = capsys.readouterr().out
+    assert 'installed successfully' in out
+    assert _HINT not in out
+    assert (linux['system'] / 'emode').exists()
+
+
+class _Reply:
+    def __init__(self, body: Any) -> None:
+        self.body = body
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> Any:
+        return self.body
+
+
+def test_the_lookup_reads_pypi_with_a_short_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[tuple[str, float]] = []
+
+    def get(url: str, timeout: float, **kwargs: Any) -> _Reply:
+        asked.append((url, timeout))
+        return _Reply({'info': {'version': '1.1.25'}})
+
+    monkeypatch.setattr(installer.http_requests, 'get', get)
+    assert _LATEST_EMODECONNECTION() == '1.1.25'
+    [(url, timeout)] = asked
+    assert url == 'https://pypi.org/pypi/emodeconnection/json'
+    assert timeout <= 5
+
+
+@pytest.mark.parametrize('body', [{}, {'info': {}}, [], {'info': {'version': 3}}])
+def test_a_malformed_pypi_reply_is_no_version(monkeypatch: pytest.MonkeyPatch, body: Any) -> None:
+    monkeypatch.setattr(installer.http_requests, 'get', lambda url, timeout, **kw: _Reply(body))
+    assert _LATEST_EMODECONNECTION() is None

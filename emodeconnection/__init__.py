@@ -6,9 +6,10 @@ from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_fa
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
 from .plot import PlotImage
-from .free_space import FreeSpaceProjection
+from .free_space import FarField, FreeSpaceProjection, Screen, ScreenField
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit, RankReport
 from .monitor import Monitor, PlaneField, BeamCoupling
+from .grating import grating_sections
 from .optimize import (
     Parameter, Objective, Constraint, Evaluation, OptimizationResult,
     ConvergenceStep, ConvergenceStage, ConvergenceResult,
@@ -27,11 +28,12 @@ __all__ = [
     "Source", "Excitation", "CircuitResponse",
     "PulsedSource", "PulsedProcess", "Poling", "PulseResponse", "PulseMeasurement", "PulseFit", "RankReport",
     "Monitor", "PlaneField", "BeamCoupling",
+    "grating_sections",
     "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
     "ConvergenceStep", "ConvergenceStage", "ConvergenceResult",
     "SMatrix",
     "PlotImage",
-    "FreeSpaceProjection",
+    "FreeSpaceProjection", "FarField", "Screen", "ScreenField",
     "EModeLogin",
 ]
 
