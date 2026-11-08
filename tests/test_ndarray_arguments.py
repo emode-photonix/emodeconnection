@@ -16,10 +16,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection import compat
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.emodeconnection import EMode
-from emodeconnection.types import ArgumentError, EModeError, serialize
+from emode import compat
+from emode.emodeclient import obj_hook
+from emode.emode import EMode
+from emode.types import ArgumentError, EModeError, serialize
 
 
 def _round_trip(value: Any, *, ndarray: bool = True) -> Any:

@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from emodeconnection.emodeconnection import _forward_stdout, _launch_solver
+from emode.emode import _forward_stdout, _launch_solver
 
 # Generous: a forwarder that works returns within milliseconds of the child
 # exiting. One that does not (a line reader on a byte pipe never sees its

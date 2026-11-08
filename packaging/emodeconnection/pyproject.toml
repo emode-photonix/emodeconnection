@@ -1,11 +1,11 @@
 [project]
-name = "emode"
-version = "0.1.0"
-description = "Python interface for EMode, under its short name"
+name = "emodeconnection"
+version = "1.1.26"
+description = "The old name of the emode package. Installs emode."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 dependencies = [
-  "emodeconnection>=1.1.25",
+  "emode>=1.1.26",
 ]
 authors = [
   { name = "EMode, Inc.", email = "hello@emodephotonix.com" },
@@ -14,7 +14,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: BSD License",
   "Operating System :: OS Independent",
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 7 - Inactive",
 ]
 
 [project.urls]
@@ -23,15 +23,15 @@ Documentation = "https://docs.emodephotonix.com"
 Source = "https://github.com/emode-photonix/emodeconnection"
 
 [project.optional-dependencies]
-# The MCP server (emode-mcp), as in emodeconnection.
-mcp = ["emodeconnection[mcp]>=1.1.25"]
+# The MCP server. emode-mcp comes from emode.
+mcp = ["emode[mcp]>=1.1.26"]
 
 [build-system]
 requires = ["hatchling>=1.11.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/emode"]
+packages = ["src/emodeconnection"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/emode", "README.md", "LICENSE", "pyproject.toml"]
+include = ["src/emodeconnection", "README.md", "LICENSE", "pyproject.toml"]

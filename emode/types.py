@@ -147,7 +147,7 @@ def wire_dump(model: BaseModel) -> dict:
     wire type (a model the other side does not rebuild keeps every field,
     since it is read there as a plain dict). The other side
     fills it in from its own class. That is what lets an older EMode or
-    emodeconnection read a wire type that has gained fields since (several
+    client read a wire type that has gained fields since (several
     wire types refuse fields they do not know), and what keeps a default that
     changed between versions (None for "the solver's choice") from reaching a
     side that cannot hold it.
@@ -492,7 +492,7 @@ class Confinement(TaggedModel, Mapping):
     mode indices through validation, which turns them back into integers.
 
     On the wire the shape names sit at the top level beside the type tag, so
-    an emodeconnection that predates this type reads the reply as the plain
+    a client that predates this type reads the reply as the plain
     dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
     entry).
     """
@@ -564,7 +564,7 @@ class ModeDict(TaggedModel, Mapping):
     mode indices through validation, which turns them back into integers.
 
     On the wire the mode indices sit at the top level beside the type tag, so
-    an emodeconnection that predates this type reads the reply as the plain
+    a client that predates this type reads the reply as the plain
     dict it always did (keyed by ``'0'``, with an extra ``'__data_type__'``
     entry).
     """
@@ -629,19 +629,19 @@ def object_from_dict(data: dict[str, Any]) -> Any:
     return ExcClass(**data)
 
 def client_version() -> str:
-    """The version of this emodeconnection, or ``'unknown'`` without package metadata."""
+    """The version of this client, or ``'unknown'`` without package metadata."""
     try:
-        return importlib.metadata.version("emodeconnection")
+        return importlib.metadata.version("emode")
     except importlib.metadata.PackageNotFoundError:
         return "unknown"
 
 
 class UnreadWireType(dict):
-    """A result of a type this emodeconnection cannot read, kept as its plain dict.
+    """A result of a type this client cannot read, kept as its plain dict.
 
-    An emodeconnection older than its EMode receives result types it has no
+    A client older than its EMode receives result types it has no
     class for. EMode also tags some replies with types of its own that no
-    emodeconnection has a class for, so an unknown tag is not logged. Such a
+    client has a class for, so an unknown tag is not logged. Such a
     result is still a full dict (it compares equal to the plain dict, and
     pickles and serializes as one), so code that reads it as a dict keeps
     working. Reading a missing attribute from it raises an `AttributeError`
@@ -656,9 +656,9 @@ class UnreadWireType(dict):
             raise AttributeError(name)
         raise AttributeError(
             f"{name!r} is not available: this result is a {self.get('__data_type__')}, which "
-            f"this emodeconnection ({client_version()}) has no class for, so it arrived as a "
-            "plain dict. If EMode is newer than emodeconnection, update it with "
-            "'pip install -U emodeconnection'."
+            f"this client ({client_version()}) has no class for, so it arrived as a "
+            "plain dict. If EMode is newer than this client, update it with "
+            "'pip install -U emode'."
         )
 
 
@@ -671,9 +671,9 @@ def _refused(name: str, data: dict[str, Any], reason: str) -> UnreadWireType:
     if name not in _WARNED_TYPES:
         _WARNED_TYPES.add(name)
         logger.warning(
-            f"this emodeconnection ({client_version()}) cannot read the {name} it received "
+            f"this client ({client_version()}) cannot read the {name} it received "
             f"({reason}), so it is returned as a plain dict. "
-            "Run 'pip install -U emodeconnection' to update it."
+            "Run 'pip install -U emode' to update it."
         )
     return UnreadWireType(data)
 

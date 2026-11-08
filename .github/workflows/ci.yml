@@ -24,3 +24,12 @@ jobs:
         # --python is explicit because .python-version predates the package's
         # requires-python and names an older interpreter.
         run: uv run --python 3.12 --group dev pytest tests/
+
+      - name: Run the tests under the old name
+        # The same suite with every import spelled emodeconnection, through the shim.
+        run: uv run --python 3.12 --group dev sh tests/run_under_old_name.sh
+
+      - name: Build both distributions
+        run: |
+          uv build --out-dir dist
+          uv build packaging/emodeconnection --out-dir dist

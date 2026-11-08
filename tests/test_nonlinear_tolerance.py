@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from emodeconnection import SHGProcess
-from emodeconnection.types import ArgumentError, reconstruct
+from emode import SHGProcess
+from emode.types import ArgumentError, reconstruct
 
 
 def test_absolute_tolerance_defaults_to_automatic():

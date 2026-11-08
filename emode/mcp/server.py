@@ -34,7 +34,7 @@ from mcp.server.mcpserver.utilities.types import Image
 from mcp.shared.exceptions import MCPError
 from pydantic import BaseModel, Field
 
-from ..emodeconnection import EMode
+from ..emode import EMode
 from ..optimize import Constraint, Objective, Parameter
 from ..plot import PlotImage
 from ..types import EModeError
@@ -214,7 +214,7 @@ class _ListHandler(logging.Handler):
 def _capture_warnings() -> Iterator[list[str]]:
     """Collect what the client library logs at WARNING level while a tool runs."""
     messages: list[str] = []
-    logger = logging.getLogger("emodeconnection")
+    logger = logging.getLogger("emode")
     handler = _ListHandler(messages)
     logger.addHandler(handler)
     try:

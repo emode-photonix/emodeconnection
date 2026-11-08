@@ -30,18 +30,18 @@ import numpy as np
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from emodeconnection import compat
-from emodeconnection.emodeclient import EModeClient
-from emodeconnection.emodeconnection import EMode
-from emodeconnection.geometry import Arc, Line
-from emodeconnection.geometry import Path as GeometryPath
-from emodeconnection.monitor import Monitor
-from emodeconnection.nonlinear import SHGProcess, Source
-from emodeconnection.optimize import Parameter
-from emodeconnection.port import Bounds, Port
-from emodeconnection.pulse import Poling, PulsedProcess, PulsedSource, PulseResponse
-from emodeconnection.smatrix import SMatrix
-from emodeconnection.types import (
+from emode import compat
+from emode.emodeclient import EModeClient
+from emode.emode import EMode
+from emode.geometry import Arc, Line
+from emode.geometry import Path as GeometryPath
+from emode.monitor import Monitor
+from emode.nonlinear import SHGProcess, Source
+from emode.optimize import Parameter
+from emode.port import Bounds, Port
+from emode.pulse import Poling, PulsedProcess, PulsedSource, PulseResponse
+from emode.smatrix import SMatrix
+from emode.types import (
     _TYPE_REGISTRY,
     ArgumentError,
     EModeError,

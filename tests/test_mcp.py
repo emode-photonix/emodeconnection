@@ -20,9 +20,9 @@ pytest.importorskip("mcp")
 
 from mcp.client import Client
 
-from emodeconnection.mcp import main
-from emodeconnection.mcp.server import create_server
-from emodeconnection.types import EModeError
+from emode.mcp import main
+from emode.mcp.server import create_server
+from emode.types import EModeError
 
 
 class FakeEMode:
@@ -288,11 +288,11 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(
     for mod in [
         m
         for m in list(__import__("sys").modules)
-        if m.startswith("emodeconnection.mcp.")
+        if m.startswith("emode.mcp.")
     ]:
         monkeypatch.delitem(__import__("sys").modules, mod)
     err = io.StringIO()
     with redirect_stderr(err), pytest.raises(SystemExit) as exit_info:
         main([])
     assert exit_info.value.code != 0
-    assert "emodeconnection[mcp]" in err.getvalue()
+    assert "emode[mcp]" in err.getvalue()

@@ -14,10 +14,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection import compat
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.free_space import FarField, Screen, ScreenField
-from emodeconnection.types import ArgumentError, reconstruct, wire_dump
+from emode import compat
+from emode.emodeclient import obj_hook
+from emode.free_space import FarField, Screen, ScreenField
+from emode.types import ArgumentError, reconstruct, wire_dump
 
 
 class _WireEncoder(json.JSONEncoder):

@@ -2,7 +2,7 @@
 
 These types are passed through `em.to_section(...)` to describe waveguide
 centerlines and placements. They round-trip through the wire serialization
-registry (see `emodeconnection.types.register_type`).
+registry (see `emode.types.register_type`).
 
 Local-frame convention
 ----------------------

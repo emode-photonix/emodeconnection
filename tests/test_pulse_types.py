@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from emodeconnection import (
+from emode import (
     PulseFit,
     PulseMeasurement,
     PulsedProcess,
@@ -24,8 +24,8 @@ from emodeconnection import (
     PulseResponse,
     RankReport,
 )
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.types import ArgumentError, reconstruct
+from emode.emodeclient import obj_hook
+from emode.types import ArgumentError, reconstruct
 
 
 def _over_the_wire(value: Any) -> Any:
@@ -413,7 +413,7 @@ def test_a_response_saved_before_the_absorbed_energy_still_loads() -> None:
 
 
 def test_a_user_material_takes_three_and_four_photon_coefficients() -> None:
-    from emodeconnection.types import MaterialProperties
+    from emode.types import MaterialProperties
 
     m = MaterialProperties(n=3.4, beta_3=2.5e-26, beta_4=1e-36, bandgap=1.12)
     back = _over_the_wire(m)

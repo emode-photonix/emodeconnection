@@ -44,7 +44,7 @@ from .types import client_version
 
 
 API_BASE     = 'https://emodephotonix.com/wp-json/custom/v1'
-PYPI_URL     = 'https://pypi.org/pypi/emodeconnection/json'
+PYPI_URL     = 'https://pypi.org/pypi/emode/json'
 EULA_URL     = 'https://emodephotonix.com/legal/eula.pdf'
 
 # Default install locations per platform
@@ -828,12 +828,12 @@ def install(
     print(f"\nEMode {version} installed successfully.")
     if os_name != 'Windows':
         print(f"Location: {exe_path}")
-    print('Get started by logging in:\n\tpython -c "import emodeconnection as emc; emc.EModeLogin()"')
+    print('Get started by logging in:\n\tpython -c "import emode; emode.EModeLogin()"')
     suggest_client_update()
 
 
-def latest_emodeconnection(timeout: float = 3.0) -> Optional[str]:
-    """The newest emodeconnection on PyPI, or None when PyPI cannot say in `timeout` seconds."""
+def latest_client(timeout: float = 3.0) -> Optional[str]:
+    """The newest emode client on PyPI, or None when PyPI cannot say in `timeout` seconds."""
     try:
         resp = http_requests.get(PYPI_URL, timeout=timeout)
         resp.raise_for_status()
@@ -844,18 +844,18 @@ def latest_emodeconnection(timeout: float = 3.0) -> Optional[str]:
 
 
 def suggest_client_update() -> None:
-    """Print how to update emodeconnection when PyPI has a newer one.
+    """Print how to update the client when PyPI has a newer one.
 
-    emode-install updates EMode but not the emodeconnection it runs from, and
-    an emodeconnection older than its EMode cannot read the newer result
+    emode-install updates EMode but not the client it runs from, and
+    a client older than its EMode cannot read the newer result
     types. The lookup is best effort: any failure prints nothing.
     """
     installed = parse_version(client_version())
-    latest = latest_emodeconnection()
+    latest = latest_client()
     if not installed or latest is None or parse_version(latest) <= installed:
         return
-    print(f"\nA newer emodeconnection is available ({client_version()} is installed, "
-          f"{latest} is the latest). Update it with:\n\tpip install -U emodeconnection")
+    print(f"\nA newer emode client is available ({client_version()} is installed, "
+          f"{latest} is the latest). Update it with:\n\tpip install -U emode")
 
 
 def install_linux(zip_path: Path, install_dir: Path, explicit_dir: bool) -> Path:

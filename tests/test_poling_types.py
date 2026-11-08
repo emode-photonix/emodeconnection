@@ -15,9 +15,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.pulse import Poling
-from emodeconnection.types import ArgumentError, reconstruct
+from emode.emodeclient import obj_hook
+from emode.pulse import Poling
+from emode.types import ArgumentError, reconstruct
 
 SECTION = 100_000.0  # nm
 

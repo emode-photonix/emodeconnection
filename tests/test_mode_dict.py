@@ -19,8 +19,8 @@ from typing import Any
 
 import pytest
 
-from emodeconnection import ModeDict
-from emodeconnection.types import _TYPE_REGISTRY, reconstruct
+from emode import ModeDict
+from emode.types import _TYPE_REGISTRY, reconstruct
 
 _FACTORS = {0: 0.81, 1: 0.42, 3: 0.05}
 

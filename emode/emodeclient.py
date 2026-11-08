@@ -157,7 +157,9 @@ class EModeClient:
 
         An EMode takes the last space-separated token as the client's
         environment (``Python-cmd``, ``iPython-Jupyter``, ...), so that token
-        stays the last one. The version comes first.
+        stays the last one. The version comes first. The ``emodeconnection/``
+        prefix predates the rename to ``emode`` and stays, because released
+        EMode versions read the client's version after exactly that prefix.
         """
         try:
             _ = get_ipython()  # type: ignore
@@ -199,9 +201,9 @@ class EModeClient:
         version = json_data.pop("__version__")
         if version != PROTOCOL_VERSION:
             raise EModeError(
-                f"this emodeconnection does not understand protocol version {version} "
+                f"this client does not understand protocol version {version} "
                 f"(it reads version {PROTOCOL_VERSION}). Upgrade it with "
-                "'pip install --upgrade emodeconnection'."
+                "'pip install --upgrade emode'."
             )
         o = reconstruct(json_data)
         if isinstance(o, EModeError):

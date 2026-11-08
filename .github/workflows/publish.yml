@@ -1,11 +1,12 @@
-name: Publish to PyPI
+name: Publish emodeconnection to PyPI
 
-# Publishes on a version tag via PyPI Trusted Publishing (OIDC) -- no API token
-# stored anywhere, which is what retires the token that was committed in
-# emode's docs/emode_deployment.md.
+# Publishes the `emodeconnection` shim (packaging/emodeconnection, which depends
+# on `emode` and re-exports it) on an `emodeconnection-v*` tag via PyPI Trusted
+# Publishing (OIDC). Publish emode first (publish-emode.yml, tag `v*`), since
+# the shim depends on it.
 #
-# One-time setup on pypi.org, under the emodeconnection project's
-# Publishing settings, before this can work:
+# The trusted publisher of the emodeconnection project on pypi.org names this
+# workflow:
 #   Owner:        emode-photonix
 #   Repository:   emodeconnection
 #   Workflow:     publish.yml
@@ -13,7 +14,7 @@ name: Publish to PyPI
 
 on:
   push:
-    tags: ['v*']
+    tags: ['emodeconnection-v*']
   workflow_dispatch:
 
 jobs:
@@ -33,7 +34,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Build
-        run: uv build
+        run: uv build packaging/emodeconnection --out-dir dist
 
       - name: Check the tag matches the packaged version
         shell: bash
@@ -42,11 +43,11 @@ jobs:
           TAG='${{ github.ref_name }}'
           VERSION=$(python -c "
           import tomllib
-          with open('pyproject.toml', 'rb') as f:
+          with open('packaging/emodeconnection/pyproject.toml', 'rb') as f:
               print(tomllib.load(f)['project']['version'])
           ")
-          if [ "$TAG" != "v${VERSION}" ]; then
-            echo "error: tag ${TAG} does not match pyproject version ${VERSION}" >&2
+          if [ "$TAG" != "emodeconnection-v${VERSION}" ]; then
+            echo "error: tag ${TAG} does not match packaging/emodeconnection version ${VERSION}" >&2
             exit 1
           fi
           echo "Publishing ${TAG}"

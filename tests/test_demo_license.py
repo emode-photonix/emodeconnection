@@ -16,9 +16,9 @@ from typing import Any
 
 import pytest
 
-import emodeconnection.emodeconnection as launch_module
-from emodeconnection.emodeconnection import EMode
-from emodeconnection.types import LicenseError, LicenseType, reconstruct
+import emode.emode as launch_module
+from emode.emode import EMode
+from emode.types import LicenseError, LicenseType, reconstruct
 
 
 def test_license_type_demo() -> None:
