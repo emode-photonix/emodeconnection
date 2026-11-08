@@ -10,8 +10,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from emodeconnection import grating_sections
-from emodeconnection.types import ArgumentError
+from emode import grating_sections
+from emode.types import ArgumentError
 
 
 def _periods(lengths: list[float]) -> np.ndarray:

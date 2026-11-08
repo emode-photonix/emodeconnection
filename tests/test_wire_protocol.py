@@ -18,9 +18,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection.emodeclient import EModeClient
-from emodeconnection.smatrix import SMatrix
-from emodeconnection.types import ArgumentError, EModeError
+from emode.emodeclient import EModeClient
+from emode.smatrix import SMatrix
+from emode.types import ArgumentError, EModeError
 
 # Replies as an EMode 1.0.6 server writes them, recorded byte for byte.
 _SMATRIX_1_0_6 = (

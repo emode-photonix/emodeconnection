@@ -3,7 +3,7 @@
     python packaging/build_mcpb.py [output.mcpb]
 
 An .mcpb file is a zip with ``manifest.json`` at its root. This one carries the
-emodeconnection package and, unless ``--no-dependencies`` is given, its third
+emode package and, unless ``--no-dependencies`` is given, its third
 party dependencies installed with pip into ``server/lib``. Those include
 compiled wheels, so build the bundle on the platform it will run on. Needs
 Python 3.11 or later (tomllib).
@@ -61,10 +61,10 @@ def build(output: Path | str, install_dependencies: bool = True) -> Path:
                 ],
                 check=True,
             )
-        package = lib / "emodeconnection"
-        for source in (ROOT / "emodeconnection").rglob("*"):
+        package = lib / "emode"
+        for source in (ROOT / "emode").rglob("*"):
             if source.is_file() and "__pycache__" not in source.parts:
-                target = package / source.relative_to(ROOT / "emodeconnection")
+                target = package / source.relative_to(ROOT / "emode")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(source.read_bytes())
         output.parent.mkdir(parents=True, exist_ok=True)

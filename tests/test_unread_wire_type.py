@@ -1,9 +1,9 @@
-"""A result whose ``__data_type__`` this emodeconnection does not know.
+"""A result whose ``__data_type__`` this client does not know.
 
-An emodeconnection older than its EMode receives result types it has no class
+A client older than its EMode receives result types it has no class
 for. Such a result still arrives as a dict, so code that treats it as one keeps
 working, but reading an attribute from it says which type it is and how to get
-an emodeconnection that knows it, in place of ``'dict' object has no attribute``.
+a client that knows it, in place of ``'dict' object has no attribute``.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import pickle
 
 import pytest
 
-from emodeconnection import types
-from emodeconnection.geometry import LayoutReport
-from emodeconnection.types import _TYPE_REGISTRY, UnreadWireType, reconstruct
+from emode import types
+from emode.geometry import LayoutReport
+from emode.types import _TYPE_REGISTRY, UnreadWireType, reconstruct
 
 _FUTURE = {"__data_type__": "FutureReport", "value": 1, "names": ["a", "b"]}
 
@@ -37,7 +37,7 @@ def test_a_missing_attribute_names_the_type_and_the_fix() -> None:
     message = str(info.value)
     assert "FutureReport" in message
     assert "max_closure" in message
-    assert "pip install -U emodeconnection" in message
+    assert "pip install -U emode" in message
 
 
 def test_the_dict_methods_still_work() -> None:
@@ -106,14 +106,14 @@ def test_a_type_this_client_knows_but_cannot_read_is_also_helpful() -> None:
     got = reconstruct({"__data_type__": "PulsedProcess", "raman_mode": "future"})
     assert type(got) is UnreadWireType
     assert got == {"__data_type__": "PulsedProcess", "raman_mode": "future"}
-    with pytest.raises(AttributeError, match="pip install -U emodeconnection"):
+    with pytest.raises(AttributeError, match="pip install -U emode"):
         got.max_rank
 
 
 def test_an_unknown_type_logs_no_warning(caplog: pytest.LogCaptureFixture) -> None:
-    # EMode also tags some replies with its own types that no emodeconnection
+    # EMode also tags some replies with its own types that no client
     # has a class for, so an unknown tag alone is no reason to suggest an update.
-    caplog.set_level(logging.DEBUG, logger="emodeconnection.types")
+    caplog.set_level(logging.DEBUG, logger="emode.types")
     got = reconstruct(
         {"__data_type__": "Shape", "name": "core", "inner": dict(_FUTURE)}
     )
@@ -122,7 +122,7 @@ def test_an_unknown_type_logs_no_warning(caplog: pytest.LogCaptureFixture) -> No
         got.max_closure()
     message = str(info.value)
     assert "Shape" in message
-    assert "pip install -U emodeconnection" in message
+    assert "pip install -U emode" in message
 
 
 def test_the_message_does_not_promise_an_update_fixes_it() -> None:
@@ -131,14 +131,14 @@ def test_the_message_does_not_promise_an_update_fixes_it() -> None:
         got.max_closure
     message = str(info.value)
     assert "has no class for" in message
-    assert "If EMode is newer than emodeconnection" in message
+    assert "If EMode is newer than this client" in message
 
 
 def test_a_refused_value_is_warned_about_once_per_type(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     monkeypatch.setattr(types, "_WARNED_TYPES", set())
-    caplog.set_level(logging.WARNING, logger="emodeconnection.types")
+    caplog.set_level(logging.WARNING, logger="emode.types")
     for _ in range(3):
         reconstruct({"__data_type__": "PulsedProcess", "raman_mode": "future"})
     reconstruct({"__data_type__": "LayoutReport", "closures": "not a list"})
@@ -146,7 +146,7 @@ def test_a_refused_value_is_warned_about_once_per_type(
     assert sum("PulsedProcess" in m for m in messages) == 1
     assert sum("LayoutReport" in m for m in messages) == 1
     assert len(messages) == 2
-    assert all("pip install -U emodeconnection" in m for m in messages)
+    assert all("pip install -U emode" in m for m in messages)
 
 
 def test_a_type_missing_from_this_client_reads_as_an_unread_type(
@@ -157,6 +157,6 @@ def test_a_type_missing_from_this_client_reads_as_an_unread_type(
     monkeypatch.delitem(_TYPE_REGISTRY, "LayoutReport")
     report = reconstruct(payload)
     with pytest.raises(
-        AttributeError, match="LayoutReport.*pip install -U emodeconnection"
+        AttributeError, match="LayoutReport.*pip install -U emode"
     ):
         report.max_closure()

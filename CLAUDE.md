@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**emodeconnection** is the client library for EMode's mode solver. It is the only piece
+**emode** (formerly `emodeconnection`, which remains as a shim over it, see `packaging/emodeconnection`) is the client library for EMode's mode solver. It is the only piece
 of the system that runs inside the customer's own Python environment: it is pip-installed
 from PyPI, opens a socket to the EMode solver process, and exchanges length-prefixed JSON
 messages with it.
@@ -98,6 +98,22 @@ how one serializes — cannot be validated from inside this repository. Say so p
 the PR rather than implying it was tested, and have it exercised against the solver
 before it is released.
 
+### Layout: `emode` and the `emodeconnection` shim
+
+The repository root is the `emode` distribution: the `emode/` package, plus the
+`emode-install` and `emode-mcp` console scripts. There is no `emode` console script, because
+the EMode installer's binary has that name. `packaging/emodeconnection` is a second
+distribution, the old name: it depends on `emode`, re-exports it, and warns once on import.
+Its `__init__` installs a meta path finder that resolves `emodeconnection.<name>` to the very
+module `emode.<name>` (and `emodeconnection.emodeconnection` to `emode.emode`), so wire-type
+tags, the registry and pickles are the same under both names. A class lives in `emode.*` only.
+The socket greeting still starts with `emodeconnection/` because released EMode versions read
+the client version after that prefix.
+
+Tests import `emode`. `sh tests/run_under_old_name.sh` runs the same suite with imports spelled
+`emodeconnection`, and `tests/test_shim.py` covers the shim itself. Tag `v<version>` publishes
+`emode`, then `emodeconnection-v<version>` publishes the shim.
+
 ### Formatting
 
 **This repo is not `ruff`-formatted, and must not be reformatted wholesale.** Running
@@ -152,7 +168,7 @@ message. Four rules keep that from happening:
   drops fields this version does not know, and returns a type it does not know (or a
   value its class refuses) as an `UnreadWireType`. That is still a dict, but reading a
   missing attribute from it names the type and says to run
-  `pip install -U emodeconnection`. An unknown error type is raised as an `EModeError`
+  `pip install -U emode`. An unknown error type is raised as an `EModeError`
   with the solver's message. A typo in a user's own constructor still
   raises, since only the wire path drops fields.
 - **Never change a field's meaning in place.** A new behavior is a new field or a new
@@ -164,7 +180,7 @@ checkout. Add a solver release's record there when it ships.
 
 ### Modules
 
-- **`emodeconnection.py`** — the `EMode` class the user talks to; wraps every `EM_*` call.
+- **`emode.py`** — the `EMode` class the user talks to; wraps every `EM_*` call.
 - **`emodeclient.py`** — socket transport, `recv`, `obj_hook`, `reconstruct`.
 - **`compat.py`** — the first EMode release that reads each wire type and field added
   after 1.0.6, and the check that refuses a call an older EMode cannot read.

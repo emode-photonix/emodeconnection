@@ -13,9 +13,9 @@ import importlib.metadata
 
 import pytest
 
-from emodeconnection import emodeclient
-from emodeconnection.emodeclient import EModeClient
-from emodeconnection.types import client_version
+from emode import emodeclient
+from emode.emodeclient import EModeClient
+from emode.types import client_version
 
 
 def _greeting(monkeypatch: pytest.MonkeyPatch, environ: dict[str, str]) -> str:
@@ -25,7 +25,7 @@ def _greeting(monkeypatch: pytest.MonkeyPatch, environ: dict[str, str]) -> str:
 
 
 def test_the_client_version_is_the_installed_one() -> None:
-    assert client_version() == importlib.metadata.version("emodeconnection")
+    assert client_version() == importlib.metadata.version("emode")
 
 
 def test_the_client_version_falls_back_when_there_is_no_metadata(
@@ -53,7 +53,7 @@ def test_the_greeting_carries_the_version_and_keeps_the_environment_last(
     monkeypatch: pytest.MonkeyPatch, environ: dict[str, str], environment: str
 ) -> None:
     greeting = _greeting(monkeypatch, environ)
-    version = importlib.metadata.version("emodeconnection")
+    version = importlib.metadata.version("emode")
     assert greeting == f"emodeconnection/{version} connected with {environment}"
     assert greeting.startswith(f"emodeconnection/{version} ")
     assert greeting.split(" ")[-1] == environment

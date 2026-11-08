@@ -14,9 +14,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.smatrix import SMatrix
-from emodeconnection.types import reconstruct
+from emode.emodeclient import obj_hook
+from emode.smatrix import SMatrix
+from emode.types import reconstruct
 
 
 class _WireEncoder(json.JSONEncoder):

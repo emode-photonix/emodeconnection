@@ -1,5 +1,5 @@
 """
-Hides internal emodeconnection frames (wrapper/call/recv, etc.) from
+Hides internal emode frames (wrapper/call/recv, etc.) from
 tracebacks of EModeError and its subclasses, so users see only their own
 call site and the error message. These errors are server-validated and
 expected (bad argument, wrong license, missing file, ...), not bugs in the

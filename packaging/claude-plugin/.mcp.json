@@ -2,7 +2,7 @@
   "mcpServers": {
     "emode": {
       "command": "uvx",
-      "args": ["--from", "emodeconnection[mcp]", "emode-mcp"]
+      "args": ["--from", "emode[mcp]", "emode-mcp"]
     }
   }
 }

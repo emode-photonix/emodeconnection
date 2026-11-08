@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from emodeconnection import (
+from emode import (
     Constraint,
     Evaluation,
     Objective,
@@ -23,8 +23,8 @@ from emodeconnection import (
     Parameter,
     SMatrix,
 )
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.types import ArgumentError, reconstruct
+from emode.emodeclient import obj_hook
+from emode.types import ArgumentError, reconstruct
 
 
 def _over_the_wire(value: Any) -> Any:

@@ -18,11 +18,11 @@ from typing import Any
 import numpy as np
 import pytest
 
-import emodeconnection as emc
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.emodeconnection import EMode
-from emodeconnection.plot import PlotImage
-from emodeconnection.types import EModeError, reconstruct
+import emode as emc
+from emode.emodeclient import obj_hook
+from emode.emode import EMode
+from emode.plot import PlotImage
+from emode.types import EModeError, reconstruct
 
 # The smallest valid PNG: a 1x1 transparent pixel.
 _PNG = base64.b64decode(

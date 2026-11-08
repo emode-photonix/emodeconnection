@@ -1,4 +1,4 @@
-# emodeconnection
+# emode
 
 Python interface for [EMode](https://emodephotonix.com), a photonics simulation
 platform for waveguide mode solving, propagation, and analysis.
@@ -12,13 +12,19 @@ platform for waveguide mode solving, propagation, and analysis.
 ## Installation
 
 ```bash
-pip install emodeconnection
+pip install emode
 ```
+
+The package used to be called `emodeconnection`. `pip install emodeconnection`
+still works: it installs `emode` and `import emodeconnection` warns once and gives
+the same modules. Switch to `emode` at your convenience.
+
+To run the MCP server (`emode-mcp`), install the extra: `pip install "emode[mcp]"`.
 
 ## Quick Start
 
 ```python
-import emodeconnection as emc
+import emode as emc
 
 # Open the EMode login window (only required on first use)
 emc.EModeLogin()
@@ -45,7 +51,7 @@ em.close()
 
 ## Installing EMode
 
-The `emodeconnection` package includes a command-line tool to download and
+The `emode` package includes a command-line tool to download and
 install the EMode executable:
 
 ```bash
@@ -79,7 +85,7 @@ emode-install --uninstall --install-dir /opt/bin  # Remove from custom location
 
 ## Wire protocol
 
-`emodeconnection` talks to the EMode executable over a local socket. Each
+`emode` talks to the EMode executable over a local socket. Each
 message is a 4-byte big-endian length followed by that many bytes of UTF-8
 JSON. A NumPy array travels as `{"__ndarray__": <base64>, "dtype", "shape"}`,
 and a result object (such as `SMatrix`) carries its class name in
@@ -89,7 +95,7 @@ Every dictionary reply from EMode is stamped with the protocol version,
 `"__version__": 1`. A reply without the stamp is a plain value (a number, a
 string, a list, an array or `None`) and is returned unchanged. A reply stamped
 with any version other than 1 comes from a newer protocol than this client
-reads, and raises an `EModeError` asking you to upgrade `emodeconnection`.
+reads, and raises an `EModeError` asking you to upgrade `emode` (`pip install -U emode`).
 
 ## Documentation
 

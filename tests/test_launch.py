@@ -16,8 +16,8 @@ from typing import Any, BinaryIO, Iterator
 
 import pytest
 
-import emodeconnection.emodeconnection as launch_module
-from emodeconnection.emodeconnection import EMode
+import emode.emode as launch_module
+from emode.emode import EMode
 
 
 class _FakeProcess:

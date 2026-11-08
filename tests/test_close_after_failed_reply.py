@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from emodeconnection import EMode
-from emodeconnection.types import EModeError
+from emode import EMode
+from emode.types import EModeError
 
 
 class _Proc:

@@ -1,6 +1,6 @@
 """A local MCP server for EMode, run as ``emode-mcp``.
 
-It needs the optional extra: ``pip install "emodeconnection[mcp]"``. Importing
+It needs the optional extra: ``pip install "emode[mcp]"``. Importing
 this package does not import the MCP SDK, so ``main`` can explain a missing
 extra instead of failing with a bare ImportError.
 """
@@ -36,7 +36,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     except ImportError as err:
         print(
             f"emode-mcp needs the MCP SDK ({err}). "
-            'Install it with: pip install "emodeconnection[mcp]"',
+            'Install it with: pip install "emode[mcp]"',
             file=sys.stderr,
         )
         raise SystemExit(1) from err

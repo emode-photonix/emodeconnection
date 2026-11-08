@@ -19,9 +19,9 @@ from typing import Any
 
 import pytest
 
-from emodeconnection import Confinement, WavelengthDict
-from emodeconnection.emodeclient import EModeClient
-from emodeconnection.types import _TYPE_REGISTRY, reconstruct
+from emode import Confinement, WavelengthDict
+from emode.emodeclient import EModeClient
+from emode.types import _TYPE_REGISTRY, reconstruct
 
 _FACTORS = {"core": {0: 0.81, 1: 0.42}, "clad": {0: 0.19, 1: 0.58}}
 

@@ -17,11 +17,11 @@ pytest.importorskip("mcp")
 from mcp.client import Client
 from test_mcp import FakeEMode, _reset_fake, session  # noqa: F401
 
-from emodeconnection.mcp.docs import html_to_markdown
-from emodeconnection.mcp.server import create_server
+from emode.mcp.docs import html_to_markdown
+from emode.mcp.server import create_server
 
 ROOT = Path(__file__).parent.parent
-SKILL = ROOT / "emodeconnection" / "mcp" / "SKILL.md"
+SKILL = ROOT / "emode" / "mcp" / "SKILL.md"
 
 
 def with_client(fn: Any, **server_kw: Any) -> Any:
@@ -65,7 +65,7 @@ def test_shutdown_removes_its_own_temporary_directory() -> None:
 
 def test_shutdown_keeps_plots(tmp_path: Path) -> None:
     def plot(**kwargs: Any) -> Any:
-        from emodeconnection import PlotImage
+        from emode import PlotImage
 
         Path(kwargs["file_name"]).write_bytes(b"\x89PNG")
         return PlotImage(file=kwargs["file_name"])
@@ -199,7 +199,7 @@ def test_the_claude_code_plugin_manifest_runs_emode_mcp() -> None:
     assert manifest["description"]
     servers = json.loads((plugin / ".mcp.json").read_text())["mcpServers"]
     assert "emode-mcp" in json.dumps(servers["emode"])
-    assert "emodeconnection[mcp]" in json.dumps(servers["emode"])
+    assert "emode[mcp]" in json.dumps(servers["emode"])
     assert (plugin / "skills" / "emode" / "SKILL.md").read_text() == SKILL.read_text()
 
 
@@ -233,5 +233,5 @@ def test_building_the_extension_stamps_the_package_version(tmp_path: Path) -> No
         manifest = json.loads(bundle.read("manifest.json"))
     assert manifest["version"] == version
     assert "server/main.py" in names
-    assert "server/lib/emodeconnection/mcp/server.py" in names
-    assert "server/lib/emodeconnection/mcp/SKILL.md" in names
+    assert "server/lib/emode/mcp/server.py" in names
+    assert "server/lib/emode/mcp/SKILL.md" in names

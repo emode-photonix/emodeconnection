@@ -15,16 +15,16 @@ pytest.importorskip("mcp")
 
 from test_mcp import FakeEMode, _reset_fake, call, session  # noqa: F401
 
-from emodeconnection import (
+from emode import (
     ConvergenceResult,
     Objective,
     OptimizationResult,
     Parameter,
     PlotImage,
 )
-from emodeconnection.mcp import main
-from emodeconnection.mcp.server import create_server
-from emodeconnection.types import ArgumentError, EModeError
+from emode.mcp import main
+from emode.mcp.server import create_server
+from emode.types import ArgumentError, EModeError
 
 OPEN = ("emode_open", {})
 
@@ -160,7 +160,7 @@ def test_section_refuses_a_field_its_kind_does_not_take() -> None:
 
 
 def test_eme_runs_and_summarizes_the_s_matrix() -> None:
-    from emodeconnection import SMatrix
+    from emode import SMatrix
 
     s = SMatrix(
         port_sizes=(1, 1),
@@ -540,7 +540,7 @@ def test_plot_uses_the_png_bytes_when_the_solver_sends_them(tmp_path: Path) -> N
 
 def test_client_warnings_during_a_call_reach_the_agent() -> None:
     def noisy(**kwargs: Any) -> dict:
-        logging.getLogger("emodeconnection.emodeconnection").warning(
+        logging.getLogger("emode.emode").warning(
             "the client says careful"
         )
         return {}
@@ -638,7 +638,7 @@ OMITTED = {
 
 
 def test_every_public_client_method_is_wrapped_or_deliberately_omitted() -> None:
-    from emodeconnection.mcp.server import WRAPPED_METHODS
+    from emode.mcp.server import WRAPPED_METHODS
 
     assert WRAPPED_METHODS <= CLIENT_METHODS, (
         "a tool calls a method the client does not have"
@@ -780,7 +780,7 @@ def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
     assert "domain_lengths" in tool.description
     assert "its own shape" in tool.description
     skill = (
-        Path(__file__).parents[1] / "emodeconnection" / "mcp" / "SKILL.md"
+        Path(__file__).parents[1] / "emode" / "mcp" / "SKILL.md"
     ).read_text()
     assert "one\n  `[min, max]` pair per entry" in skill
     assert "its own shape" in skill

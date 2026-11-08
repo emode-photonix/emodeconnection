@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from emodeconnection import compat
-from emodeconnection.types import (
+from emode import compat
+from emode.types import (
     ArgumentError,
     EModeError,
     MaterialSpec,

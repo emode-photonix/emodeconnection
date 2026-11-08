@@ -1,4 +1,4 @@
-from .emodeconnection import EMode
+from .emode import EMode
 from .eph_utils import open_file, get, inspect
 from .types import MaterialSpec, MaterialProperties, Grid, Field, GridSet, FieldSet, WavelengthDict, Confinement, ModeDict
 from .geometry import Pose, Line, Arc, BSpline, Path, Curve, LayoutReport
@@ -15,6 +15,7 @@ from .optimize import (
     ConvergenceStep, ConvergenceStage, ConvergenceResult,
 )
 from .traceback_filter import install as _install_traceback_filter
+from .types import client_version as _client_version
 from subprocess import Popen
 from platform import system
 
@@ -36,6 +37,8 @@ __all__ = [
     "FreeSpaceProjection", "FarField", "Screen", "ScreenField",
     "EModeLogin",
 ]
+
+__version__ = _client_version()
 
 _install_traceback_filter()
 

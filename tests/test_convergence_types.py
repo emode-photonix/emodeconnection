@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from emodeconnection import ConvergenceResult, ConvergenceStage, ConvergenceStep
-from emodeconnection.emodeclient import obj_hook
-from emodeconnection.types import reconstruct
+from emode import ConvergenceResult, ConvergenceStage, ConvergenceStep
+from emode.emodeclient import obj_hook
+from emode.types import reconstruct
 
 
 def _over_the_wire(value: Any) -> Any:

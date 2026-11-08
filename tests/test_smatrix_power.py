@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from emodeconnection.smatrix import SMatrix
+from emode.smatrix import SMatrix
 
 POWER = np.array([1.0, 4.0])
 
