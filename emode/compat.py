@@ -29,6 +29,9 @@ FIRST_REPORTING_EMODE = "1.0.7"
 
 # The first EMode release that reads each wire type added after EMode 1.0.6.
 TYPE_SINCE: dict[str, str] = {
+    "Arrow": "1.0.9",
+    "AxesInfo": "1.0.9",
+    "Block": "1.0.9",
     "Confinement": "1.0.7",
     "Constraint": "1.0.7",
     "ConvergenceResult": "1.0.7",
@@ -36,16 +39,28 @@ TYPE_SINCE: dict[str, str] = {
     "ConvergenceStep": "1.0.7",
     "Evaluation": "1.0.7",
     "FarField": "1.0.8",
+    "Label": "1.0.9",
+    "LegendEntry": "1.0.9",
+    "MenuState": "1.0.9",
     "ModeDict": "1.0.7",
     "Objective": "1.0.7",
     "OptimizationResult": "1.0.7",
     "Parameter": "1.0.7",
     "PlotImage": "1.0.7",
+    "PlotView": "1.0.9",
+    "Polyline": "1.0.9",
     "PulseFit": "1.0.7",
     "PulseMeasurement": "1.0.7",
     "RankReport": "1.0.7",
+    "Raster": "1.0.9",
+    "Region": "1.0.9",
+    "ScaleInfo": "1.0.9",
+    "Schematic": "1.0.9",
     "Screen": "1.0.8",
     "ScreenField": "1.0.8",
+    "Segments": "1.0.9",
+    "Slider": "1.0.9",
+    "Stub": "1.0.9",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.
