@@ -151,3 +151,13 @@ def test_the_arguments_split_into_data_and_figure():
 def test_a_bad_unit_is_refused():
     with pytest.raises(ArgumentError):
         PlotOptions.from_arguments({"units": "mm"})
+
+
+def test_the_window_display_shows_the_whole_grid_when_the_view_gives_its_limits():
+    view = xy_view()
+    view = view.model_copy(
+        update={"axes": view.axes.model_copy(update={"xlim_window": (-1100.0, 1100.0), "ylim_window": (-600.0, 800.0)})}
+    )
+    assert compose(view).axes.xrange == (-1000.0, 1000.0)
+    spec = compose(view, PlotOptions(window_display=True))
+    assert (spec.axes.xrange, spec.axes.yrange) == ((-1100.0, 1100.0), (-600.0, 800.0))
