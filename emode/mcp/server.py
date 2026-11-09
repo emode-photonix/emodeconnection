@@ -92,7 +92,10 @@ _SECTION_FIELDS: dict[str, tuple[str, frozenset[str]]] = {
         "straight_section",
         frozenset({"name", "profile", "length", "offset"}),
     ),
-    "taper": ("taper_section", frozenset({"name", "profile", "profile_end", "length"})),
+    "taper": (
+        "taper_section",
+        frozenset({"name", "profile", "profile_end", "length", "widths", "shape"}),
+    ),
     "bend": (
         "bend_section",
         frozenset(
@@ -583,11 +586,17 @@ def create_server(
         max_order: list[int] | None = None,
         max_kt: float | None = None,
         num_modes: int | None = None,
+        widths: list[float] | None = None,
+        shape: str | None = None,
     ) -> ToolResult:
         """Declare a section of an EME circuit. Sections connect in the order declared.
 
         kind straight: profile, length, offset. taper: profile, profile_end,
-        length. bend: profile plus one curve. radius (nm) with sweep_angle
+        length, or profile, widths, length to taper one shape of profile along
+        a smooth spline through the widths (nm) at equally spaced points, both
+        ends included (shape names it when the profile has several with a
+        numeric width), whose widths emode_optimize varies with the key
+        'taper, <name>, widths'. bend: profile plus one curve. radius (nm) with sweep_angle
         (radians) is a circular arc. A list of radii with sweep_angle is a
         clothoid whose curvature varies linearly from the first radius to the
         last ("inf" is a straight end). euler is {"angle": radians,
@@ -618,6 +627,8 @@ def create_server(
             max_order=max_order,
             max_kt=max_kt,
             num_modes=num_modes,
+            widths=widths,
+            shape=shape,
         )
         extra = sorted(set(given) - allowed)
         if extra:

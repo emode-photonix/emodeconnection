@@ -40,7 +40,10 @@ multimode interference coupler, is built from labeled cross-sections:
    waveguides (`mask` and `mask_offset`), and label it too.
 3. Declare the sections on the labeled cross-sections: a straight section
    names one as its `profile`, a taper names its two ends as `profile` and
-   `profile_end`.
+   `profile_end`. A taper that widens one shape along a smooth curve names
+   its `profile` and the shape's `widths` at equally spaced points instead,
+   and `emode_optimize` varies them with the key `'taper, <name>, widths'`
+   (or `'taper, <name>, widths[k]'` for one point).
 
 A labeled cross-section keeps its shapes when the current one changes. Change
 it with `emode_shape` and `profile`, or vary it in `emode_evaluate`,
