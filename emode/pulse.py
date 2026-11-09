@@ -341,6 +341,9 @@ class Poling(TaggedModel):
     section does, the sign flips once more and the last domain runs to the
     end. `walls(section_length)` gives the walls of any form, and
     `to_domain_lengths(section_length)` converts any form to domain lengths.
+
+    Positions are measured along the section's length, which on a bend is the
+    centerline's arc length: the walls are radial, at constant arc length.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
