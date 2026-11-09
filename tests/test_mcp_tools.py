@@ -109,6 +109,22 @@ def test_material_index_looks_a_material_up() -> None:
             "taper_section",
             {"name": "t", "profile": "p", "profile_end": "q", "length": 5000},
         ),
+        (
+            "taper",
+            "taper_section",
+            {"name": "t", "profile": "p", "widths": [500, 900, 1500], "length": 5000},
+        ),
+        (
+            "taper",
+            "taper_section",
+            {
+                "name": "t",
+                "profile": "p",
+                "widths": [200, 300],
+                "shape": "rail",
+                "length": 5000,
+            },
+        ),
         ("bend", "bend_section", {"name": "b", "radius": 20000, "sweep_angle": 1.57}),
         (
             "gds",
@@ -540,9 +556,7 @@ def test_plot_uses_the_png_bytes_when_the_solver_sends_them(tmp_path: Path) -> N
 
 def test_client_warnings_during_a_call_reach_the_agent() -> None:
     def noisy(**kwargs: Any) -> dict:
-        logging.getLogger("emode.emode").warning(
-            "the client says careful"
-        )
+        logging.getLogger("emode.emode").warning("the client says careful")
         return {}
 
     FakeEMode.returns["sweep"] = noisy
@@ -779,8 +793,6 @@ def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
     assert "one [min, max] pair per entry" in schema
     assert "domain_lengths" in tool.description
     assert "its own shape" in tool.description
-    skill = (
-        Path(__file__).parents[1] / "emode" / "mcp" / "SKILL.md"
-    ).read_text()
+    skill = (Path(__file__).parents[1] / "emode" / "mcp" / "SKILL.md").read_text()
     assert "one\n  `[min, max]` pair per entry" in skill
     assert "its own shape" in skill
