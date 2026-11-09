@@ -374,6 +374,8 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
         box_aspect = _box_aspect(options.aspect_ratio, view)
     x0, x1 = view.axes.xlim
     y0, y1 = view.axes.ylim
+    if options.window_display and view.axes.xlim_window and view.axes.ylim_window:
+        (x0, x1), (y0, y1) = view.axes.xlim_window, view.axes.ylim_window
     axes = AxesSpec(
         xlabel=options.xlabel or _axis_label(view.axes.xlabel, xu),
         ylabel=options.ylabel or _axis_label(view.axes.ylabel, yu),

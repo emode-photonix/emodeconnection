@@ -158,7 +158,8 @@ class AxesInfo(TaggedModel):
     ``xlim`` and ``ylim`` are the panel's limits in nm, low to high, and
     ``invert_y`` puts the low end at the top. ``equal_aspect`` keeps one nm the
     same length on both axes, and ``box_aspect`` is the plot box's height over
-    its width when the aspect is free.
+    its width when the aspect is free. ``xlim_window`` and ``ylim_window`` are the
+    limits that show the whole grid, PML included, with the window display.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -172,6 +173,8 @@ class AxesInfo(TaggedModel):
     invert_y: bool = False
     equal_aspect: bool = False
     box_aspect: Optional[float] = None
+    xlim_window: Optional[Tuple[float, float]] = None
+    ylim_window: Optional[Tuple[float, float]] = None
 
 
 @register_type
