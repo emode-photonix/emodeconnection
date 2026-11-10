@@ -172,3 +172,97 @@ def schematic() -> Schematic:
         neighbors={"a": {"right": "b"}, "b": {"left": "a"}},
         menu=MenuState(planes=["x-y", "z-x", "z-y", "schematic"], ports=["a.left", "b.right"], selected={"plane": "schematic"}),
     )
+
+
+# ------------------------------------------------------------------ GUI-M2's views
+
+
+def smatrix() -> "SMatrix":
+    """A three-port S-matrix: two modes on port 0, one on ports 1 and 2, one wavelength."""
+    from emode.smatrix import SMatrix
+
+    data = np.zeros((4, 4), complex)
+    data[2, 0] = 0.7 * np.exp(0.5j)  # port 0 mode 0 to port 1
+    data[3, 0] = 0.7 * np.exp(-0.5j)  # port 0 mode 0 to port 2
+    data[2, 1] = 0.1j
+    data[0, 0] = 0.05
+    return SMatrix(
+        port_sizes=(2, 1, 1), data=data, port_names=("in", "out_a", "out_b"), wavelengths=(1.55e-6,) * 3
+    )
+
+
+def smatrix_view(component: str = "abs^2", output: str = "out_a") -> "SMatrixView":
+    from emode.plotting import SMatrixView
+
+    labels = ["in", "out_a", "out_b"]
+    return SMatrixView(
+        smatrix=smatrix(),
+        port_labels=labels,
+        mode_labels=[["0, TE", "1, TM"], ["0, TE"], ["0, TE"]],
+        menu=MenuState(
+            ports=labels,
+            components=["abs^2", "angle", "real", "imag"],
+            selected={"input": "in", "output": output, "component": component},
+        ),
+    )
+
+
+def material_view(requested=(1200.0, 1700.0), component: str = "n_x") -> "MaterialView":
+    """A made-up dispersive material valid from 1000 to 2000 nm, birefringent along z."""
+    from emode.plotting import MaterialView
+
+    w = np.arange(1000.0, 2000.0, 10.0)
+    n = np.vstack([1.5 - 1e-5 * (w - 1000), 1.5 - 1e-5 * (w - 1000), 1.6 - 1e-5 * (w - 1000)])
+    we = np.arange(min(requested[0], 2000.0), max(requested[1], 1000.0) + 10.0, 10.0)
+    ne = np.vstack([1.5 - 1e-5 * (we - 1000), 1.5 - 1e-5 * (we - 1000), 1.6 - 1e-5 * (we - 1000)])
+    return MaterialView(
+        material="Made",
+        wavelengths=w,
+        n=n,
+        requested=tuple(requested),
+        valid_range=(1000.0, 2000.0),
+        step=10.0,
+        extended_wavelengths=we,
+        n_extended=ne,
+        reference="A. Author, A made-up model, J. Made 1, 1 (2026).",
+        materials=["Made", "SiO2"],
+        menu=MenuState(components=["n_x", "n_y", "n_z"], selected={"material": "Made", "component": component}),
+    )
+
+
+def farfield(screen: bool = False) -> "FarField":
+    from emode.free_space import FarField, Screen, ScreenField
+
+    ux = np.linspace(-0.5, 0.5, 11)
+    uy = np.linspace(-0.4, 0.4, 9)
+    U, V = np.meshgrid(ux, uy, indexing="ij")
+    intensity = np.exp(-(U**2 + V**2) / 0.05)
+    fields = {k: intensity.astype(complex) for k in ("Ex", "Ey", "Ez")}
+    screen_field = None
+    if screen:
+        s = np.linspace(-2000, 2000, 5)
+        t = np.linspace(-1000, 1000, 3)
+        S, T = np.meshgrid(s, t, indexing="ij")
+        zeros = np.zeros_like(S)
+        screen_field = ScreenField(
+            screen=Screen(distance=10000.0, width=4000.0, height=2000.0, points=(5, 3)),
+            s=s, t=t, x=S, y=T, z=zeros + 10000.0,
+            u_axis=(1.0, 0.0, 0.0), v_axis=(0.0, 1.0, 0.0), normal=(0.0, 0.0, 1.0),
+            fields={k: zeros.astype(complex) for k in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")},
+            Sn=np.exp(-(S**2 + T**2) / 1e6), power_through_screen=0.5,
+        )
+    return FarField(
+        wavelength=1550.0, index=1.0, ux=ux, uy=uy, fields=fields, intensity=intensity,
+        radiated_power=0.9, divergence=(12.5, 10.0), m_squared=(1.01, 1.02), waist=(1500.0, 1200.0),
+        waist_position=(0.0, 0.0), centroid=(0.0, 0.0), screen=screen_field,
+    )
+
+
+def session_info() -> "SessionInfo":
+    from emode.plotting import SessionInfo
+
+    return SessionInfo(
+        version="1.0.9", license_type="3d", account="user@example.com", started="2026-11-10T09:00:00-07:00",
+        simulation_name="emode", eph_path="/tmp/emode.eph", eph_bytes=12345, pid=4242, rss_bytes=10**9,
+        cpu_percent=12.5, threads=8, solve_pool_workers=4, cache_entries=17, session_errors=1,
+    )
