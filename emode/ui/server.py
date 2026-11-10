@@ -344,9 +344,32 @@ def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:
 
 
 def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """The tab's figure options as ``PlotOptions`` fields: an empty entry is the option's default.
+
+    A size with an empty side is no size (the default), and a number the tab
+    sent as text is a number.
+    """
+    defaults = PlotOptions()
     out = dict(arguments)
-    if "figure_size" in out and out["figure_size"] is not None:
-        out["figure_size"] = tuple(out["figure_size"])
+    for name, value in arguments.items():
+        if value is None or value == "":
+            out[name] = getattr(defaults, name)
+    size = out.get("figure_size")
+    if size is not None:
+        try:
+            width, height = (float(v) for v in size)
+        except (TypeError, ValueError):
+            out["figure_size"] = None
+        else:
+            out["figure_size"] = (width, height) if width > 0 and height > 0 else None
+    for name in ("font_size", "dpi", "vmin", "vmax"):
+        if isinstance(out.get(name), str):
+            try:
+                out[name] = float(out[name])
+            except ValueError:
+                out[name] = getattr(defaults, name)
+    if out.get("dpi") is not None:
+        out["dpi"] = int(out["dpi"])
     return out
 
 

@@ -158,6 +158,17 @@ def test_the_labels_posted_with_a_save_are_in_the_file(pages):
     assert pages.registry.get("x2").options.title is None
 
 
+def test_empty_entries_of_the_panel_are_the_defaults(pages):
+    """The labels popover posts every entry, an empty one as null: those are the defaults."""
+    body = {"controls": {"title": None, "font_size": None, "dpi": None, "figure_size": [None, 60], "vmin": ""}}
+    reply = _json(request(pages, "POST", "/api/views/x2/data", body=body))
+    options = pages.registry.get("x2").options
+    assert (options.font_size, options.dpi, options.figure_size, options.vmin) == (7.0, 600, None, None)
+    assert reply["controls"]["title"] is None
+    saved = _json(request(pages, "POST", "/api/views/x2/save", body={"file_name": "s", "figure_size": [None, None], "dpi": "150"}))
+    assert Path(saved["path"]).is_file()
+
+
 @pytest.mark.parametrize("name", ["/tmp/escape", "../escape", "a/../../escape"])
 def test_save_stays_in_the_working_directory(pages, name):
     reply = _json(request(pages, "POST", "/api/views/p1/save", body={"file_name": name, "file_type": "png"}))
