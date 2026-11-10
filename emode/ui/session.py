@@ -120,9 +120,18 @@ def ensure_server(em: "EMode") -> UIServer:
 
 
 def headless_image(
-    data: Union[PlotView, Schematic], options: PlotOptions, file_name: Optional[str], file_type: str
+    data: Union[PlotView, Schematic],
+    options: PlotOptions,
+    file_name: Optional[str],
+    file_type: str,
+    inline: bool = True,
 ) -> PlotImage:
-    """The panel drawn with matplotlib: saved when `file_name` is given, and as a 150 dpi PNG."""
+    """The panel drawn with matplotlib: saved when `file_name` is given, and as a 150 dpi PNG.
+
+    The PNG is left out (``png=None``) when a file was saved and `inline` is
+    False, as ``PlotImage`` has always said: it is sent when no file was asked
+    for, and always to a notebook, which shows it.
+    """
     from .renderers import mpl
 
     spec = compose(data, options)
@@ -133,6 +142,8 @@ def headless_image(
         path = Path("EM_figures") / name
         mpl.save(spec, path, extension)
         saved = str(path.resolve())
+    if saved is not None and not inline:
+        return PlotImage(file=saved, png=None, dpi=mpl.INLINE_DPI)
     png = mpl.render(spec, "png", dpi=mpl.INLINE_DPI)
     return PlotImage(file=saved, png=np.frombuffer(png, dtype=np.uint8), dpi=mpl.INLINE_DPI)
 
@@ -172,8 +183,10 @@ def plot(
     check_plot_support(em)
 
     if headless_requested(file_name) or inline == "png":
-        image = headless_image(fetch_view(em, data_args, DEFAULT_PIXELS), options, file_name, file_type)
-        if em.in_ipython():
+        notebook = em.in_ipython()
+        data = fetch_view(em, data_args, DEFAULT_PIXELS)
+        image = headless_image(data, options, file_name, file_type, inline=notebook)
+        if notebook:
             from IPython.display import display  # type: ignore
 
             display(image)
