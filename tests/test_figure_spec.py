@@ -23,7 +23,7 @@ def test_the_raster_is_the_views_values_on_its_centers():
     np.testing.assert_array_equal(r.z, view.rasters[0].z)
     np.testing.assert_array_equal(r.x, view.rasters[0].x)
     assert (r.vmin, r.vmax) == (-1.0, 1.0)
-    assert r.colormap == "diverging"
+    assert r.colormap == "emode-diverging"
     assert r.interpolation == "bilinear"
 
 
