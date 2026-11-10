@@ -246,22 +246,37 @@ def test_headless_starts_no_server_and_returns_an_image(em, browser, monkeypatch
     assert isinstance(image, PlotImage)
     assert em.__dict__.get("_ui") is None and browser == []
     assert image.dpi == 150
+    if how == "file_name":
+        # a saved file outside a notebook carries no inline copy, as PlotImage says
+        assert image.png is None
+        assert image.file == str((tmp_path / "EM_figures" / "field.pdf").resolve())
+        assert Path(image.file).read_bytes().startswith(b"%PDF")
+        return
+    assert image.file is None
     png = image.png.tobytes()
     assert png.startswith(b"\x89PNG")
     height, width = _png_size(png)
     # the 80 mm figure at 150 dpi, cropped to its drawing
     assert 300 < width < 80 / 25.4 * 150 * 1.3 and height > 150
-    if how == "file_name":
-        assert image.file == str((tmp_path / "EM_figures" / "field.pdf").resolve())
-        assert Path(image.file).read_bytes().startswith(b"%PDF")
-    else:
-        assert image.file is None
 
 
 def test_a_saved_file_keeps_its_extension(em, browser):
     pytest.importorskip("matplotlib")
     image = em.plot(file_name="plot.png", file_type="png")
     assert image.file.endswith(os.path.join("EM_figures", "plot.png"))
+
+
+def test_a_saved_file_in_a_notebook_is_shown_too(clock, monkeypatch, tmp_path):
+    pytest.importorskip("matplotlib")
+    shown: List[Any] = []
+    display_module = type(sys)("IPython.display")
+    display_module.display = shown.append  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "IPython", type(sys)("IPython"))
+    monkeypatch.setitem(sys.modules, "IPython.display", display_module)
+    em, client = session(ipython=True)
+    assert em.plot(file_name="index", file_type="png") is None
+    (image,) = shown
+    assert image.png is not None and image.file.endswith("index.png")
 
 
 def test_inline_png_in_a_notebook_displays_the_image(clock, monkeypatch):
