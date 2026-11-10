@@ -1,0 +1,291 @@
+"""A ``FigureSpec`` as Plotly figure JSON, for the browser tab.
+
+The tab hands the result to ``Plotly.react`` as it is. Nothing is decided here
+that the spec does not already say: this is a mapping from the spec's parts to
+Plotly's traces and layout. A raster goes as Plotly's typed-array form
+(``{dtype, bdata, shape}``), which plotly.js reads natively and which keeps the
+JSON at the array's size. Every coordinate is already in display units.
+"""
+from __future__ import annotations
+
+import base64
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+from ... import colormaps
+from ..figure import FigureSpec, RasterSpec
+
+#: Plotly's dash names for the spec's.
+_DASH = {None: "solid", "dash": "dash", "dot": "dot"}
+
+#: Plotly fill patterns for the spec's hatches.
+_HATCH = {"/": "/", "//": "/", "x": "x", "xx": "x"}
+
+#: Points per millimeter, at the browser's 96 px per inch.
+PX_PER_MM = 96 / 25.4
+
+
+def typed_array(values: Any, dtype: str = "f4") -> Dict[str, Any]:
+    """`values` in Plotly's base64 typed-array form."""
+    array = np.ascontiguousarray(np.asarray(values, dtype=np.dtype(dtype)))
+    out: Dict[str, Any] = {"dtype": dtype, "bdata": base64.b64encode(array.tobytes()).decode()}
+    if array.ndim > 1:
+        out["shape"] = ",".join(str(n) for n in array.shape)
+    return out
+
+
+def colorscale(name: str) -> Any:
+    """A family kind's stops, or a matplotlib colormap sampled into a colorscale."""
+    if name in colormaps.KINDS:
+        return colormaps.plotly_colorscale(name)
+    from matplotlib.colors import to_hex
+
+    cmap = colormaps.mpl_colormap("sequential", name)
+    return [[i / 16, to_hex(cmap(i / 16))] for i in range(17)]
+
+
+def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]:
+    z = np.asarray(r.z, np.float32)
+    if r.mask is not None:
+        z = np.where(np.asarray(r.mask, bool), np.nan, z).astype(np.float32)
+    trace: Dict[str, Any] = {
+        "type": "heatmap",
+        "x": typed_array(r.x),
+        "y": typed_array(r.y),
+        "z": typed_array(z),
+        "colorscale": colorscale(r.colormap),
+        "zmin": r.vmin,
+        "zmax": r.vmax,
+        "zsmooth": "best" if r.interpolation == "bilinear" else False,
+        "showscale": showscale,
+        "hovertemplate": "%{x:.4g}, %{y:.4g}: %{z:.4f}<extra></extra>",
+    }
+    if showscale and spec.colorbar is not None:
+        trace["colorbar"] = _colorbar(spec)
+    return trace
+
+
+def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
+    """One contour trace per level, since a Plotly contour's levels are evenly spaced."""
+    out = []
+    for level in r.contour_levels:
+        out.append(
+            {
+                "type": "contour",
+                "x": typed_array(r.x),
+                "y": typed_array(r.y),
+                "z": typed_array(r.z),
+                "contours": {"start": level, "end": level, "size": 1.0, "coloring": "none"},
+                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": 0.5},
+                "opacity": 0.7,
+                "showscale": False,
+                "hoverinfo": "skip",
+            }
+        )
+    return out
+
+
+def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
+    cb = spec.colorbar
+    assert cb is not None
+    out: Dict[str, Any] = {"thickness": 12, "outlinewidth": 0.5, "tickfont": {"size": spec.font_size + 2}}
+    if cb.ticks is not None:
+        out["tickvals"] = list(cb.ticks)
+        if cb.tick_labels is not None:
+            out["ticktext"] = list(cb.tick_labels)
+    if cb.label:
+        out["title"] = {"text": cb.label, "side": "right"}
+    return out
+
+
+def _closed(x: np.ndarray, y: np.ndarray, holes: Any) -> tuple:
+    """A polygon and its holes as one path, each ring closed and separated by a gap."""
+    xs: List[Optional[float]] = [float(v) for v in x] + [float(x[0])]
+    ys: List[Optional[float]] = [float(v) for v in y] + [float(y[0])]
+    for h in holes:
+        h = np.asarray(h)
+        xs += [None] + [float(v) for v in h[:, 0]] + [float(h[0, 0])]
+        ys += [None] + [float(v) for v in h[:, 1]] + [float(h[0, 1])]
+    return xs, ys
+
+
+def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
+    """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``."""
+    data: List[Dict[str, Any]] = []
+    for f in spec.fills:
+        xs, ys = _closed(np.asarray(f.x), np.asarray(f.y), f.holes)
+        trace: Dict[str, Any] = {
+            "type": "scatter",
+            "mode": "lines",
+            "x": xs,
+            "y": ys,
+            "fill": "toself",
+            "fillcolor": f.color or "rgba(0,0,0,0)",
+            "line": {"width": f.width, "color": f.edgecolor or "rgba(0,0,0,0)"},
+            "hoverinfo": "skip",
+            "showlegend": False,
+            "name": f.kind,
+        }
+        if f.hatch:
+            trace["fillpattern"] = {"shape": _HATCH.get(f.hatch, "/"), "fgcolor": f.edgecolor or "#000000"}
+        data.append(trace)
+
+    for i, r in enumerate(spec.rasters):
+        data.append(_heatmap(r, showscale=(i == 0 and spec.colorbar is not None), spec=spec))
+    for r in spec.rasters:
+        data.extend(_contours(r))
+
+    for s in spec.segments:
+        xy = np.asarray(s.xy)
+        xs: List[Optional[float]] = []
+        ys: List[Optional[float]] = []
+        for (x0, y0), (x1, y1) in xy:
+            xs += [float(x0), float(x1), None]
+            ys += [float(y0), float(y1), None]
+        data.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "x": xs,
+                "y": ys,
+                "line": {"width": s.width, "color": s.color},
+                "opacity": s.alpha,
+                "hoverinfo": "skip",
+                "showlegend": False,
+                "name": s.kind,
+            }
+        )
+
+    for line in spec.lines:
+        trace = {
+            "type": "scatter",
+            "mode": "markers" if line.marker else "lines",
+            "x": typed_array(line.x),
+            "y": typed_array(line.y),
+            "line": {"width": line.width, "color": line.color, "dash": _DASH.get(line.dash, "solid")},
+            "opacity": line.alpha,
+            "hoverinfo": "skip",
+            "showlegend": False,
+            "name": line.kind,
+        }
+        if line.marker:
+            trace["marker"] = {"symbol": line.marker, "size": line.marker_size, "color": line.color}
+        data.append(trace)
+
+    if spec.colorbar is not None and not spec.rasters:
+        # a panel of fills only (the index panel): an invisible trace carries the colorbar
+        cb = spec.colorbar
+        data.append(
+            {
+                "type": "scatter",
+                "mode": "markers",
+                "x": [None],
+                "y": [None],
+                "marker": {
+                    "colorscale": colorscale(cb.colormap),
+                    "cmin": cb.vmin,
+                    "cmax": cb.vmax,
+                    "color": [cb.vmin],
+                    "showscale": True,
+                    "colorbar": _colorbar(spec),
+                },
+                "hoverinfo": "skip",
+                "showlegend": False,
+            }
+        )
+
+    for entry in spec.legend:
+        data.append(
+            {
+                "type": "scatter",
+                "mode": "markers",
+                "x": [None],
+                "y": [None],
+                "name": entry.label,
+                "marker": {"symbol": "square", "size": 10, "color": entry.color or "#ffffff", "line": {"width": 0.5, "color": "#000000"}},
+                "showlegend": True,
+            }
+        )
+
+    return {"data": data, "layout": _layout(spec)}
+
+
+def _layout(spec: FigureSpec) -> Dict[str, Any]:
+    a = spec.axes
+    font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3}
+    yrange = [a.yrange[1], a.yrange[0]] if a.invert_y else list(a.yrange)
+    xaxis: Dict[str, Any] = {
+        "title": {"text": a.xlabel},
+        "range": list(a.xrange),
+        "ticks": "inside",
+        "mirror": "ticks",
+        "showline": True,
+        "linewidth": 0.5,
+        "showgrid": False,
+        "zeroline": False,
+        "visible": a.visible,
+    }
+    yaxis: Dict[str, Any] = {
+        "title": {"text": a.ylabel},
+        "range": yrange,
+        "ticks": "inside",
+        "mirror": "ticks",
+        "showline": True,
+        "linewidth": 0.5,
+        "showgrid": False,
+        "zeroline": False,
+        "visible": a.visible,
+    }
+    if a.equal_aspect:
+        yaxis["scaleanchor"] = "x"
+        yaxis["scaleratio"] = 1
+    annotations = []
+    for t in spec.texts:
+        ref = {"xref": "x domain", "yref": "y domain"} if t.frame == "axes" else {"xref": "x", "yref": "y"}
+        annotations.append(
+            {
+                "text": t.text.replace("\n", "<br>"),
+                "x": t.x,
+                "y": t.y,
+                **ref,
+                "xanchor": {"left": "left", "right": "right", "center": "center"}[t.ha],
+                "yanchor": {"top": "top", "bottom": "bottom", "center": "middle", "baseline": "bottom"}[t.va],
+                "showarrow": False,
+                "font": {"color": t.color, "size": t.size + 3, "weight": 700 if t.weight == "bold" else 400},
+                "name": t.kind,
+            }
+        )
+    glyphs = {"left": "◀", "right": "▶", "up": "▲", "down": "▼"}
+    for arrow in spec.arrows:
+        annotations.append(
+            {
+                "text": glyphs[arrow.direction],
+                "x": arrow.x,
+                "y": arrow.y,
+                "xref": "x domain",
+                "yref": "y domain",
+                "showarrow": False,
+                "font": {"color": "#d1495b", "size": 16},
+                "bgcolor": "rgba(255,255,255,0.85)",
+                "bordercolor": "#d1495b",
+                "name": "arrow",
+                "captureevents": True,
+                "hovertext": f"go to {arrow.target}",
+            }
+        )
+    layout: Dict[str, Any] = {
+        "xaxis": xaxis,
+        "yaxis": yaxis,
+        "font": font,
+        "annotations": annotations,
+        "showlegend": bool(spec.legend),
+        "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
+        "margin": {"l": 60, "r": 20, "t": 40, "b": 50},
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": a.background or "#ffffff",
+        "dragmode": "zoom",
+    }
+    if spec.title:
+        layout["title"] = {"text": spec.title}
+    return layout

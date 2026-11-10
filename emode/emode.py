@@ -8,7 +8,7 @@ from pathlib import Path
 import platform
 import signal
 from subprocess import DEVNULL, PIPE, Popen, TimeoutExpired
-from threading import Thread
+from threading import RLock, Thread
 from typing import IO, Optional, Literal, Union
 from .compat import (
     NDARRAY_REQUEST_SINCE,
@@ -26,6 +26,14 @@ logger = getLogger(__name__)
 
 # The EMode version a session has not asked for yet.
 _NOT_ASKED = object()
+
+# Arguments whose values never reach a log line.
+_SECRET_ARGUMENTS = ("password",)
+
+
+def _redacted(kwargs: dict) -> dict:
+    """`kwargs` for a log line: a secret argument's value replaced."""
+    return {k: ("<redacted>" if k in _SECRET_ARGUMENTS else v) for k, v in kwargs.items()}
 
 
 def _forward_stdout(pipe: IO[bytes]) -> None:
@@ -287,8 +295,25 @@ class EMode:
 
         return self._ipython
 
+    def _lock(self) -> RLock:
+        """The lock every call holds, so the plot tab's thread and the script never interleave."""
+        lock = self.__dict__.get("_call_lock")
+        if lock is None:
+            lock = self.__dict__.setdefault("_call_lock", RLock())
+        return lock
+
     def call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list, PlotImage, None]:
-        logger.debug(f"calling '{function}' with args: {kwargs}")
+        """Call `function` on EMode with `kwargs` and return its answer.
+
+        Calls are serialized: the socket carries one request and its reply at
+        a time, and the plot tab asks EMode for data from its own thread, so a
+        call made while another is in flight waits for it.
+        """
+        with self._lock():
+            return self._call(function, **kwargs)
+
+    def _call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list, PlotImage, None]:
+        logger.debug(f"calling '{function}' with args: {_redacted(kwargs)}")
         if not isinstance(function, str):
             raise TypeError("parameter 'function' must be of type 'str'")
 
@@ -361,15 +386,69 @@ class EMode:
         # which turns any name into an EMode call.
         version = self.__dict__.get("_emode_version_cache", _NOT_ASKED)
         if version is _NOT_ASKED:
+            info = self._emode_info()
+            version = info.get("emode") if isinstance(info, dict) else None
+            self._emode_version_cache = version
+        return version  # type: ignore[return-value]
+
+    def _emode_info(self) -> "dict | None":
+        """EMode's whole answer to ``version()``, asked once a session, None from an EMode older than 1.0.7.
+
+        A session whose version was recorded without the answer (an older
+        client's stand-in) is asked again.
+        """
+        info = self.__dict__.get("_emode_info_cache", _NOT_ASKED)
+        if info is _NOT_ASKED:
             try:
                 info = self.call("EM_version")
             except LicenseError:
                 raise
             except EModeError:
                 info = None
-            version = info.get("emode") if isinstance(info, dict) else None
-            self._emode_version_cache = version
-        return version  # type: ignore[return-value]
+            if not isinstance(info, dict):
+                info = None
+            self._emode_info_cache = info
+        return info  # type: ignore[return-value]
+
+    @property
+    def _views(self):
+        """The session's plots, which the app tab lists."""
+        views = self.__dict__.get("_view_registry")
+        if views is None:
+            from .ui.views import ViewRegistry
+
+            views = self.__dict__.setdefault("_view_registry", ViewRegistry())
+        return views
+
+    def plot(self, block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,
+             file_type: str = "png", **kwargs):
+        """Plot a field, the index, the shapes or the outline, in this session's browser tab.
+
+        Returns at once with a ``PlotHandle`` (its ``view`` holds the arrays shown,
+        ``png()`` and ``save()`` draw a static image), after fetching the plot's
+        data from EMode, so the tab loads it even when the script ends right
+        after. The first ``plot()`` opens the tab and later ones update it.
+        ``block=True`` waits until the tab is closed.
+
+        With ``file_name`` the figure is saved under ``EM_figures/`` as
+        ``file_type`` ('png', 'pdf' or 'svg'), and with ``EMODE_HEADLESS=1``, on
+        Linux without a display, or with ``inline='png'`` in a notebook, the
+        figure is drawn here and returned (or shown in the cell) as a
+        ``PlotImage``.
+
+        The arguments that change the data (``plane``, ``view``, ``component``,
+        ``plot_function``, ``normalization``, ``mode``, ``port``, ``excitation``,
+        ``profile``, ``wavelength``, ``slice_position``, ``forward_only``,
+        ``blend_slices``, ``resolution``, ``section``) go to EMode. The ones
+        that change only the figure (``index_outline``, ``contours``,
+        ``text_display``, ``mesh_display``, ``window_display``, ``legend``,
+        ``title``, ``xlabel``, ``ylabel``, ``units``, ``font_size``,
+        ``figure_size``, ``colorbar_label``, ``dpi``, ``colormap``,
+        ``aspect_ratio``) stay in this client.
+        """
+        from .ui import session as ui
+
+        return ui.plot(self, block=block, inline=inline, file_name=file_name, file_type=file_type, **kwargs)
 
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")
@@ -391,6 +470,11 @@ class EMode:
             logger.exception("got exception closing client")
 
         self.running = False
+        # every view holds its data, so the tab can still load what it has not
+        # fetched yet once the solver is closed
+        from .ui.session import exit_wait
+
+        exit_wait(self)
 
     def __getattr__(self, name):
         def wrapper(*args, **kwargs):
