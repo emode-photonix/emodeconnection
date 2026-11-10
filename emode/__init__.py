@@ -6,6 +6,7 @@ from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_fa
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
 from .plot import PlotImage
+from . import colormaps
 from .plotting import MaterialView, PlotView, Schematic, SessionInfo, SMatrixView
 from .free_space import FarField, FreeSpaceProjection, Screen, ScreenField
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit, RankReport
@@ -34,7 +35,7 @@ __all__ = [
     "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
     "ConvergenceStep", "ConvergenceStage", "ConvergenceResult",
     "SMatrix",
-    "PlotImage", "PlotView", "Schematic",
+    "PlotImage", "PlotView", "Schematic", "colormaps",
     "FreeSpaceProjection", "FarField", "Screen", "ScreenField",
     "EModeLogin",
 ]

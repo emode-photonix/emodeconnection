@@ -31,9 +31,10 @@ MIN_LINE_DISTANCE = 20.0
 LIGHTNESS_TOLERANCE = 0.05
 
 
-def _sampled_lightness(name: str, n: int = 256) -> np.ndarray:
-    cmap = colormaps.mpl_colormap(name)
-    return np.array([lightness(cmap(f)) for f in np.linspace(0, 1, n)])
+def _sampled_lightness(name: str) -> np.ndarray:
+    """L* of every entry of the registered matplotlib colormap's lookup table."""
+    cmap = colormaps.get(name)
+    return np.array([lightness(cmap(i)) for i in range(cmap.N)])
 
 
 def _stop_lightness(kind: str) -> np.ndarray:
@@ -51,7 +52,7 @@ def test_the_sequential_map_gets_lighter_monotonically():
 
 
 def test_the_diverging_map_is_symmetric_in_lightness_about_its_center():
-    for values in (_stop_lightness("diverging"), _sampled_lightness("emode-diverging", 257)):
+    for values in (_stop_lightness("diverging"), _sampled_lightness("emode-diverging")):
         np.testing.assert_allclose(values, values[::-1], atol=0.5)
         # each half is monotonic, so a value's magnitude reads the same either side of zero
         half = values[: len(values) // 2 + 1]
@@ -62,7 +63,7 @@ def test_the_diverging_map_is_symmetric_in_lightness_about_its_center():
 def test_the_cyclic_maps_ends_meet():
     points = colormaps.stops("cyclic")
     assert points[0][1] == points[-1][1]
-    cmap = colormaps.mpl_colormap("emode-cyclic")
+    cmap = colormaps.get("emode-cyclic")
     np.testing.assert_allclose(cmap(0.0), cmap(1.0), atol=1 / 255)
     # and it has no other jump: neighboring samples stay close all the way round
     samples = [mpl.colors.to_hex(cmap(f)) for f in np.linspace(0, 1, 257)]
@@ -87,9 +88,12 @@ def test_matplotlib_and_plotly_draw_from_the_same_stops(kind):
     scale = colormaps.plotly_colorscale(name)
     assert scale == [[p, c] for p, c in colormaps.stops(kind)]
     assert colormaps.plotly_colorscale(kind) == scale
-    cmap = colormaps.mpl_colormap(name)
+    cmap = colormaps.get(name)
+    # matplotlib reads a position from its 256-entry table, so a stop between
+    # two entries is drawn as the nearer one, within one step of the table
+    step = np.abs(np.diff(cmap(np.arange(cmap.N))[:, :3], axis=0)).max()
     for position, color in scale:
-        np.testing.assert_allclose(cmap(position)[:3], hex_to_rgb(color), atol=1.5 / 255)
+        np.testing.assert_allclose(cmap(position)[:3], hex_to_rgb(color), atol=step + 0.5 / 255)
 
 
 def test_every_name_is_registered_with_matplotlib():

@@ -44,9 +44,14 @@ VIEWS = {
 
 
 def _mpl_colormap_names(fig) -> set:
+    """The colormaps of a figure's color-mapped images and meshes (contour lines are drawn in black and white)."""
+    from matplotlib.contour import ContourSet
+
     names = set()
     for ax in fig.axes:
         for artist in list(ax.images) + list(ax.collections):
+            if isinstance(artist, ContourSet):
+                continue
             cmap = getattr(artist, "cmap", None)
             if cmap is not None and artist.get_array() is not None:
                 names.add(cmap.name)
