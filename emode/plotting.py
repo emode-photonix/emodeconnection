@@ -28,6 +28,7 @@ from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 from pydantic import ConfigDict, field_validator
 
+from .smatrix import SMatrix
 from .types import TaggedModel, register_type
 
 RasterKind = Literal["sequential", "diverging", "cyclic"]
@@ -357,3 +358,92 @@ class Schematic(_Arrays):
     neighbors: Dict[str, Dict[str, str]] = {}
     arrows: List[Arrow] = []
     menu: MenuState = MenuState()
+
+
+@register_type
+class SMatrixView(TaggedModel):
+    """The S-matrix plot's data: the solved S-matrix, the port menu and what is selected.
+
+    ``smatrix`` is the whole matrix (the wire ``SMatrix``), so changing the
+    ports, the component or the scale redraws in this client without asking
+    EMode. ``port_labels`` are the menu's labels, one per port of ``smatrix``
+    (the port's name, with its wavelength when the matrix holds several).
+    ``mode_labels`` lists each port's modes as the plot's Mode menus name them
+    ('0, TE'). ``menu.selected`` holds ``'input'``, ``'output'`` (port labels)
+    and ``'component'`` (``'abs^2'``, ``'angle'``, ``'real'`` or ``'imag'``).
+    The plot draws the block from the input port to the output port, input
+    modes along x and output modes along y.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    smatrix: SMatrix
+    port_labels: List[str]
+    mode_labels: List[List[str]] = []
+    menu: MenuState = MenuState()
+
+
+@register_type
+class MaterialView(_Arrays):
+    """The material explorer's data: a material's refractive index against wavelength.
+
+    - ``wavelengths`` (nm) and ``n`` (one row per entry of ``menu.components``,
+      ``'n_x'``, ``'n_y'``, ``'n_z'``) sample the model over its valid range,
+      ``valid_range`` (nm), at ``step`` nm, and ``k`` holds the extinction
+      coefficient where the model has one.
+    - ``extended_wavelengths`` and ``n_extended`` cover the whole requested
+      range, ``requested`` (nm), when it leaves the valid range. That part is
+      the model extrapolated, and is drawn dashed.
+    - ``x_fraction`` is the alloy fraction of a ternary (AlGaAs, InGaAs), None
+      for any other material.
+    - ``reference`` is the citation shown under the plot, ``materials`` the
+      Material menu. ``menu.selected`` holds ``'material'`` and ``'component'``.
+    """
+
+    material: str
+    wavelengths: np.ndarray
+    n: np.ndarray
+    k: Optional[np.ndarray] = None
+    requested: Tuple[float, float]
+    valid_range: Tuple[float, float]
+    step: float = 1.0
+    extended_wavelengths: Optional[np.ndarray] = None
+    n_extended: Optional[np.ndarray] = None
+    x_fraction: Optional[float] = None
+    reference: str = ""
+    materials: List[str] = []
+    menu: MenuState = MenuState()
+
+
+@register_type
+class SessionInfo(TaggedModel):
+    """What EMode reports about its session, for the session page of the browser tab.
+
+    ``version`` is EMode's, ``license_type`` the session's license
+    (``'2D'``, ``'3D'``, ``'demo'``), ``account`` the signed-in address (None
+    when unknown), ``started`` the ISO time the session began.
+    ``simulation_name`` and ``eph_path`` name the simulation and its file, and
+    ``eph_bytes`` is that file's size on disk now (None before it is written).
+    ``pid``, ``rss_bytes``, ``cpu_percent`` and ``threads`` describe EMode's
+    process. ``solve_pool_workers`` is the most worker processes a parallel
+    mode solve starts, ``cache_entries`` the entries in the session's solver
+    cache, and ``session_errors`` the error reports waiting to be sent at the
+    next license checkin.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    version: str
+    license_type: Optional[str] = None
+    account: Optional[str] = None
+    started: Optional[str] = None
+    simulation_name: Optional[str] = None
+    eph_path: Optional[str] = None
+    eph_bytes: Optional[int] = None
+    pid: int
+    rss_bytes: Optional[int] = None
+    cpu_percent: Optional[float] = None
+    threads: Optional[int] = None
+    solve_pool_workers: int = 0
+    cache_entries: int = 0
+    session_errors: int = 0

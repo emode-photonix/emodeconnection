@@ -49,9 +49,9 @@ import numpy as np
 
 from .. import colormaps
 from ..types import EModeError
-from .figure import DATA_ARGUMENTS, PlotOptions, compose
+from .figure import PlotOptions, compose
 from .renderers.plotly import to_plotly
-from .views import View, ViewRegistry, title_of
+from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
 UI_DIR = Path(__file__).parent
 PAGES = UI_DIR / "pages"
@@ -87,9 +87,11 @@ class UIServer:
         fetch: Callable[[View, Dict[str, Any], Tuple[int, int]], Any],
         port: Optional[int] = None,
         clock: Callable[[], float] = time.monotonic,
+        session_info: Optional[Callable[[], Dict[str, Any]]] = None,
     ) -> None:
         self.registry = registry
         self.fetch = fetch
+        self.session_info = session_info
         self.clock = clock
         self.token = secrets.token_urlsafe(32)
         self._requested_port = port if port is not None else int(os.environ.get("EMODE_UI_PORT") or 0)
@@ -197,11 +199,41 @@ class UIServer:
             if q in self._subscribers:
                 self._subscribers.remove(q)
 
+    # ---------------------------------------------------------------- the session page
+
+    def session_page(self) -> Dict[str, Any]:
+        """The session page's rows: EMode's ``SessionInfo`` (while the session runs) and this client's."""
+        from .session import client_rows
+
+        emode: Optional[Dict[str, Any]] = None
+        error: Optional[str] = None
+        if not self.session_ended and self.session_info is not None:
+            try:
+                emode = self.session_info()
+            except EModeError as exc:
+                error = str(exc)
+        from .session import DOCS_URL
+
+        client = client_rows(self)
+        # the documentation of the EMode this session runs, once it has said which
+        version = (emode or {}).get("version")
+        client["docs"] = f"{DOCS_URL}?version={version}" if version else DOCS_URL
+        return {
+            "emode": emode,
+            "error": error,
+            "session_ended": self.session_ended,
+            "client": client,
+        }
+
     # ---------------------------------------------------------------- a view's data
 
     def view_reply(self, view: View, controls: Dict[str, Any], pixels: Optional[Tuple[int, int]]) -> Dict[str, Any]:
         """Apply the tab's `controls` to `view`, fetching new data only when they need it."""
-        data_args = {k: controls[k] for k in DATA_ARGUMENTS if k in controls}
+        from .views import _select
+
+        kind = KINDS[view.kind]
+        data_args = {k: controls[k] for k in kind.data_arguments if k in controls}
+        local_args = {k: controls[k] for k in kind.local_arguments if k in controls}
         figure_args = {k: controls[k] for k in FIGURE_OPTIONS if k in controls}
         changed = {k: v for k, v in data_args.items() if view.arguments.get(k) != v}
         resize = pixels is not None and _needs_refetch(view, pixels)
@@ -209,21 +241,95 @@ class UIServer:
             if self.session_ended:
                 raise EModeError("This plot's EMode session has ended, so its data cannot change.")
             arguments = {**view.arguments, **data_args}
-            view.data = self.fetch(view, arguments, pixels or view.pixels)
+            sent = {k: v for k, v in arguments.items() if k not in kind.local_arguments}
+            data = self.fetch(view, sent, pixels or view.pixels)
+            local = {k: v for k, v in view.arguments.items() if k in kind.local_arguments}
+            view.data = _select(data, local) if local else data
             view.arguments = arguments
             view.pixels = tuple(pixels or view.pixels)
-            view.title = title_of(view.data, arguments)
+        if local_args:
+            view.data = _select(view.data, local_args)
+            view.arguments = {**view.arguments, **local_args}
         if figure_args:
             view.options = replace(view.options, **_clean_options(figure_args))
+        view.title = title_of(view.data, view.arguments)
         spec = compose(view.data, view.options)
         return {
             "id": view.id,
             "kind": view.kind,
             "title": view.title,
             "figure": to_plotly(spec),
-            "menu": view.data.menu.model_dump(mode="json"),
+            "menu": menu_of(view.data).model_dump(mode="json"),
             "controls": {**view.arguments, **_options_dict(view.options)},
+            "extra": _extra(view.data),
         }
+
+    def export(self, view: View, request: Dict[str, Any]) -> Tuple[bytes, str, str]:
+        """`view` drawn as a file: its bytes, its type and its name.
+
+        `request` holds ``file_type`` (``'png'``, ``'pdf'`` or ``'svg'``),
+        ``file_name``, and any figure option (``figure_size`` in mm, ``dpi``,
+        ``title``, ``xlabel``, ``ylabel``, ``units``, ``font_size``,
+        ``colorbar_label``), applied over the view's own for this file only.
+        """
+        from .renderers import mpl
+        from .session import compose_file_name
+
+        file_type = str(request.get("file_type") or "png").lower().lstrip(".")
+        if file_type not in EXPORT_TYPES:
+            raise EModeError(f"file_type must be one of {EXPORT_TYPES}, got {file_type!r}")
+        figure_args = {k: request[k] for k in FIGURE_OPTIONS if request.get(k) is not None}
+        options = replace(view.options, **_clean_options(figure_args)) if figure_args else view.options
+        PlotOptions.from_arguments(_options_dict(options))
+        spec = compose(view.data, options)
+        name = compose_file_name(str(request.get("file_name") or f"EM_{view.id}"), file_type)
+        return mpl.render(spec, file_type), file_type, name
+
+    def save(self, view: View, request: Dict[str, Any]) -> Path:
+        """Write `view` as a file under the working directory, ``EM_figures/`` by default.
+
+        The name is relative to the working directory and may not leave it.
+        A bare name goes in ``EM_figures/``, as ``plot(file_name=)`` saves.
+        """
+        body, file_type, name = self.export(view, request)
+        path = _save_path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+        return path.resolve()
+
+
+#: The file types the export panel saves through matplotlib.
+EXPORT_TYPES = ("png", "pdf", "svg")
+
+#: The content type of each exported file.
+CONTENT_TYPES = {"png": "image/png", "pdf": "application/pdf", "svg": "image/svg+xml"}
+
+
+def _save_path(name: str) -> Path:
+    """Where the export panel saves `name`: inside the working directory, ``EM_figures/`` by default."""
+    path = Path(name)
+    if path.is_absolute() or ".." in path.parts or not path.name:
+        raise EModeError(
+            f"save a figure under the working directory: {name!r} is not a relative file name there"
+        )
+    if path.parent == Path("."):
+        path = Path("EM_figures") / path
+    return Path.cwd() / path
+
+
+def _extra(data: Any) -> Dict[str, Any]:
+    """What a view's own controls need beyond its menu (the material explorer's entries)."""
+    from ..plotting import MaterialView
+
+    if isinstance(data, MaterialView):
+        return {
+            "requested": list(data.requested),
+            "step": data.step,
+            "x_fraction": data.x_fraction,
+            "materials": list(data.materials),
+            "reference": data.reference,
+        }
+    return {}
 
 
 def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:
@@ -354,6 +460,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, colormaps.all_stops())
         if path == "/api/status":
             return self._json(200, {"session_ended": self.ui.session_ended, "views": len(self.ui.registry)})
+        if path == "/api/session":
+            return self._json(200, self.ui.session_page())
         return self._json(404, {"error": "no such route"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -374,6 +482,8 @@ class _Handler(BaseHTTPRequestHandler):
             if parts[3] == "fetched":
                 self.ui.registry.mark_fetched(view.id)
                 return self._json(200, {"ok": True})
+            if parts[3] in ("save", "export"):
+                return self._export(view, parts[3])
             if parts[3] == "data":
                 body = self._body()
                 controls = body.get("controls") or {}
@@ -387,6 +497,22 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "no such route"})
 
     # ---------------------------------------------------------------- routes
+
+    def _export(self, view: View, action: str) -> None:
+        """Save `view` under the working directory, or send it back as a file to download."""
+        request = self._body()
+        try:
+            if action == "save":
+                path = self.ui.save(view, request)
+                return self._json(200, {"id": view.id, "path": str(path)})
+            body, file_type, name = self.ui.export(view, request)
+        except EModeError as exc:
+            return self._json(200, {"id": view.id, "error": str(exc)})
+        safe = "".join(c for c in Path(name).name if c.isalnum() or c in "._- ") or f"EM_{view.id}.{file_type}"
+        self._send(
+            200, body, CONTENT_TYPES[file_type],
+            {"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="{safe}"'},
+        )
 
     def _static(self, name: str) -> None:
         root = STATIC.resolve()

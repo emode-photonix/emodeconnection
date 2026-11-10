@@ -240,6 +240,12 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     if a.equal_aspect:
         yaxis["scaleanchor"] = "x"
         yaxis["scaleratio"] = 1
+    if a.grid:
+        for axis in (xaxis, yaxis):
+            axis.update({"showgrid": True, "gridcolor": "rgba(128,128,128,0.25)", "gridwidth": 0.5})
+    if a.integer_ticks:
+        for axis in (xaxis, yaxis):
+            axis.update({"tickformat": "d", "dtick": 1})
     annotations = []
     for t in spec.texts:
         ref = {"xref": "x domain", "yref": "y domain"} if t.frame == "axes" else {"xref": "x", "yref": "y"}
@@ -281,7 +287,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "annotations": annotations,
         "showlegend": bool(spec.legend),
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
-        "margin": {"l": 60, "r": 20, "t": 40, "b": 50},
+        "margin": {"l": 60, "r": 20, "t": 40, "b": 110 if any(t.kind == "footer" for t in spec.texts) else 50},
         "paper_bgcolor": "#ffffff",
         "plot_bgcolor": a.background or "#ffffff",
         "dragmode": "zoom",

@@ -13,13 +13,14 @@ here and never reach EMode, so toggling one redraws without a round trip.
 from __future__ import annotations
 
 import math
+import textwrap
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
 from .. import colormaps
-from ..plotting import Arrow, PlotView, Schematic
+from ..plotting import Arrow, MaterialView, PlotView, Schematic, SMatrixView
 from ..types import ArgumentError
 
 #: The unit symbols an axis label shows.
@@ -92,6 +93,8 @@ class PlotOptions:
     dpi: int = 600
     colormap: Optional[str] = None
     aspect_ratio: Union[str, float, None] = None
+    vmin: Optional[float] = None
+    vmax: Optional[float] = None
 
     @classmethod
     def from_arguments(cls, arguments: Dict[str, Any]) -> "PlotOptions":
@@ -183,6 +186,8 @@ class AxesSpec:
     box_aspect: Optional[float] = None
     background: Optional[str] = None
     visible: bool = True
+    grid: bool = False
+    integer_ticks: bool = False
 
 
 @dataclass(frozen=True)
@@ -225,13 +230,34 @@ class FigureSpec:
 # ------------------------------------------------------------------ compose
 
 
-def compose(view: Union[PlotView, Schematic], options: Optional[PlotOptions] = None) -> FigureSpec:
-    """The figure of `view` with `options` applied."""
+#: Anything ``compose()`` draws.
+Drawable = Union[PlotView, Schematic, SMatrixView, MaterialView, Any]
+
+
+def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec:
+    """The figure of `view` with `options` applied.
+
+    `view` is a ``PlotView``, a ``Schematic``, an ``SMatrixView``, a
+    ``MaterialView`` or a ``FarField``.
+    """
+    from ..free_space import FarField
+
     options = options or PlotOptions()
     if isinstance(view, Schematic):
         return _compose_schematic(view, options)
+    if isinstance(view, SMatrixView):
+        return _compose_smatrix(view, options)
+    if isinstance(view, MaterialView):
+        return _compose_material(view, options)
+    if isinstance(view, FarField):
+        return _compose_farfield(view, options)
+    if isinstance(view, FarFieldPanel):
+        return _compose_farfield(view.farfield, options, view.panel)
     if not isinstance(view, PlotView):
-        raise TypeError(f"compose() takes a PlotView or a Schematic, not {type(view).__name__}")
+        raise TypeError(
+            "compose() takes a PlotView, Schematic, SMatrixView, MaterialView or FarField, "
+            f"not {type(view).__name__}"
+        )
     return _compose_view(view, options)
 
 
@@ -279,8 +305,8 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                 y=np.asarray(r.y, np.float32) / sy,
                 z=np.asarray(r.z, np.float32),
                 colormap=cmap,
-                vmin=view.scale.vmin,
-                vmax=view.scale.vmax,
+                vmin=view.scale.vmin if options.vmin is None else options.vmin,
+                vmax=view.scale.vmax if options.vmax is None else options.vmax,
                 mask=r.mask,
                 interpolation=r.interpolation,
                 contour_levels=levels,
@@ -355,8 +381,8 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             cmap = rasters[0].colormap
         colorbar = ColorbarSpec(
             colormap=cmap,
-            vmin=view.scale.vmin,
-            vmax=view.scale.vmax,
+            vmin=view.scale.vmin if options.vmin is None else options.vmin,
+            vmax=view.scale.vmax if options.vmax is None else options.vmax,
             ticks=None if view.scale.ticks is None else tuple(view.scale.ticks),
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
@@ -498,6 +524,251 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
         font_size=options.font_size,
         dpi=options.dpi,
         arrows=tuple(view.arrows),
+    )
+
+
+# ------------------------------------------------------------------ the S-matrix
+
+#: The S-matrix plot's components, as its menu offers them.
+SMATRIX_COMPONENTS = ("abs^2", "angle", "real", "imag")
+
+#: Which colormap of the family each S-matrix component is drawn with.
+SMATRIX_KINDS = {"abs^2": "sequential", "angle": "cyclic", "real": "sequential", "imag": "sequential"}
+
+
+def smatrix_values(view: SMatrixView) -> Tuple[np.ndarray, str]:
+    """The selected block of `view` as the component the plot shows, rows the output modes."""
+    selected = view.menu.selected
+    labels = list(view.port_labels)
+    i_in = labels.index(selected.get("input", labels[0]))
+    i_out = labels.index(selected.get("output", labels[-1]))
+    component = selected.get("component", "abs^2")
+    if component not in SMATRIX_COMPONENTS:
+        raise ArgumentError(
+            f"component must be one of {SMATRIX_COMPONENTS}, got {component!r}", "plot_S_matrix", "plot_function"
+        )
+    block = view.smatrix.block(to_ports=i_out, from_ports=i_in)
+    values = {
+        "real": np.real,
+        "imag": np.imag,
+        "abs^2": lambda b: np.abs(b) ** 2,
+        "angle": np.angle,
+    }[component](block)
+    return np.asarray(values, float), component
+
+
+def smatrix_scale(values: np.ndarray, component: str, options: PlotOptions) -> Tuple[float, float, str]:
+    """The color scale of the S-matrix plot and its colorbar's tick format.
+
+    Automatic from the block's extremes, ``abs^2`` snapped to 0 to 1 when its
+    range is over a half, and replaced by the user's `vmin` and `vmax`.
+    """
+    vmin, vmax = float(np.min(values)), float(np.max(values))
+    if component == "abs^2" and abs(vmax - vmin) > 0.5:
+        vmin, vmax = 0.0, 1.0
+    if options.vmin is not None:
+        vmin = float(options.vmin)
+    if options.vmax is not None:
+        vmax = float(options.vmax)
+    if max(abs(vmin), abs(vmax)) < 0.05:
+        fmt = "%.1e"
+    elif abs(vmax - vmin) < 0.05:
+        fmt = "%5.4f"
+    else:
+        fmt = "%3.2f"
+    return vmin, vmax, fmt
+
+
+def _compose_smatrix(view: SMatrixView, options: PlotOptions) -> FigureSpec:
+    values, component = smatrix_values(view)
+    vmin, vmax, fmt = smatrix_scale(values, component, options)
+    n_out, n_in = values.shape
+    cmap = _cmap(SMATRIX_KINDS[component], options)
+    raster = RasterSpec(
+        x=np.arange(n_in, dtype=float),
+        y=np.arange(n_out, dtype=float),
+        z=values,
+        colormap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+    )
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    axes = AxesSpec(
+        xlabel=options.xlabel or "Input mode",
+        ylabel=options.ylabel or "Output mode",
+        xrange=(-0.5, n_in - 0.5),
+        yrange=(-0.5, n_out - 0.5),
+        equal_aspect=True,
+        integer_ticks=True,
+    )
+    return FigureSpec(
+        axes=axes,
+        rasters=(raster,),
+        colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label, tick_format=fmt),
+        title=options.title,
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
+    )
+
+
+# ------------------------------------------------------------------ the material explorer
+
+#: The material explorer's line color.
+MATERIAL_LINE = "#3634A3"
+
+
+def material_component(view: MaterialView) -> int:
+    """The row of ``view.n`` the selected component is."""
+    components = list(view.menu.components) or ["n_x"]
+    selected = view.menu.selected.get("component", components[0])
+    return components.index(selected) if selected in components else 0
+
+
+def material_extrapolated(view: MaterialView) -> bool:
+    """Whether the requested range leaves the model's, so the extrapolated curve is drawn."""
+    (low, high), (v0, v1) = view.requested, view.valid_range
+    return low < v0 or high > v1
+
+
+def material_ylim(view: MaterialView) -> Optional[Tuple[float, float]]:
+    """The index range shown: both curves' extremes within the requested range, 5% margins.
+
+    The extrapolated curve counts whether or not it is drawn, as the explorer
+    window had it. None when nothing of the model's range is inside the
+    requested one, where the axis is scaled to the curves drawn.
+    """
+    row = material_component(view)
+    n = np.real(np.asarray(view.n)[row])
+    low, high = view.requested
+    w = np.asarray(view.wavelengths)
+    inside = (w >= low) & (w <= high)
+    parts = [n[inside]]
+    if view.extended_wavelengths is not None and view.n_extended is not None:
+        we = np.asarray(view.extended_wavelengths)
+        ne = np.real(np.asarray(view.n_extended)[row])
+        parts.append(ne[(we >= low) & (we <= high)])
+    if parts[0].size == 0:
+        return None
+    ymin = min(float(parts[0].min()), *(float(np.nanmin(p)) for p in parts[1:] if p.size))
+    ymax = max(float(parts[0].max()), *(float(np.nanmax(p)) for p in parts[1:] if p.size))
+    # a constant index (a metal's tabulated value) gets a margin of its own size
+    margin = 0.05 * (ymax - ymin) if ymax > ymin else 0.05 * (abs(ymax) or 1.0)
+    return ymin - margin, ymax + margin
+
+
+def _autoscale(curves: List[np.ndarray]) -> Tuple[float, float]:
+    values = np.concatenate([np.real(np.asarray(c, complex)).ravel() for c in curves])
+    lo, hi = float(np.nanmin(values)), float(np.nanmax(values))
+    pad = 0.05 * (hi - lo) if hi > lo else 0.5
+    return lo - pad, hi + pad
+
+
+def _compose_material(view: MaterialView, options: PlotOptions) -> FigureSpec:
+    row = material_component(view)
+    lines: List[LineSpec] = []
+    drawn: List[np.ndarray] = []
+    if material_extrapolated(view) and view.extended_wavelengths is not None and view.n_extended is not None:
+        ne = np.real(np.asarray(view.n_extended)[row])
+        lines.append(LineSpec(np.asarray(view.extended_wavelengths, float), ne, "extrapolated", MATERIAL_LINE, LW, "dash"))
+        drawn.append(ne)
+    n = np.real(np.asarray(view.n)[row])
+    lines.append(LineSpec(np.asarray(view.wavelengths, float), n, "index", MATERIAL_LINE, LW))
+    drawn.append(n)
+    ylim = material_ylim(view) or _autoscale(drawn)
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    texts = []
+    if view.reference and options.text_display:
+        texts.append(
+            TextSpec(
+                "\n".join(textwrap.wrap(view.reference, 110)), 0.0, -0.22, "axes", "left", "top",
+                "#000000", options.font_size - 1, "footer",
+            )
+        )
+    axes = AxesSpec(
+        xlabel=options.xlabel or "Wavelength (nm)",
+        ylabel=options.ylabel or "Refractive index (-)",
+        xrange=(float(view.requested[0]), float(view.requested[1])),
+        yrange=(float(ylim[0]), float(ylim[1])),
+        grid=True,
+    )
+    return FigureSpec(
+        axes=axes,
+        lines=tuple(lines),
+        texts=tuple(texts),
+        title=options.title,
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
+    )
+
+
+# ------------------------------------------------------------------ the far field
+
+
+@dataclass(frozen=True)
+class FarFieldPanel:
+    """A ``FarField`` and which of its panels is shown: ``'intensity'``, or ``'screen'`` when it has one."""
+
+    farfield: Any
+    panel: str = "intensity"
+
+    @property
+    def panels(self) -> List[str]:
+        return ["intensity", "screen"] if self.farfield.screen is not None else ["intensity"]
+
+
+def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity") -> FigureSpec:
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    if panel == "screen" and view.screen is not None:
+        screen = view.screen
+        z = np.asarray(screen.Sn, float).T
+        x = np.asarray(screen.s, float) / 1000
+        y = np.asarray(screen.t, float) / 1000
+        labels = ("u (μm)", "v (μm)")
+        texts = (
+            TextSpec(
+                f"screen at {screen.screen.distance / 1000:g} μm, {screen.power_through_screen:.3g} W",
+                0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+            ),
+        )
+        bar_label = "flux (W/m²)"
+    else:
+        z = np.asarray(view.intensity, float).T
+        x, y = np.asarray(view.ux, float), np.asarray(view.uy, float)
+        labels = ("u_x = sin θx", "u_y = sin θy")
+        texts = (
+            TextSpec(
+                f"divergence {view.divergence[0]:.2f}°, {view.divergence[1]:.2f}°\n"
+                f"M² {view.m_squared[0]:.3f}, {view.m_squared[1]:.3f}",
+                0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+            ),
+        )
+        bar_label = "intensity (W/sr)"
+    vmax = float(np.nanmax(z)) if z.size else 1.0
+    vmin = 0.0 if options.vmin is None else float(options.vmin)
+    vmax = vmax if options.vmax is None else float(options.vmax)
+    cmap = _cmap("sequential", options)
+    raster = RasterSpec(x=x, y=y, z=z, colormap=cmap, vmin=vmin, vmax=vmax)
+    axes = AxesSpec(
+        xlabel=options.xlabel or labels[0],
+        ylabel=options.ylabel or labels[1],
+        xrange=(float(x.min()), float(x.max())),
+        yrange=(float(y.min()), float(y.max())),
+        equal_aspect=True,
+    )
+    return FigureSpec(
+        axes=axes,
+        rasters=(raster,),
+        texts=texts if options.text_display else (),
+        colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or bar_label, tick_format="%.3g"),
+        title=options.title or f"far field, {view.wavelength:g} nm",
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
     )
 
 

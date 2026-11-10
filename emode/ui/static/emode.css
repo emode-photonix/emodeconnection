@@ -32,3 +32,15 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #message { color: var(--warn); padding: 4px 0; }
 body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
+#controls button { font: inherit; padding: 1px 8px; }
+#controls details.export { margin-left: auto; }
+#controls details.export > div { right: 0; }
+#controls details.export details > div { position: static; border: 0; padding: 4px 0 4px 10px; }
+#session { padding: 14px 20px; overflow-y: auto; height: calc(100vh - 38px); }
+#session h2 { font-size: 15px; margin: 0 0 10px; }
+#session-table { border-collapse: collapse; background: var(--panel); }
+#session-table th, #session-table td { text-align: left; padding: 5px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+#session-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+#session-table td { word-break: break-all; }
+#session-message { color: var(--warn); padding-bottom: 8px; }
+[hidden] { display: none !important; }

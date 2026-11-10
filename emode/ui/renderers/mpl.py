@@ -155,6 +155,13 @@ def to_figure(spec: FigureSpec) -> Any:
         ax.set_aspect("equal")
     elif a.box_aspect is not None:
         ax.set_box_aspect(a.box_aspect)
+    if a.grid:
+        ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
+    if a.integer_ticks:
+        from matplotlib.ticker import MaxNLocator
+
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     if not a.visible:
         ax.axis("off")
     else:
