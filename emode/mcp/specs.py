@@ -95,7 +95,9 @@ class ParameterSpec(BaseModel):
         description=(
             "Names the quantity, such as 'shape, core, width' (a shape of the current "
             "cross-section), 'shape, <profile>, <name>, <property>' (a shape of a labeled "
-            "profile, such as 'shape, taper_end, core, mask') or 'section, coupler, length'."
+            "profile, such as 'shape, taper_end, core, mask'), 'section, coupler, length' "
+            "or 'process, <section>, poling_period' (the poling period of a CW chi(2) "
+            "process, also 'duty_cycle')."
         )
     )
     bounds: Bound | list[Bound] | None = Field(
@@ -144,6 +146,7 @@ class ObjectiveSpec(BaseModel):
         "loss",
         "band_energy",
         "band_average",
+        "conversion",
         "parameter",
     ]
     key: str | None = Field(
@@ -169,6 +172,14 @@ class ObjectiveSpec(BaseModel):
     beam: dict[str, Any] | None = None
     band: tuple[float, float] | None = Field(
         None, description="Band in nm for pulse objectives."
+    )
+    efficiency: bool | None = Field(
+        None,
+        description=(
+            "For kind 'conversion' (the power a CW chi(2) process generates at port "
+            "'out' and 'wavelength'): true, the default, for a fraction of the power "
+            "put in, false for the power in W."
+        ),
     )
     goal: Literal["maximize", "minimize", "target"] | None = Field(
         None, description="Default 'maximize'."
