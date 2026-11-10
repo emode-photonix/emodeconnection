@@ -383,9 +383,10 @@ def test_a_response_saved_before_the_rank_report_still_loads() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_multi_photon_absorption_is_off_unless_asked_for() -> None:
-    # None (the default) and False leave three- and four-photon absorption off, True
-    # turns it on wherever a material has a coefficient (the server applies this)
+def test_multi_photon_absorption_defaults_to_on_where_a_coefficient_exists() -> None:
+    # None (the default) applies three- and four-photon absorption wherever a material
+    # has a coefficient, True also refuses a cross-section with none, False turns it
+    # off (the server applies this)
     assert PulsedProcess().multi_photon is None
     assert PulsedProcess(multi_photon=False).multi_photon is False
     back = _over_the_wire(PulsedProcess(multi_photon=True))
