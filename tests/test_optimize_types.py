@@ -232,3 +232,96 @@ def test_a_parameter_objective_reads_the_point() -> None:
     assert _over_the_wire(o) == o
     with pytest.raises(ArgumentError, match='key'):
         Objective('parameter')
+
+
+# ---------------------------------------------------------------------------
+# The conversion objective and the poling keys of a CW process
+# ---------------------------------------------------------------------------
+
+
+def _response() -> Any:
+    """A driven response of an SHG section: a 1 mW pump in at the left, two
+    modes at each port and wavelength."""
+    from emode import CircuitResponse
+
+    pump, harmonic = 1550.0, 775.0
+    sizes = (2, 2, 2, 2)
+    names = ('left', 'left', 'right', 'right')
+    wavelengths = (pump, harmonic, pump, harmonic)
+    incoming = np.zeros(8, dtype=complex)
+    incoming[0] = np.sqrt(1e-3)
+    outgoing = np.zeros(8, dtype=complex)
+    outgoing[4] = np.sqrt(0.9e-3)  # the pump at the right
+    outgoing[6] = np.sqrt(0.08e-3) * np.exp(0.3j)  # the harmonic's mode 0
+    outgoing[7] = np.sqrt(0.02e-3)  # and its mode 1
+    outgoing[2] = np.sqrt(1e-9)  # a little harmonic back at the left
+    return CircuitResponse(
+        port_sizes=sizes,
+        port_names=names,
+        wavelengths=wavelengths,
+        input=incoming,
+        output=outgoing,
+        converged=True,
+        iterations=2,
+        residual=0.0,
+        linear=False,
+    )
+
+
+def test_a_conversion_objective_reads_the_driven_response() -> None:
+    o = Objective('conversion', out='right', wavelength=775)
+    assert o.result == 'response'
+    assert o.efficiency is True
+    results = {'response': _response()}
+    # every mode of the harmonic at the right, over the 1 mW put in
+    assert o.value(results) == pytest.approx(0.1)
+    assert Objective('conversion', out='right', wavelength=775, mode=1).value(
+        results
+    ) == pytest.approx(0.02)
+    power = Objective('conversion', out='right', wavelength=775, efficiency=False)
+    assert power.value(results) == pytest.approx(0.1e-3)
+    assert Objective('conversion', out='left', wavelength=775).value(results) == pytest.approx(1e-6)
+
+
+def test_a_conversion_objective_matches_the_wavelength_to_a_hundredth_of_a_nm() -> None:
+    results = {'response': _response()}
+    assert Objective('conversion', out='right', wavelength=775.004).value(
+        results
+    ) == pytest.approx(0.1)
+    with pytest.raises(ArgumentError, match='776'):
+        Objective('conversion', out='right', wavelength=776).value(results)
+
+
+def test_a_conversion_objective_needs_its_port_and_wavelength() -> None:
+    with pytest.raises(ArgumentError, match='out'):
+        Objective('conversion', wavelength=775)
+    with pytest.raises(ArgumentError, match='wavelength'):
+        Objective('conversion', out='right')
+    with pytest.raises(ArgumentError, match='efficiency'):
+        Objective('S_power', out='right', into='left', efficiency=False)
+
+
+def test_a_conversion_objective_round_trips_the_wire() -> None:
+    o = Objective('conversion', out='right', wavelength=775.0, mode=0, efficiency=False)
+    back = _over_the_wire(o)
+    assert isinstance(back, Objective)
+    assert back == o
+    assert _over_the_wire(Objective('conversion', out='right', wavelength=775.0)).efficiency
+
+
+def test_the_poling_period_and_duty_cycle_keys_are_parameters() -> None:
+    period = Parameter('process, ppln, poling_period', bounds=(4000, 4400), step=1e-4)
+    duty = Parameter('process, ppln, duty_cycle', bounds=(0.3, 0.7))
+    assert _over_the_wire(period) == period
+    assert _over_the_wire(duty) == duty
+    assert period.size == 1 and duty.element_bounds() == [(0.3, 0.7)]
+
+
+def test_an_older_solver_refuses_the_new_kind_by_name() -> None:
+    """A solver whose client predates a kind validates the objective against its
+    own list of kinds, and the error it returns names the kind it does not know."""
+    from emode import optimize
+
+    older = tuple(k for k in optimize.OBJECTIVE_KINDS if k != 'conversion')
+    with pytest.raises(ArgumentError, match="'conversion'"):
+        optimize._check_choice({'kind': 'conversion'}, 'kind', older, 'Objective')

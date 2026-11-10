@@ -796,3 +796,18 @@ def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
     skill = (Path(__file__).parents[1] / "emode" / "mcp" / "SKILL.md").read_text()
     assert "one\n  `[min, max]` pair per entry" in skill
     assert "its own shape" in skill
+
+
+def test_a_conversion_objective_and_a_poling_period_reach_optimize() -> None:
+    FakeEMode.returns["optimize"] = _optimization()
+    args = {
+        **OPT,
+        "parameters": [{"key": "process, ppln, poling_period", "bounds": [4000, 4400]}],
+        "objective": [{"kind": "conversion", "out": "right", "wavelength": 775.0}],
+        "confirm": True,
+    }
+    result = run("emode_optimize", args)
+    assert result.structured_content["status"] == "done"
+    sent = last_call("optimize")
+    assert sent["parameters"] == [Parameter("process, ppln, poling_period", bounds=(4000, 4400))]
+    assert sent["objective"] == [Objective("conversion", out="right", wavelength=775.0)]
