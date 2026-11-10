@@ -52,6 +52,7 @@ def line_style(kind: str) -> Tuple[str, float, Optional[str], float]:
     """An overlay kind's (color, width in points, dash, alpha)."""
     return (colormaps.overlay_colors()[kind], *LINE_STYLES[kind])
 
+
 #: Data arguments: the ones ``plot()`` sends to EMode. Everything else stays here.
 DATA_ARGUMENTS = (
     "plane",
