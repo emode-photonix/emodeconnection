@@ -530,10 +530,9 @@ class PulsedProcess(_LoadsOlderVersions, TaggedModel):
     Pass it as a section's `nonlinear=`. `modes` lists the tracked mode
     indices at the source wavelength (None tracks the source's own mode or
     modes). `tpa=None` turns two-photon absorption on wherever a material has
-    a two-photon coefficient. Three- and four-photon absorption are off by
-    default (`multi_photon=None` or `False`): `multi_photon=True` turns them on
-    wherever a material has a three- or four-photon coefficient and refuses a
-    cross-section with none. `free_carriers=None` models the electron-hole pairs
+    a two-photon coefficient. `multi_photon=None` does the same for three- and
+    four-photon absorption, `True` refuses a cross-section with no such
+    coefficient and `False` turns them off. `free_carriers=None` models the electron-hole pairs
     that two- and N-photon absorption make, with their absorption and index
     change, wherever a material has a free-carrier model (`True` refuses a
     cross-section with none, `False` turns them off). `carrier_lifetime` (ns)
