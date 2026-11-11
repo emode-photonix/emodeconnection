@@ -73,6 +73,15 @@ def test_solo_then_show_all_through_the_route(server):
     assert all(r["visible"] for r in every["layers"])
 
 
+def test_the_orientation_toggle_is_kept_and_the_next_figure_follows_it(server):
+    reply = _json(request(server, "POST", "/api/views/g1/layers", body={"orientation": "layout"}))
+    assert reply["orientation"] == "layout"
+    again = _json(request(server, "POST", "/api/views/g1/data", body={"controls": {}}))
+    yrange = again["figure"]["layout"]["yaxis"]["range"]
+    assert yrange[0] > yrange[1]
+    assert again["extra"]["orientation"] == "layout"
+
+
 def test_a_layer_properties_file_is_read_from_the_text_the_tab_posts(server):
     reply = _json(request(server, "POST", "/api/views/g1/layers", body={"layer_properties": LYP}))
     assert reply["layers"][0]["label"] == "WG (1/0)"

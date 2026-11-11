@@ -21,6 +21,7 @@ from emode.gds import GDSLayer, GDSView, read_lyp
 from emode.types import ArgumentError, reconstruct, serialize, wire_dump
 from emode.ui.figure import PlotOptions, compose
 from emode.ui.gds import HATCHES, GDSPanel, layer_rows
+from emode.ui.gds import extra as extra_of
 from emode.ui.renderers.plotly import layer_style, to_plotly
 from emode.ui.views import ViewRegistry, kind_of, title_of
 
@@ -83,7 +84,7 @@ def test_one_layer_spec_per_layer_in_the_line_palettes_colors():
     assert [len(s.polygons) for s in layers] == [2, 1, 3]
     # in μm, as the layout view shows the chip
     assert layers[0].polygons[0][:, 0].max() == pytest.approx(4.0)
-    assert spec.axes.equal_aspect and spec.axes.invert_y
+    assert spec.axes.equal_aspect
     assert spec.axes.xlabel == "z (μm)"
 
 
@@ -93,6 +94,50 @@ def test_the_shapes_overlay_is_off_by_default_and_on_when_asked():
     assert len(shapes) == 1 and not shapes[0].visible and not shapes[0].filled
     on = compose(GDSPanel.from_view(gds_view()).with_changes({"shapes": True}))
     assert [s for s in on.layers if s.key == "shapes"][0].visible
+
+
+# ------------------------------------------------------------------ the orientation
+
+
+def _orientations(spec):
+    """(Plotly's y range runs low to high, matplotlib's y axis is inverted, the shapes' collection's axes)."""
+    layout = to_plotly(spec)["layout"]
+    fig = mpl_renderer.to_figure(spec)
+    ax = fig.axes[0]
+    shapes = [c for c in ax.collections if c.get_gid() == "layer:shapes"]
+    return layout["yaxis"]["range"][0] < layout["yaxis"]["range"][1], ax.yaxis_inverted(), shapes[0].axes is ax
+
+
+def test_the_default_orientation_is_the_gds_files_with_y_up_as_klayout_draws_it():
+    panel = GDSPanel.from_view(gds_view())
+    assert panel.orientation == "gds"
+    spec = compose(panel)
+    assert not spec.axes.invert_y
+    # the vertices are the file's (z is the file's x, x its y), drawn y up in both renderers
+    marker = [s for s in spec.layers if s.key == "2/5"][0].polygons[0]
+    assert marker[:, 1].min() == pytest.approx(1.5)
+    assert _orientations(spec) == (True, False, True)
+
+
+def test_the_toggle_gives_the_layout_views_axes_with_the_shapes_overlay_following():
+    panel = GDSPanel.from_view(gds_view()).with_changes({"orientation": "layout", "shapes": True})
+    spec = compose(panel)
+    assert spec.axes.invert_y
+    shapes = [s for s in spec.layers if s.key == "shapes"][0]
+    assert shapes.visible
+    # the overlay is drawn on the same axes as the layers, so it turns with them
+    assert _orientations(spec) == (False, True, True)
+    back = panel.with_changes({"orientation": "gds"})
+    assert _orientations(compose(back)) == (True, False, True)
+
+
+def test_the_orientation_is_part_of_the_panels_state_and_checked():
+    panel = GDSPanel.from_view(gds_view()).with_changes({"orientation": "layout"})
+    assert panel.state()["orientation"] == "layout"
+    assert extra_of(panel)["orientation"] == "layout"
+    with pytest.raises(ArgumentError) as err:
+        panel.with_changes({"orientation": "sideways"})
+    assert err.value.argument == "orientation"
 
 
 # ------------------------------------------------------------------ the layer panel's state

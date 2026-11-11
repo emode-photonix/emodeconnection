@@ -32,7 +32,7 @@ def gds_view() -> GDSView:
         shapes=[Region(kind="shape", name="core", x=[0, 9000, 9000, 0], y=[-250, -250, 250, 250])],
         axes=AxesInfo(
             xlabel="z", ylabel="x", x_unit="um", y_unit="um",
-            xlim=(0.0, 9000.0), ylim=(-2000.0, 2000.0), invert_y=True, equal_aspect=True,
+            xlim=(0.0, 9000.0), ylim=(-2000.0, 2000.0), equal_aspect=True,
         ),
         pixel_nm=7.5,
         cells={"g": "device"},
