@@ -811,3 +811,31 @@ def test_a_conversion_objective_and_a_poling_period_reach_optimize() -> None:
     sent = last_call("optimize")
     assert sent["parameters"] == [Parameter("process, ppln, poling_period", bounds=(4000, 4400))]
     assert sent["objective"] == [Objective("conversion", out="right", wavelength=775.0)]
+
+
+def test_a_band_conversion_objective_reaches_optimize() -> None:
+    FakeEMode.returns["optimize"] = _optimization()
+    band = {
+        "kind": "conversion",
+        "out": "right",
+        "wavelengths": [771.0, 775.0, 779.0],
+        "reduce": "soft_min",
+        "temperature": 0.02,
+    }
+    args = {
+        **OPT,
+        "parameters": [{"key": "process, ppln, poling_period", "bounds": [4000, 4400]}],
+        "objective": [band],
+        "confirm": True,
+    }
+    result = run("emode_optimize", args)
+    assert result.structured_content["status"] == "done"
+    assert last_call("optimize")["objective"] == [
+        Objective(
+            "conversion",
+            out="right",
+            wavelengths=[771.0, 775.0, 779.0],
+            reduce="soft_min",
+            temperature=0.02,
+        )
+    ]

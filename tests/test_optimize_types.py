@@ -309,6 +309,142 @@ def test_a_conversion_objective_round_trips_the_wire() -> None:
     assert _over_the_wire(Objective('conversion', out='right', wavelength=775.0)).efficiency
 
 
+def _shg_response(pump: float, harmonic_power: float) -> Any:
+    """A driven SHG response at one pump wavelength: 1 mW in, `harmonic_power`
+    (W) of harmonic out at the right, one mode per port and wavelength."""
+    from emode import CircuitResponse
+
+    incoming = np.zeros(4, dtype=complex)
+    incoming[0] = np.sqrt(1e-3)
+    outgoing = np.zeros(4, dtype=complex)
+    outgoing[2] = np.sqrt(1e-3 - harmonic_power)
+    outgoing[3] = np.sqrt(harmonic_power) * np.exp(0.7j)
+    return CircuitResponse(
+        port_sizes=(1, 1, 1, 1),
+        port_names=('left', 'left', 'right', 'right'),
+        wavelengths=(pump, pump / 2, pump, pump / 2),
+        input=incoming,
+        output=outgoing,
+        converged=True,
+        iterations=2,
+        residual=0.0,
+        linear=False,
+    )
+
+
+#: Three pump wavelengths and the harmonic power each makes (W, of 1 mW in).
+_BAND = {1546.0: 2e-7, 1550.0: 1.5e-6, 1554.0: 6e-7}
+
+
+def _band_results() -> dict:
+    return {'response': [_shg_response(p, h) for p, h in _BAND.items()]}
+
+
+def _harmonics() -> list:
+    return [p / 2 for p in _BAND]
+
+
+def test_a_conversion_objective_finds_its_wavelength_among_several_responses() -> None:
+    results = _band_results()
+    for pump, power in _BAND.items():
+        o = Objective('conversion', out='right', wavelength=pump / 2)
+        assert o.value(results) == pytest.approx(power / 1e-3)
+    with pytest.raises(ArgumentError, match='776'):
+        Objective('conversion', out='right', wavelength=776).value(results)
+
+
+def test_a_band_conversion_objective_reduces_its_wavelengths() -> None:
+    results = _band_results()
+    values = np.array(list(_BAND.values())) / 1e-3
+    mean = Objective('conversion', out='right', wavelengths=_harmonics(), reduce='mean')
+    assert mean.conversions(results) == pytest.approx(list(values))
+    assert mean.value(results) == pytest.approx(values.mean())
+    soft = Objective('conversion', out='right', wavelengths=_harmonics(), reduce='soft_min')
+    assert soft.temperature == 0.05
+    # a soft minimum sits between the minimum and the mean, within tau ln K of the minimum
+    tau = soft.temperature * values.mean()
+    assert values.min() <= soft.value(results) <= values.min() + tau * np.log(len(values))
+    assert soft.value(results) < values.mean()
+
+
+def test_a_one_wavelength_band_is_the_conversion_objective() -> None:
+    results = {'response': _response()}
+    single = Objective('conversion', out='right', wavelength=775.0).value(results)
+    for reduce in ('soft_min', 'mean'):
+        band = Objective('conversion', out='right', wavelengths=[775.0], reduce=reduce)
+        assert band.value(results) == pytest.approx(single, rel=1e-14)
+
+
+def test_the_soft_minimum_approaches_the_minimum_as_the_temperature_drops() -> None:
+    results = _band_results()
+    values = np.array(list(_BAND.values())) / 1e-3
+    gaps = []
+    for temperature in (1.0, 0.1, 0.01, 0.001):
+        o = Objective(
+            'conversion',
+            out='right',
+            wavelengths=_harmonics(),
+            reduce='soft_min',
+            temperature=temperature,
+        )
+        gaps.append(o.value(results) - values.min())
+    assert all(g >= 0 for g in gaps)
+    assert all(b < a for a, b in zip(gaps, gaps[1:]))
+    assert gaps[-1] < 1e-6 * values.min()
+    # and toward the mean as it rises
+    hot = Objective(
+        'conversion', out='right', wavelengths=_harmonics(), reduce='soft_min', temperature=1e4
+    )
+    assert hot.value(results) == pytest.approx(values.mean(), rel=1e-4)
+
+
+@pytest.mark.parametrize('reduce', ['soft_min', 'mean'])
+def test_a_reduction_s_gradient_is_the_derivative_of_its_value(reduce: str) -> None:
+    o = Objective(
+        'conversion', out='right', wavelengths=[1.0, 2.0, 3.0], reduce=reduce, temperature=0.2
+    )
+    values = np.array([2e-4, 1.5e-3, 6e-4])
+    gradient = np.asarray(o.reduction_gradient(values))
+    for k in range(len(values)):
+        h = 1e-7 * values[k]
+        plus, minus = values.copy(), values.copy()
+        plus[k] += h
+        minus[k] -= h
+        difference = (o.reduction(plus) - o.reduction(minus)) / (2 * h)
+        assert gradient[k] == pytest.approx(difference, rel=1e-6, abs=1e-9)
+    assert gradient.sum() == pytest.approx(1.0)
+
+
+def test_a_band_conversion_objective_is_validated() -> None:
+    with pytest.raises(ArgumentError, match='reduce'):
+        Objective('conversion', out='right', wavelengths=[770.0, 775.0])
+    with pytest.raises(ArgumentError, match='wavelengths'):
+        Objective('conversion', out='right', wavelength=775.0, wavelengths=[770.0], reduce='mean')
+    with pytest.raises(ArgumentError, match='wavelengths'):
+        Objective('conversion', out='right', wavelengths=[], reduce='mean')
+    with pytest.raises(ArgumentError, match='wavelengths'):
+        Objective('conversion', out='right', wavelengths=[770.0, -1.0], reduce='mean')
+    with pytest.raises(ArgumentError, match='temperature'):
+        Objective('conversion', out='right', wavelengths=[770.0], reduce='soft_min', temperature=0)
+    with pytest.raises(ArgumentError, match='reduce'):
+        Objective('conversion', out='right', wavelength=775.0, reduce='mean')
+    with pytest.raises(ArgumentError, match='wavelengths'):
+        Objective('S_power', out='right', into='left', wavelengths=[775.0], reduce='mean')
+
+
+def test_a_band_conversion_objective_round_trips_the_wire() -> None:
+    o = Objective(
+        'conversion',
+        out='right',
+        wavelengths=[771.0, 775.0, 779.0],
+        reduce='soft_min',
+        temperature=0.02,
+        goal='maximize',
+    )
+    back = _over_the_wire(o)
+    assert back == o
+
+
 def test_the_poling_period_and_duty_cycle_keys_are_parameters() -> None:
     period = Parameter('process, ppln, poling_period', bounds=(4000, 4400), step=1e-4)
     duty = Parameter('process, ppln, duty_cycle', bounds=(0.3, 0.7))
