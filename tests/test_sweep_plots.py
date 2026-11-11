@@ -614,3 +614,42 @@ def test_the_app_draws_a_sweeps_menus():
 
     app = (Path(emode.ui.__file__).parent / "static" / "app.js").read_text()
     assert 'kind === "sweep"' in app and "buildSweepControls" in app
+
+
+# ------------------------------------------------------------------ what the website examples ask of it
+
+
+def test_vmin_and_vmax_fix_a_line_panels_y_range():
+    spec = compose(sweep_panel(length_sweep(), component="dB"), PlotOptions(vmin=-60.0, vmax=0.0))
+    assert spec.axes.yrange == (-60.0, 0.0)
+
+
+def test_units_um_shows_a_length_key_in_micrometers():
+    spec = compose(sweep_panel(length_sweep()), PlotOptions(units="um"))
+    np.testing.assert_allclose(_lines(spec)[0].x, [10.0, 20.0, 30.0])
+    assert spec.axes.xlabel == "length (μm)"
+    # a key that is not a length keeps its unit
+    spec = compose(sweep_panel(beam_sweep()), PlotOptions(units="um"))
+    assert spec.axes.xlabel == "angle (°)"
+
+
+def test_a_power_result_is_drawn_linear_or_in_dB():
+    panel = sweep_panel(beam_sweep())
+    menus = {m["name"]: m for m in sweep_menus(panel)}
+    assert menus["component"]["options"] == ["linear", "dB"]
+    spec = compose(_select(panel, {"component": "dB"}))
+    np.testing.assert_allclose(_lines(spec)[0].y, 10 * np.log10([0.5, 0.8, 0.6, 0.3]))
+    assert spec.axes.ylabel == "Coupling (dB)"
+
+
+def test_an_adaptive_scans_modes_by_wavelength_are_one_trace_per_mode():
+    """``sweep(adaptive=True)`` reports each per-mode result as (modes, wavelengths)."""
+    w = np.linspace(1500.0, 1600.0, 5)
+    n = np.vstack([2.4 - w / 1e4, 2.0 - w / 2e4])
+    scan = SweepResult(
+        data={"key": "wavelength", "values": w, "effective_index": n,
+              "solved_wavelengths": np.array([1500.0, 1600.0]), "unconverged": []}
+    )
+    traces = _lines(compose(sweep_panel(scan)))
+    assert [t.label for t in traces] == ["mode 0", "mode 1"]
+    np.testing.assert_allclose(traces[1].y, n[1])
