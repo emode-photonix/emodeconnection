@@ -90,6 +90,24 @@ def to_figure(spec: FigureSpec) -> Any:
             )
         )
 
+    from matplotlib.collections import PolyCollection
+    from matplotlib.colors import to_rgba
+
+    for layer in spec.layers:
+        collection = PolyCollection(
+            [np.asarray(p, float) for p in layer.polygons],
+            closed=True,
+            facecolors=[to_rgba(layer.color, layer.opacity)] if layer.filled else "none",
+            edgecolors=layer.color,
+            linewidths=layer.width,
+            linestyles=_DASHES.get(layer.dash, "-"),
+            hatch=layer.hatch or None,
+            label=layer.label,
+            gid=f"layer:{layer.key}",
+        )
+        collection.set_visible(layer.visible)
+        ax.add_collection(collection)
+
     for r in spec.rasters:
         z = np.asarray(r.z, float)
         if r.mask is not None:
@@ -182,10 +200,19 @@ def to_figure(spec: FigureSpec) -> Any:
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
-    if spec.legend:
-        handles = [Patch(facecolor=e.color or "white", label=e.label, ec="k", lw=0.5) for e in spec.legend]
+    handles = [Patch(facecolor=e.color or "white", label=e.label, ec="k", lw=0.5) for e in spec.legend]
+    handles += [
+        Patch(
+            facecolor=to_rgba(layer.color, layer.opacity), edgecolor=layer.color,
+            hatch=layer.hatch or None, label=layer.label, lw=0.5,
+        )
+        for layer in spec.layers
+        if layer.legend and layer.visible
+    ]
+    if handles:
         ax.legend(
-            handles=handles, frameon=False, ncol=len(handles), loc="lower center",
+            handles=handles, frameon=False, ncol=len(handles) if spec.legend else min(len(handles), 4),
+            loc="lower center",
             bbox_to_anchor=(0.5, 1.0), fontsize=spec.font_size,
         )
     if spec.title:

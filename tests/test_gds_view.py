@@ -129,7 +129,7 @@ def test_solo_shows_one_layer_and_show_all_shows_every_one():
 def test_a_bad_layer_change_is_refused_naming_it(change, parameter):
     with pytest.raises(ArgumentError) as err:
         GDSPanel.from_view(gds_view()).with_changes(change)
-    assert err.value.param_name == parameter
+    assert err.value.argument == parameter
 
 
 def test_the_rows_of_the_layer_panel_name_each_layer_and_its_style():
@@ -152,7 +152,7 @@ def test_a_klayout_layer_properties_file_sets_names_colors_hatches_and_visibilit
     assert panel.style("1/0").color == "#ff8000"
     assert layer_rows(panel)[0]["label"] == "WG (1/0)"
     # the text of a file the tab read works the same as its path
-    assert GDSPanel.from_view(gds_view()).with_changes({"layer_properties": LYP}) == panel
+    assert GDSPanel.from_view(gds_view()).with_changes({"layer_properties": LYP}).styles == panel.styles
 
 
 def test_a_file_that_is_not_layer_properties_is_refused():

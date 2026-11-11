@@ -50,6 +50,8 @@ import numpy as np
 from .. import colormaps
 from ..types import EModeError
 from .figure import PlotOptions, compose
+from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
+from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
 from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
@@ -250,6 +252,8 @@ class UIServer:
         if local_args:
             view.data = _select(view.data, local_args)
             view.arguments = {**view.arguments, **local_args}
+        if isinstance(view.data, GDSPanel):
+            view.arguments = state_arguments(view.arguments, view.data)
         if figure_args:
             view.options = replace(view.options, **_clean_options(figure_args))
         view.title = title_of(view.data, view.arguments)
@@ -263,6 +267,19 @@ class UIServer:
             "controls": {**view.arguments, **_options_dict(view.options)},
             "extra": _extra(view.data),
         }
+
+    def layers(self, view: View, changes: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply the layer panel's `changes` to a GDS layer view and keep them for the session.
+
+        The tab has already restyled its figure, so the answer is the panel's
+        rows (for a change it cannot make alone, such as a ``.lyp`` file), not a figure.
+        """
+        if not isinstance(view.data, GDSPanel):
+            raise EModeError(f"view {view.id} is not a GDS layer view, so it has no layers")
+        local = {k: changes[k] for k in GDS_ARGUMENTS if changes.get(k) is not None}
+        view.data = view.data.with_changes(local)
+        view.arguments = state_arguments(view.arguments, view.data)
+        return {"id": view.id, "layers": layer_rows(view.data), "shapes": view.data.shapes}
 
     def export(self, view: View, request: Dict[str, Any]) -> Tuple[bytes, str, str]:
         """`view` drawn as a file: its bytes, its type and its name.
@@ -320,7 +337,10 @@ def _save_path(name: str) -> Path:
 def _extra(data: Any) -> Dict[str, Any]:
     """What a view's own controls need beyond its menu (the material explorer's entries)."""
     from ..plotting import MaterialView
+    from .gds import extra as gds_extra
 
+    if isinstance(data, GDSPanel):
+        return gds_extra(data)
     if isinstance(data, MaterialView):
         return {
             "requested": list(data.requested),
@@ -507,6 +527,11 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             if parts[3] in ("save", "export"):
                 return self._export(view, parts[3])
+            if parts[3] == "layers":
+                try:
+                    return self._json(200, self.ui.layers(view, self._body()))
+                except EModeError as exc:
+                    return self._json(200, {"id": view.id, "error": str(exc)})
             if parts[3] == "data":
                 body = self._body()
                 controls = body.get("controls") or {}
