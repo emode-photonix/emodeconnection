@@ -75,6 +75,7 @@ KINDS: Dict[str, Kind] = {
     "material": Kind("material", "m", ("material", "wavelengths", "step", "x"), ("component",)),
     "farfield": Kind("farfield", "f", (), ("data",)),
     "sweep": Kind("sweep", "w", (), SWEEP_CONTROLS),
+    "figure": Kind("figure", "c", ()),
 }
 
 
@@ -89,6 +90,10 @@ def kind_of(data: Any) -> str:
         return "farfield"
     if isinstance(data, SweepPanel):
         return "sweep"
+    from ..figures import Figure
+
+    if isinstance(data, Figure):
+        return "figure"
     return "plot"
 
 
@@ -100,7 +105,7 @@ def menu_of(data: Any) -> MenuState:
         # the menus themselves go in the reply's extra (sweep_menus): their names vary by result
         selected = {k: ", ".join(v) if isinstance(v, list) else str(v) for k, v in data.selected.items()}
         return MenuState(selected=selected)
-    return data.menu
+    return getattr(data, "menu", None) or MenuState()
 
 
 @dataclass
@@ -140,6 +145,10 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
         return f"far field {data.farfield.wavelength:g} nm {data.panel}"
     if isinstance(data, SweepPanel):
         return sweep_title(data)
+    from ..figures import Figure
+
+    if isinstance(data, Figure):
+        return data.title or f"figure of {len(data.panels)} panels"
     selected = data.menu.selected
     what = selected.get("data") or arguments.get("component") or ""
     how = selected.get("component") or ""

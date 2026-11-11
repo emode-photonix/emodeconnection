@@ -374,13 +374,18 @@ def show_data(
     from ..smatrix import SMatrix
     from .sweep_figure import SWEEP_CONTROLS, is_sweep_shaped, sweep_panel
 
+    from ..figures import Figure
+
     em = em or current_session()
-    if is_sweep_shaped(value):
+    if isinstance(value, Figure):
+        data_args, figure_args = _split(arguments, (), "Figure.plot")
+        view_data: Any = value
+    elif is_sweep_shaped(value):
         data_args, figure_args = _split(arguments, SWEEP_CONTROLS, "plot")
         view_data = sweep_panel(value, **data_args)
     elif isinstance(value, FarField):
         data_args, figure_args = _split(arguments, ("data",), "FarField.show")
-        view_data: Any = _select(FarFieldPanel(value), data_args)
+        view_data = _select(FarFieldPanel(value), data_args)
     elif isinstance(value, SMatrix):
         data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "SMatrix.show")
         view_data = _select(smatrix_view(value), data_args)

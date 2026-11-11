@@ -56,9 +56,11 @@ def _edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[c[0] - (mid[0] - c[0])], mid, [c[-1] + (c[-1] - mid[-1])]])
 
 
-def to_figure(spec: FigureSpec) -> Any:
-    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas."""
+def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
+    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas (or on `ax` of `fig`)."""
     _matplotlib()
+    if spec.panels and ax is None:
+        return _panels(spec)
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.cm import ScalarMappable
     from matplotlib.collections import LineCollection
@@ -73,9 +75,10 @@ def to_figure(spec: FigureSpec) -> Any:
     def cmap_of(name: str) -> Any:
         return colormaps.get(name)
 
-    fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi)
-    FigureCanvasAgg(fig)
-    ax = fig.add_subplot(111)
+    if ax is None:
+        fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi)
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
     a = spec.axes
     if a.background:
         ax.set_facecolor(a.background)
@@ -201,6 +204,22 @@ def to_figure(spec: FigureSpec) -> Any:
         ax.legend(loc="best", frameon=False, fontsize=spec.font_size - 1)
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
+    return fig
+
+
+def _panels(spec: FigureSpec) -> Any:
+    """A figure of several panels: one axes per panel on a grid, laid out to fit."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi, layout="constrained")
+    FigureCanvasAgg(fig)
+    rows, cols = spec.panel_grid
+    grid = fig.subplots(rows, cols, squeeze=False)
+    for panel, ax in zip(spec.panels, grid.ravel()):
+        to_figure(panel, fig, ax)
+    if spec.title:
+        fig.suptitle(spec.title, fontsize=spec.font_size + 1)
     return fig
 
 
