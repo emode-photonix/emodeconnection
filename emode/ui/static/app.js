@@ -301,6 +301,7 @@ async function postLayers(change) {
   if (state.reply && state.reply.id === id) {
     state.reply.extra.layers = reply.layers;
     state.reply.extra.shapes = reply.shapes;
+    state.reply.extra.orientation = reply.orientation;
   }
   return reply;
 }
@@ -397,6 +398,19 @@ function buildLayerPanel(reply) {
     wrap.append(shapes, " Simulation shapes");
     head.appendChild(wrap);
   }
+  // y up as KLayout draws the cell, or the layout view's axes: the y range turns over here
+  head.appendChild(select("Axes", ["KLayout (y up)", "layout view (x down)"],
+    x.orientation === "layout" ? "layout view (x down)" : "KLayout (y up)", (v) => {
+      const orientation = v.startsWith("layout") ? "layout" : "gds";
+      const fig = document.getElementById("figure");
+      const range = (fig.layout.yaxis.range || []).slice();
+      const down = range.length === 2 && range[0] > range[1];
+      if (range.length === 2 && down !== (orientation === "layout")) {
+        Plotly.relayout(fig, { "yaxis.range": [range[1], range[0]] });
+      }
+      x.orientation = orientation;
+      postLayers({ orientation });
+    }));
   const file = document.createElement("label");
   file.className = "lyp";
   file.append("KLayout .lyp: ");

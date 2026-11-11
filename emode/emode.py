@@ -455,8 +455,10 @@ class EMode:
         ``'layer/datatype'``, any of ``visible``, ``color``, ``opacity`` and
         ``hatch``, one of ``'/'``, ``'\\'``, ``'x'``, ``'-'``, ``'|'``, ``'+'``,
         ``'.'`` or ``''``), ``layer_properties`` (a KLayout ``.lyp`` file for a
-        PDK's names, colors and hatches) and ``shapes`` (True draws the
-        simulation's shapes over the layers).
+        PDK's names, colors and hatches), ``shapes`` (True draws the
+        simulation's shapes over the layers) and ``orientation`` (``'gds'``, the
+        default, y up as KLayout draws the cell, or ``'layout'``, the layout
+        view's axes with x increasing downward).
         """
         from .ui import session as ui
 

@@ -44,7 +44,11 @@ DEFAULT_OPACITY = 0.5
 SHAPES = "shapes"
 
 #: The arguments of ``plot(view='gds')`` this client applies, never sent to EMode.
-LOCAL_ARGUMENTS = ("layers", "layer_properties", "shapes", "solo", "show_all")
+LOCAL_ARGUMENTS = ("layers", "layer_properties", "shapes", "solo", "show_all", "orientation")
+
+#: The view's orientations: ``'gds'``, the GDS file's (y up, as KLayout draws a
+#: cell), and ``'layout'``, the layout view's (x increasing downward).
+ORIENTATIONS = ("gds", "layout")
 
 _COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 
@@ -67,6 +71,7 @@ class GDSPanel:
     view: GDSView
     styles: Tuple[Tuple[str, LayerStyle], ...]
     shapes: bool = False
+    orientation: str = "gds"
 
     @classmethod
     def from_view(cls, view: GDSView) -> "GDSPanel":
@@ -96,7 +101,7 @@ class GDSPanel:
         fresh = GDSPanel.from_view(view)
         kept = dict(self.styles)
         styles = tuple((key, kept.get(key, style)) for key, style in fresh.styles)
-        return replace(fresh, styles=styles, shapes=self.shapes)
+        return replace(fresh, styles=styles, shapes=self.shapes, orientation=self.orientation)
 
     def with_changes(self, changes: Mapping[str, Any]) -> "GDSPanel":
         """This panel with the layer panel's `changes` applied, in this order.
@@ -108,6 +113,8 @@ class GDSPanel:
         - ``solo``: a layer's key, the only one left visible.
         - ``show_all``: True shows every layer.
         - ``shapes``: whether the simulation's shapes are drawn over the layers.
+        - ``orientation``: ``'gds'`` (y up, as KLayout draws the cell) or
+          ``'layout'`` (the layout view's axes, x increasing downward).
         """
         styles = dict(self.styles)
         if changes.get("layer_properties"):
@@ -133,7 +140,14 @@ class GDSPanel:
         if changes.get("show_all"):
             styles = {k: replace(s, visible=True) for k, s in styles.items()}
         shapes = self.shapes if changes.get("shapes") is None else bool(changes["shapes"])
-        return replace(self, styles=tuple((k, styles[k]) for k in self.keys), shapes=shapes)
+        orientation = changes.get("orientation") or self.orientation
+        if orientation not in ORIENTATIONS:
+            raise ArgumentError(
+                f"orientation is one of {ORIENTATIONS}, got {orientation!r}", "plot", "orientation"
+            )
+        return replace(
+            self, styles=tuple((k, styles[k]) for k in self.keys), shapes=shapes, orientation=orientation
+        )
 
     def state(self) -> Dict[str, Any]:
         """The panel's whole state as ``with_changes`` takes it, which the view keeps for the session."""
@@ -143,6 +157,7 @@ class GDSPanel:
                 for key, s in self.styles
             },
             "shapes": self.shapes,
+            "orientation": self.orientation,
         }
 
 
@@ -249,7 +264,8 @@ def compose_gds(panel: GDSPanel, options: PlotOptions) -> FigureSpec:
         ylabel=options.ylabel or _axis_label(axes_info.ylabel, yu),
         xrange=(x0 / scale[0], x1 / scale[0]),
         yrange=(y0 / scale[1], y1 / scale[1]),
-        invert_y=axes_info.invert_y,
+        # the panel's orientation, never the view's: the overlay shares these axes
+        invert_y=panel.orientation == "layout",
         equal_aspect=axes_info.equal_aspect,
     )
     return FigureSpec(
@@ -272,6 +288,7 @@ def extra(panel: GDSPanel) -> Dict[str, Any]:
     return {
         "layers": layer_rows(panel),
         "shapes": panel.shapes,
+        "orientation": panel.orientation,
         "has_shapes": bool(panel.view.shapes),
         "hatches": list(HATCHES),
         "decimated": panel.view.decimated,

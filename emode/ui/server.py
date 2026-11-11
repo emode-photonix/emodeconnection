@@ -279,7 +279,12 @@ class UIServer:
         local = {k: changes[k] for k in GDS_ARGUMENTS if changes.get(k) is not None}
         view.data = view.data.with_changes(local)
         view.arguments = state_arguments(view.arguments, view.data)
-        return {"id": view.id, "layers": layer_rows(view.data), "shapes": view.data.shapes}
+        return {
+            "id": view.id,
+            "layers": layer_rows(view.data),
+            "shapes": view.data.shapes,
+            "orientation": view.data.orientation,
+        }
 
     def export(self, view: View, request: Dict[str, Any]) -> Tuple[bytes, str, str]:
         """`view` drawn as a file: its bytes, its type and its name.
