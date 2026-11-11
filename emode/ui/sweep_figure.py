@@ -55,6 +55,12 @@ INDEX_COMPONENTS = ["real", "imag"]
 #: Results that are indices: their imaginary part is a loss, never shown as a magnitude.
 INDEX_RESULTS = {"effective_index", "n_eff", "group_index", "n_g", "n_eff_tilde"}
 
+#: Real results that are powers or power fractions, drawn linear or in dB (10 log10 of the value).
+POWER_RESULTS = {"monitor_coupling", "power_through_plane", "conversion"}
+
+#: The parts of a power result.
+POWER_COMPONENTS = ["linear", "dB"]
+
 #: How each known result is labeled on its axis.
 RESULT_LABELS = {
     "effective_index": "Effective index",
@@ -303,8 +309,11 @@ def _numbers(source: Any, name: str) -> Optional[np.ndarray]:
         if len(shape) != 2 or array.shape[: len(shape)] != shape or array.ndim > len(shape) + 1:
             return None
         return array
-    values = np.atleast_1d(np.asarray(source["values"]))
-    if array.ndim not in (1, 2) or array.shape[0] != len(values):
+    n = len(np.atleast_1d(np.asarray(source["values"])))
+    if array.ndim == 2 and array.shape[1] == n and (array.shape[0] != n or "solved_wavelengths" in source):
+        # an adaptive scan reports a per-mode result as (modes, wavelengths)
+        return array.T
+    if array.ndim not in (1, 2) or array.shape[0] != n:
         return None
     return array
 
@@ -313,8 +322,10 @@ def _components(source: Any, name: str) -> List[str]:
     if name == "S_matrix":
         return list(AMPLITUDE_COMPONENTS)
     array = _numbers(source, name)
-    if array is None or array.dtype.kind != "c":
+    if array is None:
         return []
+    if array.dtype.kind != "c":
+        return list(POWER_COMPONENTS) if name in POWER_RESULTS else []
     return list(INDEX_COMPONENTS) if name in INDEX_RESULTS else list(AMPLITUDE_COMPONENTS)
 
 
@@ -343,9 +354,12 @@ def tracked(array: np.ndarray, orders: Sequence[Any]) -> np.ndarray:
     return out
 
 
-def part(values: np.ndarray, component: Optional[str]) -> np.ndarray:
-    """The `component` of `values` that is drawn."""
+def part(values: np.ndarray, component: Optional[str], power: bool = False) -> np.ndarray:
+    """The `component` of `values` that is drawn. `power` values are in dB as 10 log10 of themselves."""
     values = np.asarray(values)
+    if power and component == "dB":
+        with np.errstate(divide="ignore"):
+            return 10 * np.log10(np.maximum(np.abs(values), 1e-300))
     if component == "abs^2":
         return np.abs(values) ** 2
     if component == "dB":
@@ -358,7 +372,9 @@ def part(values: np.ndarray, component: Optional[str]) -> np.ndarray:
     return np.real(values)
 
 
-def _component_label(base: str, component: Optional[str]) -> str:
+def _component_label(base: str, component: Optional[str], power: bool = False) -> str:
+    if power:
+        return f"{base} (dB)" if component == "dB" else base
     if component == "abs^2":
         return f"|{base}|²"
     if component == "dB":
@@ -395,16 +411,24 @@ def _unit(key: str) -> str:
     return ""
 
 
-def key_label(key: str) -> str:
-    """The axis label of a swept key, with its unit."""
-    short = _short(key)
+def key_scale(key: str, options: PlotOptions) -> Tuple[float, str]:
+    """How a key's values are shown: (the divisor, the unit). ``units='um'`` turns nm into μm."""
     unit = _unit(key)
+    if unit == "nm" and options.units == "um":
+        return 1000.0, "μm"
+    return 1.0, unit
+
+
+def key_label(key: str, unit: Optional[str] = None) -> str:
+    """The axis label of a swept key, with its unit (its own by default)."""
+    short = _short(key)
+    unit = _unit(key) if unit is None else unit
     text = "Wavelength" if short == "wavelength" else short
     return f"{text} ({unit})" if unit else text
 
 
-def _value_label(key: str, value: float) -> str:
-    unit = _unit(key)
+def _value_label(key: str, value: float, unit: Optional[str] = None) -> str:
+    unit = _unit(key) if unit is None else unit
     return f"{_short(key)} = {value:g}{' ' + unit if unit and unit != '°' else unit}"
 
 
@@ -467,6 +491,12 @@ def _figure(
     colorbar: Optional[ColorbarSpec] = None,
 ) -> FigureSpec:
     width, height = options.figure_size or DEFAULT_SIZE_MM
+    if not rasters:
+        # a line panel's scale entries are its y range
+        yrange = (
+            yrange[0] if options.vmin is None else float(options.vmin),
+            yrange[1] if options.vmax is None else float(options.vmax),
+        )
     if xrange[0] == xrange[1]:
         xrange = (xrange[0] - 0.5, xrange[1] + 0.5)
     return FigureSpec(
@@ -503,17 +533,18 @@ def _curves(source: Any, selected: Mapping[str, Any]) -> Tuple[List[Tuple[Option
         array = _numbers(source, name)
         assert array is not None
         comp = component if component in _components(source, name) else None
+        power = name in POWER_RESULTS
         base = _result_label(name)
-        label = _component_label(base, comp) if comp is not None else base
+        label = _component_label(base, comp, power) if comp is not None else base
         labels.append(label)
         if array.ndim == 2:
             if "mode_order" in source and array.shape[1] > 1:
                 array = tracked(array, source["mode_order"])
             for k in range(array.shape[1]):
                 prefix = f"{label}, " if len(results) > 1 else ""
-                curves.append((f"{prefix}mode {k}", part(array[:, k], comp)))
+                curves.append((f"{prefix}mode {k}", part(array[:, k], comp, power)))
         else:
-            curves.append((label if len(results) > 1 else None, part(array, comp)))
+            curves.append((label if len(results) > 1 else None, part(array, comp, power)))
     return curves, ", ".join(dict.fromkeys(labels))
 
 
@@ -538,7 +569,8 @@ def _smatrix_curves(
 
 def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> FigureSpec:
     key = source.swept[0]
-    x = np.asarray(source["values"], float).ravel()
+    scale, unit = key_scale(key, options)
+    x = np.asarray(source["values"], float).ravel() / scale
     order = np.argsort(x, kind="stable")
     x = x[order]
     curves, ylabel = _curves(source, selected)
@@ -550,7 +582,10 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         shown = [np.maximum(y, peak - 60.0) for y in shown]
     lo, hi = _limits(shown)
     texts: List[TextSpec] = []
-    marks = _sweep_marks(source)
+    marks = [
+        (kind, [(a / scale, b / scale) for a, b in xs] if kind == "unconverged" else np.asarray(xs, float) / scale)
+        for kind, xs in _sweep_marks(source)
+    ]
     span = hi - lo
     if source.get("interpolation_residual") is not None:
         hi += 0.12 * span  # room for the residual's line
@@ -570,7 +605,7 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         if nodes is not None:
             text += f", {int(nodes)} nodes"
         texts.append(TextSpec(text, 0.02, 0.98, "axes", "left", "top", "#000000", options.font_size - 1, "residual"))
-    return _figure(options, key_label(key), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
+    return _figure(options, key_label(key, unit), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
 
 
 def _sweep_marks(source: Any) -> List[Tuple[str, Any]]:
@@ -608,7 +643,8 @@ def _edges_range(values: np.ndarray) -> Tuple[float, float]:
 
 def _grid(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> FigureSpec:
     keys = source.swept
-    axes = [np.asarray(v, float).ravel() for v in source["values"]]
+    scales = [key_scale(k, options) for k in keys]
+    axes = [np.asarray(v, float).ravel() / s for v, (s, _) in zip(source["values"], scales)]
     orders = [np.argsort(a, kind="stable") for a in axes]
     axes = [a[o] for a, o in zip(axes, orders)]
     name = selected["result"][0] if isinstance(selected["result"], list) else selected["result"]
@@ -640,19 +676,21 @@ def _grid(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         raster = RasterSpec(x=axes[0], y=axes[1], z=z.T, colormap=cmap, vmin=vmin, vmax=vmax)
         bar = ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or label, tick_format="%.4g")
         return _figure(
-            options, key_label(keys[0]), key_label(keys[1]), _edges_range(axes[0]), _edges_range(axes[1]),
+            options, key_label(keys[0], scales[0][1]), key_label(keys[1], scales[1][1]),
+            _edges_range(axes[0]), _edges_range(axes[1]),
             rasters=[raster], colorbar=bar,
         )
     along = 0 if panel == f"against {_short(keys[0])}" else 1
     other = 1 - along
     curves = z if along == 0 else z.T
     lines = [
-        _trace(axes[along], curves[:, j], j, _value_label(keys[other], axes[other][j]))
+        _trace(axes[along], curves[:, j], j, _value_label(keys[other], axes[other][j], scales[other][1]))
         for j in range(curves.shape[1])
     ]
     x = axes[along]
     return _figure(
-        options, key_label(keys[along]), label, (float(x.min()), float(x.max())), _limits([curves]), lines
+        options, key_label(keys[along], scales[along][1]), label, (float(x.min()), float(x.max())),
+        _limits([curves]), lines,
     )
 
 
