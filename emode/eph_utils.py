@@ -1,37 +1,35 @@
 import os
 import pickle
-import numpy as np
-import scipy.io as sio
 
-from .types import reconstruct
+from .types import FileError, reconstruct
+
+MAT_REMOVED = (
+    "simulation .mat files are no longer supported as of EMode 1.0.9. Save and open "
+    "simulations as .eph files, and read results as numpy arrays with get(). To convert "
+    "an old .mat file, open it with EMode 1.0.8 and save it as .eph."
+)
 
 
 def open_file(sim="emode", simulation_name=None):
     """
-    Opens an EMode simulation file with either .eph or .mat extension.
+    Opens an EMode simulation file with the .eph extension.
     """
     sim = simulation_name or sim
     if not isinstance(sim, str):
         raise TypeError("input parameter 'simulation_name' must be a string")
 
     ext = ".eph"
-    mat = ".mat"
-    found = False
-    for file in os.listdir():
-        if (file == sim + ext) or ((file == sim) and (sim.endswith(ext))):
-            found = "eph"
-            with open(file, "rb") as fl:
-                f = pickle.load(fl)
-        elif (file == sim + mat) or ((file == sim) and (sim.endswith(mat))):
-            found = "mat"
-            f = loadmat(sim + mat)
+    if sim.lower().endswith(".mat"):
+        raise FileError(MAT_REMOVED, sim)
 
-    if not found:
-        raise FileNotFoundError(
-            f"no file: {sim}, {sim + ext}, or {sim + mat} was found"
-        )
+    name = sim if sim.endswith(ext) else sim + ext
+    if not os.path.isfile(name):
+        if os.path.isfile(sim + ".mat"):
+            raise FileError(MAT_REMOVED, sim + ".mat")
+        raise FileNotFoundError(f"no file: {sim} or {sim + ext} was found")
 
-    return f
+    with open(name, "rb") as fl:
+        return pickle.load(fl)
 
 
 def get(variable, sim="emode", simulation_name=None):
@@ -71,41 +69,3 @@ def inspect(sim="emode", simulation_name=None):
     fkeys = list(f.keys())
     fkeys.remove("EMode_simulation_file")
     return fkeys
-
-
-def loadmat(filename):
-    data = sio.loadmat(filename, struct_as_record=False, squeeze_me=True)
-    return _check_keys(data)
-
-
-def _check_keys(data):
-    force_1D = ["effective_index", "TE_indices", "TM_indices"]
-    force_3D = ["Fx", "Fy", "Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]
-    for key in data:
-        if isinstance(data[key], sio.matlab.mio5_params.mat_struct):  # type: ignore
-            data[key] = _todict(data[key])
-
-        if key in force_1D:
-            if (not isinstance(data[key], list)) and (
-                not isinstance(data[key], np.ndarray)
-            ):
-                data[key] = np.expand_dims(data[key], axis=0)
-
-        if key in force_3D:
-            if len(np.shape(data[key])) < 3:
-                data[key] = np.expand_dims(data[key], axis=0)
-
-    return data
-
-
-def _todict(matobj):
-    ddict = {}
-    for strg in matobj._fieldnames:
-        elem = matobj.__dict__[strg]
-        if isinstance(elem, sio.matlab.mio5_params.mat_struct):  # type: ignore
-            ddict[strg] = _todict(elem)
-        if isinstance(elem, str):
-            ddict[strg] = elem.strip()
-        else:
-            ddict[strg] = elem
-    return ddict
