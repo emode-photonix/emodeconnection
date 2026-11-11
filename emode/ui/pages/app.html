@@ -13,7 +13,8 @@
 <header id="nav">
   <span class="brand">EMode</span>
   <a href="#/plots" class="tab" data-route="plots">Plots</a>
-  <a href="https://docs.emodephotonix.com" target="_blank" rel="noopener noreferrer" class="tab">Docs</a>
+  <a href="#/session" class="tab" data-route="session">Session</a>
+  <a id="docs" href="https://docs.emodephotonix.com/" target="_blank" rel="noopener noreferrer" class="tab">Docs</a>
   <span id="status" role="status"></span>
 </header>
 <main id="app">
@@ -23,6 +24,11 @@
     <div id="message" role="alert" hidden></div>
     <div id="figure"></div>
   </section>
+</main>
+<main id="session" hidden>
+  <h2>This session</h2>
+  <div id="session-message" role="status" hidden></div>
+  <table id="session-table"></table>
 </main>
 </body>
 </html>

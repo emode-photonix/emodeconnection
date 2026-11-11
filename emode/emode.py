@@ -219,6 +219,9 @@ class EMode:
             raise
 
         self._dsim = RV[len("sim:") :]  # type: ignore
+        from .ui.session import register_session
+
+        register_session(self)
 
     def _shut_down_refused(self) -> None:
         """Close the connection to a refused session and wait for EMode to exit."""
@@ -449,6 +452,46 @@ class EMode:
         from .ui import session as ui
 
         return ui.plot(self, block=block, inline=inline, file_name=file_name, file_type=file_type, **kwargs)
+
+    def plot_S_matrix(self, input: "int | str" = 0, output: "int | str" = 1, plot_function: "str | None" = None,
+                      block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,
+                      file_type: str = "png", **kwargs):
+        """Plot one block of the solved S-matrix in this session's browser tab.
+
+        The block from port `input` to port `output` (an index or a port's
+        name), input modes along x and output modes along y, as
+        `plot_function` ('abs^2', the default, 'angle', 'real' or 'imag').
+        The tab's menus change the ports and the component without asking
+        EMode, and its scale entries (``vmin`` and ``vmax`` here) fix the
+        color scale. Returns a ``PlotHandle`` at once, or a ``PlotImage`` with
+        ``file_name``, ``EMODE_HEADLESS=1`` or ``inline='png'``, as ``plot()``
+        does, and takes the figure options of ``plot()`` (``title``,
+        ``xlabel``, ``ylabel``, ``font_size``, ``figure_size``,
+        ``colorbar_label``, ``dpi``, ``colormap``).
+        """
+        from .ui import session as ui
+
+        return ui.plot_S_matrix(self, block=block, inline=inline, file_name=file_name, file_type=file_type,
+                                input=input, output=output, plot_function=plot_function, **kwargs)
+
+    def material_explorer(self, material: str = "SiO2", wavelengths: "tuple | None" = None,
+                          step: "float | None" = None, x: "float | None" = None, component: str = "n_x",
+                          block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,
+                          file_type: str = "png", **kwargs):
+        """Plot a material's refractive index against wavelength in this session's browser tab.
+
+        `material` is a name from EMode's material database, `wavelengths` a
+        ``(min, max)`` range in nm (the model's own range by default), `step`
+        the sampling in nm (1 nm by default), `x` the alloy fraction of a
+        ternary (AlGaAs, InGaAs), and `component` 'n_x', 'n_y' or 'n_z'. The
+        part of a range outside the model's is drawn dashed, extrapolated.
+        Returns as ``plot()`` does, and takes its figure options.
+        """
+        from .ui import session as ui
+
+        return ui.material_explorer(self, block=block, inline=inline, file_name=file_name,
+                                    file_type=file_type, material=material, wavelengths=wavelengths,
+                                    step=step, x=x, component=component, **kwargs)
 
     def close(self, **kwargs):
         logger.debug(f"closing connection with kwargs {kwargs}")

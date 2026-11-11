@@ -12,6 +12,8 @@ dependencies = [
   "requests",
   # static plot images (plot(file_name=...), EMODE_HEADLESS), imported only when one is drawn
   "matplotlib",
+  # the session page's memory and CPU rows, imported only when the page asks
+  "psutil",
 ]
 authors = [
   { name = "EMode, Inc.", email = "hello@emodephotonix.com" },
