@@ -44,7 +44,9 @@ from .figure import (
 )
 
 #: The selection a sweep's panel takes, from ``plot()`` and from the tab.
-SWEEP_CONTROLS = ("result", "component", "panel", "input", "output", "input_mode", "mode", "record")
+SWEEP_CONTROLS = (
+    "result", "component", "panel", "input", "output", "input_mode", "output_mode", "mode", "record",
+)
 
 #: The parts of a complex amplitude, as the component menu offers them.
 AMPLITUDE_COMPONENTS = ["abs^2", "dB", "phase", "real", "imag"]
@@ -194,6 +196,8 @@ def _resolve(source: Any, raw: Dict[str, Any], strict: set) -> Dict[str, Any]:
                     _refuse(name, bad[0] if bad else value, options)
                 selected[name] = options[0]
                 continue
+            if name in ("input", "output") and isinstance(value, int) and 0 <= value < len(options):
+                value = options[value]  # a port by its index
             if value is not None:
                 value = str(value)
             if value in options:
@@ -261,6 +265,8 @@ def _sweep_offers(source: Any, raw: Mapping[str, Any]) -> List[Tuple[str, str, L
         port = labels.index(str(raw["input"])) if raw.get("input") in labels else 0
         sizes = source["S_matrix"][0].port_sizes
         offers.append(("input_mode", "mode", [str(m) for m in range(sizes[port])]))
+        out = labels.index(str(raw["output"])) if raw.get("output") in labels else len(labels) - 1
+        offers.append(("output_mode", "to mode", ["all"] + [str(m) for m in range(sizes[out])]))
     elif grid:
         array = _numbers(source, first)
         modes = array.shape[2] if array is not None and array.ndim == 3 else 0
@@ -562,9 +568,9 @@ def _smatrix_curves(
         block = s.block(to_ports=i_out, from_ports=i_in)
         if m_in < block.shape[1]:
             entries[i, : block.shape[0]] = block[:, m_in]
-    return [
-        (f"{labels[i_in]} {m_in} to {labels[i_out]} {k}", part(entries[:, k], component)) for k in range(size)
-    ]
+    chosen = selected.get("output_mode")
+    modes = range(size) if chosen in (None, "all") else [int(chosen)]
+    return [(f"{labels[i_in]} {m_in} to {labels[i_out]} {k}", part(entries[:, k], component)) for k in modes]
 
 
 def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> FigureSpec:

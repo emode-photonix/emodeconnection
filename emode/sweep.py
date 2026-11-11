@@ -156,11 +156,15 @@ class SweepResult(TaggedModel, MutableMapping):
         ``result`` (a result's name, or a list of them drawn as traces of one
         panel), ``component`` (``'abs^2'``, ``'dB'``, ``'phase'``, ``'real'``
         or ``'imag'`` of a complex result), ``panel`` (``'map'`` or
-        ``'against <key>'`` for a grid), ``mode`` (a grid's mode), ``input``,
-        ``output`` and ``input_mode`` (the S-matrix's ports and mode). The
-        figure options of ``plot()`` apply (``title``, ``xlabel``, ``ylabel``,
-        ``font_size``, ``figure_size``, ``dpi``, ``colormap``, ``vmin``,
-        ``vmax``).
+        ``'against <key>'`` for a grid), ``mode`` (a grid's mode), ``input``
+        and ``output`` (the S-matrix's ports, by name or index),
+        ``input_mode`` and ``output_mode`` (one mode, or ``'all'`` of the
+        output port's). A power result (a coupling, a conversion) is drawn
+        ``'linear'`` or in ``'dB'``. The figure options of ``plot()`` apply
+        (``title``, ``xlabel``, ``ylabel``, ``units='um'`` for a length key,
+        ``font_size``, ``figure_size``, ``dpi``, ``colormap``, and ``vmin``
+        and ``vmax``, the y range of a line panel or the color range of a
+        map).
 
         `em` is the session whose tab shows it, by default the newest one still
         running. Returns a ``PlotHandle``, or a ``PlotImage`` with
