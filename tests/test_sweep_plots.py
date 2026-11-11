@@ -642,8 +642,8 @@ def test_a_power_result_is_drawn_linear_or_in_dB():
     assert spec.axes.ylabel == "Coupling (dB)"
 
 
-def test_an_adaptive_scans_modes_by_wavelength_are_one_trace_per_mode():
-    """``sweep(adaptive=True)`` reports each per-mode result as (modes, wavelengths)."""
+def test_an_older_adaptive_scans_modes_by_wavelength_are_one_trace_per_mode():
+    """An adaptive scan saved before 1.0.9 holds each per-mode result as (modes, wavelengths)."""
     w = np.linspace(1500.0, 1600.0, 5)
     n = np.vstack([2.4 - w / 1e4, 2.0 - w / 2e4])
     scan = SweepResult(

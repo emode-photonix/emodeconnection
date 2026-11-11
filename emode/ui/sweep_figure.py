@@ -316,8 +316,8 @@ def _numbers(source: Any, name: str) -> Optional[np.ndarray]:
             return None
         return array
     n = len(np.atleast_1d(np.asarray(source["values"])))
-    if array.ndim == 2 and array.shape[1] == n and (array.shape[0] != n or "solved_wavelengths" in source):
-        # an adaptive scan reports a per-mode result as (modes, wavelengths)
+    if array.ndim == 2 and array.shape[1] == n and array.shape[0] != n:
+        # an adaptive scan saved before 1.0.9 holds a per-mode result as (modes, wavelengths)
         return array.T
     if array.ndim not in (1, 2) or array.shape[0] != n:
         return None
