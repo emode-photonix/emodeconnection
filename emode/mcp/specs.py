@@ -181,6 +181,29 @@ class ObjectiveSpec(BaseModel):
             "put in, false for the power in W."
         ),
     )
+    wavelengths: list[float] | None = Field(
+        None,
+        description=(
+            "For kind 'conversion', in place of 'wavelength': a band of generated "
+            "wavelengths in nm, reduced to one number by 'reduce'. A wavelength the "
+            "declared device does not generate is reached by scaling every wavelength "
+            "of the device by one factor."
+        ),
+    )
+    reduce: Literal["soft_min", "mean"] | None = Field(
+        None,
+        description=(
+            "With 'wavelengths': 'soft_min', a smooth worst case across the band, or "
+            "'mean', the band's average."
+        ),
+    )
+    temperature: float | None = Field(
+        None,
+        description=(
+            "With reduce 'soft_min': how close it sits to the true minimum, as a "
+            "fraction of the band's mean, default 0.05."
+        ),
+    )
     goal: Literal["maximize", "minimize", "target"] | None = Field(
         None, description="Default 'maximize'."
     )

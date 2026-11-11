@@ -390,7 +390,9 @@ def test_the_soft_minimum_approaches_the_minimum_as_the_temperature_drops() -> N
         gaps.append(o.value(results) - values.min())
     assert all(g >= 0 for g in gaps)
     assert all(b < a for a, b in zip(gaps, gaps[1:]))
-    assert gaps[-1] < 1e-6 * values.min()
+    # the gap is at most tau ln K, tau = temperature * mean: it falls with the temperature
+    assert gaps[-1] <= 0.001 * values.mean() * np.log(len(values)) * (1 + 1e-9)
+    assert gaps[-1] < 0.01 * values.min()
     # and toward the mean as it rises
     hot = Objective(
         'conversion', out='right', wavelengths=_harmonics(), reduce='soft_min', temperature=1e4
@@ -412,7 +414,8 @@ def test_a_reduction_s_gradient_is_the_derivative_of_its_value(reduce: str) -> N
         minus[k] -= h
         difference = (o.reduction(plus) - o.reduction(minus)) / (2 * h)
         assert gradient[k] == pytest.approx(difference, rel=1e-6, abs=1e-9)
-    assert gradient.sum() == pytest.approx(1.0)
+    # both reductions scale with their values, so the gradient's moment is the value
+    assert gradient @ values == pytest.approx(o.reduction(values))
 
 
 def test_a_band_conversion_objective_is_validated() -> None:

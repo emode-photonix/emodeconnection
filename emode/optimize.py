@@ -174,6 +174,16 @@ class Objective(TaggedModel):
       (default every mode of the port), read from the driven response
       (`get('response')`). With `efficiency=True` (the default) it is a
       fraction of the total power put in, with `efficiency=False` it is in W.
+      A wavelength the declared device does not generate is reached by
+      scaling every wavelength of the device (its profiles, its process and
+      its excitation) by one factor, as `chi2_spectrum()` scans, so an SHG
+      objective at 772 nm drives the device at 1544 nm.
+      Give `wavelengths=` (a list) in place of `wavelength=` for the
+      conversion over a band, one value per wavelength, reduced to one number
+      by `reduce`: `'mean'`, their average, or `'soft_min'`, a smooth minimum
+      (`reduction()`), so a run can raise the worst case across the band and
+      still take gradients. `temperature` (default 0.05) sets how close the
+      soft minimum sits to the true one, as a fraction of the band's mean.
     - `'parameter'`, the value of the parameter `key` itself, to make a
       device as short or as narrow as its constraints allow.
 
@@ -206,6 +216,9 @@ class Objective(TaggedModel):
     beam: Optional[Dict[str, Any]] = None
     band: Optional[Tuple[float, float]] = None
     efficiency: bool = True
+    wavelengths: Optional[List[float]] = None
+    reduce: Optional[Literal['soft_min', 'mean']] = None
+    temperature: float = 0.05
     goal: Literal['maximize', 'minimize', 'target'] = 'maximize'
     target: Optional[float] = None
     weight: float = 1.0
@@ -241,16 +254,46 @@ class Objective(TaggedModel):
         if self.kind == 'conversion':
             if self.out is None:
                 raise ArgumentError("a 'conversion' objective needs out=, the port", name, 'out')
-            if self.wavelength is None or not self.wavelength > 0:
+            if self.wavelengths is not None:
+                if self.wavelength is not None:
+                    raise ArgumentError(
+                        'give wavelength= or wavelengths=, not both', name, 'wavelengths'
+                    )
+                if not self.wavelengths or not all(w > 0 for w in self.wavelengths):
+                    raise ArgumentError(
+                        'wavelengths= needs at least one wavelength, each > 0 nm',
+                        name,
+                        'wavelengths',
+                    )
+                if self.reduce is None:
+                    raise ArgumentError(
+                        "a band of wavelengths needs reduce='soft_min' or 'mean'", name, 'reduce'
+                    )
+            elif self.wavelength is None or not self.wavelength > 0:
                 raise ArgumentError(
                     "a 'conversion' objective needs wavelength=, the generated one in nm",
                     name,
                     'wavelength',
                 )
-        elif not self.efficiency:
-            raise ArgumentError(
-                "efficiency= applies to a 'conversion' objective only", name, 'efficiency'
-            )
+            elif self.reduce is not None:
+                raise ArgumentError(
+                    'reduce= applies to a band of wavelengths, given with wavelengths=',
+                    name,
+                    'reduce',
+                )
+            if not self.temperature > 0:
+                raise ArgumentError('temperature must be > 0', name, 'temperature')
+        else:
+            if not self.efficiency:
+                raise ArgumentError(
+                    "efficiency= applies to a 'conversion' objective only", name, 'efficiency'
+                )
+            if self.wavelengths is not None or self.reduce is not None:
+                raise ArgumentError(
+                    "wavelengths= and reduce= apply to a 'conversion' objective only",
+                    name,
+                    'wavelengths',
+                )
         if (self.kind == 'parameter') != (self.key is not None):
             raise ArgumentError("give key= exactly for a 'parameter' objective", name, 'key')
         if (self.goal == 'target') != (self.target is not None):
@@ -276,13 +319,8 @@ class Objective(TaggedModel):
         if self.result not in results:
             raise ArgumentError(f"the results hold no '{self.result}'", 'Objective', 'kind')
         if self.kind == 'conversion':
-            return _conversion(
-                results[self.result],
-                self.out,  # type: ignore[arg-type]
-                self.wavelength,  # type: ignore[arg-type]
-                self.mode,
-                self.efficiency,
-            )
+            values = self.conversions(results)
+            return values[0] if self.wavelengths is None else self.reduction(values)
         data = _at_wavelength(results[self.result], self.wavelength)
         if self.kind in ('S_power', 'S_phase'):
             element = _s_element(data, self.out, self.into, self.wavelength)  # type: ignore[arg-type]
@@ -294,6 +332,69 @@ class Objective(TaggedModel):
             return float(data.band_power(lo, hi, mode=self.mode))
         values = np.ravel(np.asarray(data))
         return float(np.real(values[self.mode or 0]))
+
+    @property
+    def generated_wavelengths(self) -> List[float]:
+        """The wavelengths a `'conversion'` objective reads (nm), one or a band."""
+        if self.wavelengths is not None:
+            return [float(w) for w in self.wavelengths]
+        return [] if self.wavelength is None else [float(self.wavelength)]
+
+    def conversions(self, results: Mapping[str, Any]) -> List[float]:
+        """A `'conversion'` objective's value at each of its wavelengths, unreduced.
+
+        `results['response']` is one driven response or a list of them, one per
+        drive, and each wavelength is read from the response that carries it.
+        """
+        if self.result not in results:
+            raise ArgumentError(f"the results hold no '{self.result}'", 'Objective', 'kind')
+        return [
+            _conversion(
+                results[self.result],
+                self.out,  # type: ignore[arg-type]
+                w,
+                self.mode,
+                self.efficiency,
+            )
+            for w in self.generated_wavelengths
+        ]
+
+    def reduction(self, values: Any) -> float:
+        """A band objective's values reduced to one number by `reduce`.
+
+        `'soft_min'` is ``-tau ln(mean(exp(-v / tau)))`` with ``tau =
+        temperature * mean(v)``: it lies between the minimum and the mean,
+        within ``tau ln K`` of the minimum for `K` values, and is smooth in every
+        value. It tends to the minimum as the temperature drops and to the mean
+        as it rises.
+        """
+        v = np.asarray(values, dtype=float)
+        if self.reduce == 'mean':
+            return float(v.mean())
+        tau = self.temperature * float(v.mean())
+        if not tau > 0:
+            return float(v.min())
+        a = -(v - v.min()) / tau
+        return float(v.min() - tau * (np.log(np.mean(np.exp(a)))))
+
+    def reduction_gradient(self, values: Any) -> List[float]:
+        """The derivative of `reduction(values)` by each value."""
+        v = np.asarray(values, dtype=float)
+        k = len(v)
+        if self.reduce == 'mean':
+            return [1.0 / k] * k
+        mean = float(v.mean())
+        tau = self.temperature * mean
+        if not tau > 0:
+            out = np.zeros(k)
+            out[int(np.argmin(v))] = 1.0
+            return [float(g) for g in out]
+        weights = np.exp(-(v - v.min()) / tau)
+        weights /= weights.sum()
+        value = self.reduction(v)
+        # tau moves with the mean: d tau / d v_k = temperature / K
+        out = weights + (value - float(weights @ v)) / (mean * k)
+        return [float(g) for g in out]
 
     def term(self, value: float) -> float:
         """The weighted amount this objective adds to a cost that is minimized."""
@@ -312,7 +413,38 @@ def _conversion(
     response: Any, out: Union[int, str], wavelength: float, mode: Optional[int], efficiency: bool
 ) -> float:
     """The power a driven response carries out of port `out` at `wavelength`,
-    over the total power put in when `efficiency`."""
+    over the total power put in when `efficiency`. `response` may be a list of
+    responses, one per drive, and the one that carries `wavelength` at `out` is
+    read."""
+    if isinstance(response, (list, tuple)):
+        if not isinstance(out, str):
+            raise ArgumentError(
+                'a conversion over several responses names its port by name', 'Objective', 'out'
+            )
+        carrying = [
+            r
+            for r in response
+            if any(
+                n == out and abs(wl - wavelength) <= _WAVELENGTH_MATCH
+                for n, wl in zip(r.port_names or (), r.wavelengths or ())
+            )
+        ]
+        if not carrying:
+            held = sorted(
+                {
+                    wl
+                    for r in response
+                    for n, wl in zip(r.port_names or (), r.wavelengths or ())
+                    if n == out
+                }
+            )
+            raise ArgumentError(
+                f'port {out!r} has no wavelength within {_WAVELENGTH_MATCH} nm of '
+                f'{wavelength} nm in any response, they have {held}',
+                'Objective',
+                'wavelength',
+            )
+        return _conversion(carrying[0], out, wavelength, mode, efficiency)
     names = response.port_names or ()
     wavelengths = response.wavelengths or ()
     if isinstance(out, (int, np.integer)):
