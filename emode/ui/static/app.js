@@ -185,9 +185,11 @@ function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
   const kind = reply.kind || "plot";
+  buildLayerPanel(reply);
   if (kind === "smatrix") buildSMatrixControls(box, reply);
   else if (kind === "material") buildMaterialControls(box, reply);
   else if (kind === "farfield") buildFarFieldControls(box, reply);
+  else if (kind === "gds") buildGDSControls(box, reply);
   else buildPlotControls(box, reply);
   box.append(exportPanel(reply));
 }
@@ -241,6 +243,207 @@ function buildFarFieldControls(box, reply) {
   if ((m.data || []).length > 1) {
     box.append(select("Data", m.data, (m.selected || {}).data, (v) => change({ data: v })));
   }
+}
+
+// ------------------------------------------------------------ the GDS layer panel
+//
+// Each change restyles the layer's trace here, in the browser, and is then
+// posted to the view's layers route so the client keeps it for the session (a
+// later visit and a saved file draw the same). layerStyle() makes what the
+// client's renderers/plotly.py layer_style() makes from the same row.
+
+const HATCH_NAMES = { "": "none", "/": "/", "\\": "\\", "x": "x", "-": "-", "|": "|", "+": "+", ".": "." };
+
+function layerRgba(color, alpha) {
+  let h = color.replace("#", "");
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = (i) => parseInt(h.slice(i, i + 2), 16);
+  return "rgba(" + n(0) + "," + n(2) + "," + n(4) + "," + Number(alpha) + ")";
+}
+
+function layerStyle(row) {
+  const fill = layerRgba(row.color, row.opacity);
+  return {
+    visible: [row.visible],
+    name: [row.label],
+    fillcolor: [fill],
+    "line.color": [row.color],
+    "fillpattern.shape": [row.hatch],
+    "fillpattern.fgcolor": [row.color],
+    "fillpattern.bgcolor": [fill],
+  };
+}
+
+function layerTrace(key) {
+  const fig = document.getElementById("figure");
+  return (fig.data || []).findIndex((t) => t.meta === "layer:" + key);
+}
+
+function restyleLayer(row) {
+  const i = layerTrace(row.key);
+  if (i >= 0) Plotly.restyle(document.getElementById("figure"), layerStyle(row), [i]);
+}
+
+async function postLayers(change) {
+  const id = state.current;
+  let reply;
+  try {
+    reply = await api("views/" + id + "/layers", change);
+  } catch (err) {
+    showMessage(String(err));
+    return null;
+  }
+  if (reply.error) {
+    showMessage(reply.error);
+    return null;
+  }
+  showMessage("");
+  if (state.reply && state.reply.id === id) {
+    state.reply.extra.layers = reply.layers;
+    state.reply.extra.shapes = reply.shapes;
+    state.reply.extra.orientation = reply.orientation;
+  }
+  return reply;
+}
+
+function changeLayer(row, change, post = true) {
+  Object.assign(row, change);
+  restyleLayer(row);
+  if (post) postLayers({ layers: { [row.key]: change } });
+}
+
+async function changeAllLayers(change, local) {
+  const rows = state.reply.extra.layers;
+  for (const row of rows) {
+    local(row);
+    restyleLayer(row);
+  }
+  buildLayerPanel(state.reply);
+  await postLayers(change);
+}
+
+function layerRow(row) {
+  const tr = document.createElement("tr");
+  const visible = document.createElement("input");
+  visible.type = "checkbox";
+  visible.checked = row.visible;
+  visible.title = "Show this layer";
+  visible.addEventListener("change", () => changeLayer(row, { visible: visible.checked }));
+  const color = document.createElement("input");
+  color.type = "color";
+  color.value = row.color.length === 4 ? "#" + row.color.slice(1).split("").map((c) => c + c).join("") : row.color;
+  color.title = "Color";
+  // dragging redraws, letting go keeps it
+  color.addEventListener("input", () => changeLayer(row, { color: color.value }, false));
+  color.addEventListener("change", () => changeLayer(row, { color: color.value }));
+  const opacity = document.createElement("input");
+  opacity.type = "range";
+  opacity.min = "0";
+  opacity.max = "1";
+  opacity.step = "0.05";
+  opacity.value = String(row.opacity);
+  opacity.title = "Fill opacity";
+  opacity.addEventListener("input", () => changeLayer(row, { opacity: Number(opacity.value) }, false));
+  opacity.addEventListener("change", () => changeLayer(row, { opacity: Number(opacity.value) }));
+  const hatch = document.createElement("select");
+  hatch.title = "Hatch";
+  for (const h of (state.reply.extra.hatches || Object.keys(HATCH_NAMES))) {
+    const o = document.createElement("option");
+    o.value = h;
+    o.textContent = HATCH_NAMES[h] || h;
+    if (h === row.hatch) o.selected = true;
+    hatch.appendChild(o);
+  }
+  hatch.addEventListener("change", () => changeLayer(row, { hatch: hatch.value }));
+  const solo = document.createElement("button");
+  solo.textContent = "only";
+  solo.title = "Show only this layer";
+  solo.addEventListener("click", () => changeAllLayers({ solo: row.key }, (r) => { r.visible = r.key === row.key; }));
+  const label = document.createElement("span");
+  label.textContent = row.label;
+  label.title = row.polygons + " polygons";
+  for (const el of [visible, color, opacity, hatch, label, solo]) {
+    const td = document.createElement("td");
+    td.appendChild(el);
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+function buildLayerPanel(reply) {
+  const panel = document.getElementById("layer-panel");
+  if (!panel) return;
+  const gds = (reply.kind || "plot") === "gds";
+  panel.hidden = !gds;
+  panel.replaceChildren();
+  if (!gds) return;
+  const x = reply.extra || {};
+  const head = document.createElement("div");
+  head.className = "layer-head";
+  const all = document.createElement("button");
+  all.textContent = "Show all";
+  all.addEventListener("click", () => changeAllLayers({ show_all: true }, (r) => { r.visible = true; }));
+  head.appendChild(all);
+  if (x.has_shapes) {
+    const wrap = document.createElement("label");
+    const shapes = document.createElement("input");
+    shapes.type = "checkbox";
+    shapes.checked = !!x.shapes;
+    shapes.addEventListener("change", () => {
+      const i = layerTrace("shapes");
+      if (i >= 0) Plotly.restyle(document.getElementById("figure"), { visible: [shapes.checked] }, [i]);
+      x.shapes = shapes.checked;
+      postLayers({ shapes: shapes.checked });
+    });
+    wrap.append(shapes, " Simulation shapes");
+    head.appendChild(wrap);
+  }
+  // y up as KLayout draws the cell, or the layout view's axes: the y range turns over here
+  head.appendChild(select("Axes", ["KLayout (y up)", "layout view (x down)"],
+    x.orientation === "layout" ? "layout view (x down)" : "KLayout (y up)", (v) => {
+      const orientation = v.startsWith("layout") ? "layout" : "gds";
+      const fig = document.getElementById("figure");
+      const range = (fig.layout.yaxis.range || []).slice();
+      const down = range.length === 2 && range[0] > range[1];
+      if (range.length === 2 && down !== (orientation === "layout")) {
+        Plotly.relayout(fig, { "yaxis.range": [range[1], range[0]] });
+      }
+      x.orientation = orientation;
+      postLayers({ orientation });
+    }));
+  const file = document.createElement("label");
+  file.className = "lyp";
+  file.append("KLayout .lyp: ");
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".lyp,.xml";
+  input.addEventListener("change", async () => {
+    const f = input.files && input.files[0];
+    if (!f) return;
+    const reply = await postLayers({ layer_properties: await f.text() });
+    if (!reply) return;
+    for (const row of reply.layers) restyleLayer(row);
+    buildLayerPanel(state.reply);
+  });
+  file.appendChild(input);
+  head.appendChild(file);
+  panel.appendChild(head);
+  const table = document.createElement("table");
+  for (const row of x.layers || []) table.appendChild(layerRow(row));
+  panel.appendChild(table);
+  if (x.decimated) {
+    const note = document.createElement("p");
+    note.className = "note";
+    note.textContent = "Large layers drawn to within " + Number(x.pixel_nm).toPrecision(3) + " nm (one pixel).";
+    panel.appendChild(note);
+  }
+}
+
+function buildGDSControls(box, reply) {
+  const n = ((reply.extra || {}).layers || []).length;
+  const span = document.createElement("span");
+  span.textContent = n + (n === 1 ? " GDS layer" : " GDS layers");
+  box.append(span);
 }
 
 // ------------------------------------------------------------ the export panel

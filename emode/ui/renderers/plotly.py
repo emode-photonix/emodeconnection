@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ... import colormaps
-from ..figure import FigureSpec, RasterSpec
+from ..figure import FigureSpec, LayerSpec, RasterSpec
 
 #: Plotly's dash names for the spec's.
 _DASH = {None: "solid", "dash": "dash", "dot": "dot"}
@@ -110,6 +110,57 @@ def _closed(x: np.ndarray, y: np.ndarray, holes: Any) -> tuple:
     return xs, ys
 
 
+def _rgba(color: str, alpha: float) -> str:
+    """``'#rrggbb'`` (or ``'#rgb'``) with `alpha`, as Plotly's ``rgba(r,g,b,a)``."""
+    h = color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r},{g},{b},{alpha:g})"
+
+
+def layer_style(layer: LayerSpec) -> Dict[str, Any]:
+    """The part of a layer's trace its style sets, which the tab's layer panel restyles in place.
+
+    ``app.js``'s ``layerStyle()`` makes the same from a panel row, so a change in
+    the panel redraws in the browser without asking this client for a figure.
+    """
+    fill = _rgba(layer.color, layer.opacity if layer.filled else 0.0)
+    style: Dict[str, Any] = {
+        "visible": layer.visible,
+        "fillcolor": fill,
+        "line": {"color": layer.color, "width": layer.width, "dash": _DASH.get(layer.dash, "solid")},
+    }
+    if layer.filled:
+        style["fillpattern"] = {"shape": layer.hatch, "fgcolor": layer.color, "bgcolor": fill, "fillmode": "replace"}
+    return style
+
+
+def _layer_trace(layer: LayerSpec) -> Dict[str, Any]:
+    """One trace for every polygon of a layer, each ring closed and the rings separated by gaps."""
+    xs: List[np.ndarray] = []
+    for i, ring in enumerate(layer.polygons):
+        ring = np.asarray(ring, float)
+        if i:
+            xs.append(np.full((1, 2), np.nan))
+        xs.append(np.vstack([ring, ring[:1]]))
+    xy = np.concatenate(xs) if xs else np.zeros((0, 2))
+    return {
+        "type": "scatter",
+        "mode": "lines",
+        "x": typed_array(xy[:, 0]),
+        "y": typed_array(xy[:, 1]),
+        "fill": "toself" if layer.filled else "none",
+        "connectgaps": False,
+        "hoverinfo": "name",
+        "hoveron": "fills",
+        "name": layer.label,
+        "meta": f"layer:{layer.key}",
+        "showlegend": layer.legend,
+        **layer_style(layer),
+    }
+
+
 def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
     """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``."""
     data: List[Dict[str, Any]] = []
@@ -130,6 +181,9 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
         if f.hatch:
             trace["fillpattern"] = {"shape": _HATCH.get(f.hatch, "/"), "fgcolor": f.edgecolor or "#000000"}
         data.append(trace)
+
+    for layer in spec.layers:
+        data.append(_layer_trace(layer))
 
     for i, r in enumerate(spec.rasters):
         data.append(_heatmap(r, showscale=(i == 0 and spec.colorbar is not None), spec=spec))
@@ -285,7 +339,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "yaxis": yaxis,
         "font": font,
         "annotations": annotations,
-        "showlegend": bool(spec.legend),
+        "showlegend": bool(spec.legend) or any(layer.legend for layer in spec.layers),
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
         "margin": {"l": 60, "r": 20, "t": 40, "b": 110 if any(t.kind == "footer" for t in spec.texts) else 50},
         "paper_bgcolor": "#ffffff",
