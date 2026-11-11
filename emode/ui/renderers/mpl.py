@@ -25,7 +25,14 @@ INLINE_DPI = 150
 
 MISSING = "Saving a figure needs matplotlib. Install it with `pip install matplotlib`."
 
-_MARKERS = {"triangle-right": ">", "triangle-left": "<", "circle": "o", "square": "s"}
+_MARKERS = {
+    "triangle-right": ">",
+    "triangle-left": "<",
+    "triangle-up": "^",
+    "circle": "o",
+    "square": "s",
+    "diamond": "D",
+}
 _DASHES = {None: "-", "dash": "--", "dot": ":"}
 
 
@@ -118,16 +125,17 @@ def to_figure(spec: FigureSpec) -> Any:
         )
 
     for line in spec.lines:
+        label = line.label if line.label is not None else "_nolegend_"
         if line.marker:
             ax.plot(
                 line.x, line.y, linestyle="none", marker=_MARKERS.get(line.marker, "o"),
-                color=line.color, markersize=line.marker_size, gid=line.kind,
+                color=line.color, markersize=line.marker_size, gid=line.kind, label=label,
             )
         else:
             ax.plot(
                 line.x, line.y, color=line.color, linewidth=line.width,
                 linestyle=_DASHES.get(line.dash, "-"), alpha=line.alpha, gid=line.kind,
-                solid_capstyle="butt",
+                solid_capstyle="butt", label=label,
             )
 
     for t in spec.texts:
@@ -188,6 +196,9 @@ def to_figure(spec: FigureSpec) -> Any:
             handles=handles, frameon=False, ncol=len(handles), loc="lower center",
             bbox_to_anchor=(0.5, 1.0), fontsize=spec.font_size,
         )
+    elif any(line.label is not None for line in spec.lines):
+        # the labeled curves, in the order drawn
+        ax.legend(loc="best", frameon=False, fontsize=spec.font_size - 1)
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
     return fig

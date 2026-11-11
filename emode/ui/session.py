@@ -365,23 +365,30 @@ def show_data(
     file_type: str = "png",
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
-    """``FarField.show()`` and ``SMatrix.show()``: data this client holds, shown with no EMode call.
+    """``FarField.show()``, ``SMatrix.show()`` and a sweep's ``plot()``: data this client holds, shown with no EMode call.
 
     `em` is the session whose tab shows it, by default the newest session of
     this process that is still running.
     """
     from ..free_space import FarField
     from ..smatrix import SMatrix
+    from .sweep_figure import SWEEP_CONTROLS, is_sweep_shaped, sweep_panel
 
     em = em or current_session()
-    if isinstance(value, FarField):
+    if is_sweep_shaped(value):
+        data_args, figure_args = _split(arguments, SWEEP_CONTROLS, "plot")
+        view_data = sweep_panel(value, **data_args)
+    elif isinstance(value, FarField):
         data_args, figure_args = _split(arguments, ("data",), "FarField.show")
         view_data: Any = _select(FarFieldPanel(value), data_args)
     elif isinstance(value, SMatrix):
         data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "SMatrix.show")
         view_data = _select(smatrix_view(value), data_args)
     else:
-        raise TypeError(f"show() takes a FarField or an SMatrix, not {type(value).__name__}")
+        raise TypeError(
+            "show() takes a FarField, an SMatrix, a sweep's result, an OptimizationResult or a "
+            f"PulseResponse, not {type(value).__name__}"
+        )
     options = PlotOptions.from_arguments(figure_args)
     if em is None:
         inline = inline or os.environ.get("EMODE_PLOT_INLINE") or None

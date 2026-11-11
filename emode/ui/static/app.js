@@ -188,6 +188,7 @@ function buildControls(reply) {
   if (kind === "smatrix") buildSMatrixControls(box, reply);
   else if (kind === "material") buildMaterialControls(box, reply);
   else if (kind === "farfield") buildFarFieldControls(box, reply);
+  else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
   box.append(exportPanel(reply));
 }
@@ -240,6 +241,16 @@ function buildFarFieldControls(box, reply) {
   const m = reply.menu || {};
   if ((m.data || []).length > 1) {
     box.append(select("Data", m.data, (m.selected || {}).data, (v) => change({ data: v })));
+  }
+}
+
+// A sweep's menus come in the reply, each {name, label, options, selected}: which
+// result, which part of it, which panel of a grid, which ports of an S-matrix.
+// A menu with one choice is not shown.
+function buildSweepControls(box, reply) {
+  for (const m of (reply.extra || {}).menus || []) {
+    if ((m.options || []).length < 2) continue;
+    box.append(select(m.label, m.options, m.selected, (v) => change({ [m.name]: v })));
   }
 }
 

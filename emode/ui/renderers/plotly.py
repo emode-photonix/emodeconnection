@@ -166,9 +166,13 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             "line": {"width": line.width, "color": line.color, "dash": _DASH.get(line.dash, "solid")},
             "opacity": line.alpha,
             "hoverinfo": "skip",
-            "showlegend": False,
-            "name": line.kind,
+            "showlegend": line.label is not None,
+            "name": line.label if line.label is not None else line.kind,
+            "meta": line.kind,
         }
+        if line.label is not None:
+            trace["hovertemplate"] = "%{x:.6g}, %{y:.6g}<extra>%{fullData.name}</extra>"
+            del trace["hoverinfo"]
         if line.marker:
             trace["marker"] = {"symbol": line.marker, "size": line.marker_size, "color": line.color}
         data.append(trace)
@@ -285,7 +289,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "yaxis": yaxis,
         "font": font,
         "annotations": annotations,
-        "showlegend": bool(spec.legend),
+        "showlegend": bool(spec.legend) or any(line.label is not None for line in spec.lines),
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
         "margin": {"l": 60, "r": 20, "t": 40, "b": 110 if any(t.kind == "footer" for t in spec.texts) else 50},
         "paper_bgcolor": "#ffffff",

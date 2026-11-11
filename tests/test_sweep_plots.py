@@ -211,7 +211,12 @@ def test_each_sweep_round_trips_the_wire(make):
     back = _round_trip(value)
     assert type(back) is SweepResult
     assert list(back.keys()) == list(value.keys())
-    np.testing.assert_array_equal(np.asarray(back["values"], dtype=object), np.asarray(value["values"], dtype=object))
+    if value.layout == "grid":
+        for got, sent in zip(back["values"], value["values"]):
+            np.testing.assert_array_equal(got, sent)
+    else:
+        np.testing.assert_array_equal(back["values"], value["values"])
+    assert back == value
     if "S_matrix" in value:
         assert all(isinstance(s, SMatrix) for s in back["S_matrix"])
         np.testing.assert_array_equal(back["S_matrix"][1].data, value["S_matrix"][1].data)

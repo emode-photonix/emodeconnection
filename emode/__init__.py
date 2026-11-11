@@ -5,6 +5,7 @@ from .geometry import Pose, Line, Arc, BSpline, Path, Curve, LayoutReport
 from .port import Bounds, Port, AngledFacetMap, JunctionOverride, make_angled_facet_port
 from .nonlinear import Chi2Process, SHGProcess, SFGProcess, DFGProcess, Source, Excitation, CircuitResponse
 from .smatrix import SMatrix
+from .sweep import SweepResult
 from .plot import PlotImage
 from . import colormaps
 from .plotting import MaterialView, PlotView, Schematic, SessionInfo, SMatrixView
@@ -34,7 +35,7 @@ __all__ = [
     "grating_sections",
     "Parameter", "Objective", "Constraint", "Evaluation", "OptimizationResult",
     "ConvergenceStep", "ConvergenceStage", "ConvergenceResult",
-    "SMatrix",
+    "SMatrix", "SweepResult",
     "PlotImage", "PlotView", "Schematic", "colormaps",
     "FreeSpaceProjection", "FarField", "Screen", "ScreenField",
     "EModeLogin",

@@ -23,7 +23,7 @@ in `PulseResponse` are in SI (Hz, sqrt(J/Hz)) with their nm and fs axes
 alongside.
 """
 
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -720,6 +720,21 @@ class PulseResponse(_LoadsOlderVersions, TaggedModel):
     @property
     def wavelength(self) -> np.ndarray:
         return _C0 / self.frequency * 1e9
+
+    def plot(self, em: Any = None, **arguments: Any) -> Any:
+        """Plot the pulse in an EMode session's browser tab, or as a static image.
+
+        ``panel`` is ``'spectrum'`` (the default: the spectrum at the record
+        ``record``, the output by default, against the launched one),
+        ``'spectrum against z'`` (a map of the spectrum at every record) or
+        ``'energy'`` (each tracked mode's energy against z). ``mode`` picks
+        one tracked mode, ``'all'`` sums them. Takes the arguments of
+        ``SweepResult.plot`` (``file_name``, ``inline``, ``block`` and the
+        figure options), and ``em.plot(response)`` does the same.
+        """
+        from .ui.session import show_data
+
+        return show_data(self, em=em, **arguments)
 
     @property
     def dnu(self) -> float:

@@ -444,6 +444,19 @@ class OptimizationResult(TaggedModel):
         """This result, history included, as JSON-ready plain data."""
         return self.model_dump(mode='json')
 
+    def plot(self, em: Any = None, **arguments: Any) -> Any:
+        """Plot the run's history in an EMode session's browser tab, or as a static image.
+
+        The objective against the evaluation, with the best so far and the
+        best point marked, or with ``panel='parameters'`` every parameter
+        against the evaluation. Takes the arguments of ``SweepResult.plot``
+        (``file_name``, ``inline``, ``block`` and the figure options), and
+        ``em.plot(result)`` does the same.
+        """
+        from .ui.session import show_data
+
+        return show_data(self, em=em, **arguments)
+
 
 # ---------------------------------------------------------------------------
 # converge()
