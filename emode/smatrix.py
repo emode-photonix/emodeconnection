@@ -231,7 +231,7 @@ class SMatrix(TaggedModel, PortIndexed):
 
         return show_data(self, em=em, **kwargs)
 
-    def plot(self, kind: Literal['abs**2', 'phase'] = 'abs**2', ax=None):
+    def plot(self, kind: Literal['abs**2', 'phase'] = 'abs**2', ax=None, colormap: str | None = None):
         """
         Plot the scattering matrix as an N x N grid of block heatmaps.
 
@@ -242,6 +242,9 @@ class SMatrix(TaggedModel, PortIndexed):
         ax : array of Axes, optional
             Pre-existing (num_ports, num_ports) array of Axes to draw into.
             If None, a new figure is created.
+        colormap : str, optional
+            The colormap's name. EMode's sequential map for 'abs**2' and its
+            cyclic map for 'phase' by default (``emode.colormaps``).
 
         Returns
         -------
@@ -250,19 +253,23 @@ class SMatrix(TaggedModel, PortIndexed):
         from matplotlib import pyplot as plt
         from matplotlib.colors import Normalize
 
+        from . import colormaps
+
+        if colormap is not None:
+            colormaps.check_colormap(colormap, 'SMatrix.plot')
         N = self.num_ports
 
         if kind == 'abs**2':
             def transform(M):
                 return np.abs(M) ** 2
             norm = Normalize(vmin=0.0, vmax=1.0)
-            cmap = 'viridis'
+            cmap = colormaps.get(colormap or 'sequential')
             clabel = r'$|S|^2$'
         elif kind == 'phase':
             def transform(M):
                 return np.mod(np.angle(M), 2 * np.pi)
             norm = Normalize(vmin=0.0, vmax=2 * np.pi)
-            cmap = 'hsv'
+            cmap = colormaps.get(colormap or 'cyclic')
             clabel = r'$\arg S$'
         else:
             raise ValueError(f'Unknown kind: {kind}')

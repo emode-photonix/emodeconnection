@@ -36,12 +36,12 @@ def typed_array(values: Any, dtype: str = "f4") -> Dict[str, Any]:
 
 
 def colorscale(name: str) -> Any:
-    """A family kind's stops, or a matplotlib colormap sampled into a colorscale."""
-    if name in colormaps.KINDS:
+    """The family's stops for one of its names or kinds, or another colormap sampled into a colorscale."""
+    if colormaps.kind_of(name) is not None:
         return colormaps.plotly_colorscale(name)
     from matplotlib.colors import to_hex
 
-    cmap = colormaps.mpl_colormap("sequential", name)
+    cmap = colormaps.get(name)
     return [[i / 16, to_hex(cmap(i / 16))] for i in range(17)]
 
 

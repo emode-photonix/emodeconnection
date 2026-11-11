@@ -35,16 +35,23 @@ DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
 
-#: How each overlay kind is drawn: (color, width in points, dash, alpha).
-LINE_STYLES: Dict[str, Tuple[str, float, Optional[str], float]] = {
-    "outline": ("#ffffff", LW * 2 / 5, None, 0.7),
-    "port": ("#00ff00", LW * 4, None, 1.0),
-    "facet": ("#00bfbf", LW, None, 1.0),
-    "monitor": ("#bf00bf", LW, "dash", 1.0),
-    "connection": ("#4a4a4a", 1.0, None, 1.0),
-    "loop": ("#4a4a4a", 1.0, None, 1.0),
-    "stub": ("#4a4a4a", 1.0, None, 1.0),
+#: How each overlay kind is drawn: (width in points, dash, alpha). Its color is
+#: ``colormaps.overlay_colors()``.
+LINE_STYLES: Dict[str, Tuple[float, Optional[str], float]] = {
+    "outline": (LW * 2 / 5, None, 0.7),
+    "port": (LW * 4, None, 1.0),
+    "facet": (LW, None, 1.0),
+    "monitor": (LW, "dash", 1.0),
+    "connection": (1.0, None, 1.0),
+    "loop": (1.0, None, 1.0),
+    "stub": (1.0, None, 1.0),
 }
+
+
+def line_style(kind: str) -> Tuple[str, float, Optional[str], float]:
+    """An overlay kind's (color, width in points, dash, alpha)."""
+    return (colormaps.overlay_colors()[kind], *LINE_STYLES[kind])
+
 
 #: Data arguments: the ones ``plot()`` sends to EMode. Everything else stays here.
 DATA_ARGUMENTS = (
@@ -73,8 +80,9 @@ class PlotOptions:
     ``contours`` None is on for the x-y plane and off for the z planes, as the
     window had it. ``units`` shows both axes in one unit (``'nm'`` or ``'um'``)
     instead of each axis's own. ``figure_size`` is ``(width, height)`` in mm.
-    ``colormap`` names a registered matplotlib colormap to use instead of the
-    family's kind.
+    ``colormap`` names the colormap every raster is drawn with instead of the
+    family's map for its kind: one of ``colormaps.NAMES``, a kind, or any
+    colormap matplotlib has registered.
     """
 
     index_outline: bool = True
@@ -105,6 +113,8 @@ class PlotOptions:
             raise ArgumentError("units must be 'nm' or 'um'", "plot", "units")
         if options.figure_size is not None and len(options.figure_size) != 2:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
+        if "colormap" in arguments and arguments["colormap"] is not None:
+            colormaps.check_colormap(arguments["colormap"])
         return options
 
 
@@ -262,8 +272,8 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
 
 
 def _cmap(kind: str, options: PlotOptions) -> str:
-    """The colormap a raster of `kind` is drawn with: the option's name, else the family's kind."""
-    return options.colormap or kind
+    """The colormap a raster of `kind` is drawn with: the option's name, else the family's."""
+    return colormaps.resolve(kind, options.colormap)
 
 
 def _color(value: Optional[float], color: Optional[str], options: PlotOptions) -> Optional[str]:
@@ -271,11 +281,12 @@ def _color(value: Optional[float], color: Optional[str], options: PlotOptions) -
         return {"grey": "#808080", "k": "#000000", "w": "#ffffff"}.get(color, color)
     if value is None:
         return None
-    if options.colormap:
-        from matplotlib.colors import to_hex
+    kind = colormaps.kind_of(options.colormap or "sequential")
+    if kind is not None:
+        return colormaps.color_at(kind, value)
+    from matplotlib.colors import to_hex
 
-        return to_hex(colormaps.mpl_colormap("sequential", options.colormap)(value))
-    return colormaps.color_at("sequential", value)
+    return to_hex(colormaps.get(options.colormap)(value))
 
 
 def _units(view: PlotView, options: PlotOptions) -> Tuple[str, str]:
@@ -341,7 +352,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     lines: List[LineSpec] = []
 
     def add(kind: str, x: Any, y: Any) -> None:
-        color, width, dash, alpha = LINE_STYLES[kind]
+        color, width, dash, alpha = line_style(kind)
         lines.append(LineSpec(np.asarray(x) / sx, np.asarray(y) / sy, kind, color, width, dash, alpha))
 
     texts: List[TextSpec] = []
@@ -431,7 +442,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
-    color = LINE_STYLES[kind][0]
+    color = line_style(kind)[0]
     x, y = line.label_at
     return TextSpec(
         line.label, x / sx, y / sy, "data", line.align, "bottom", color, options.font_size, kind
@@ -449,14 +460,11 @@ def _box_aspect(aspect_ratio: Union[str, float], view: PlotView) -> Optional[flo
 
 # ------------------------------------------------------------------ the schematic
 
-BLOCK_FACE = "#e8f0fb"
-BLOCK_EDGE = "#2b5c9e"
-TEXT = "#1f2933"
-LAUNCH = "#d1495b"
-MONITOR = "#b5179e"
-
 
 def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
+    palette = colormaps.schematic_colors()
+    face, edge, text = palette["block_face"], palette["block_edge"], palette["text"]
+    launch, monitor = palette["launch"], palette["monitor"]
     fills: List[FillSpec] = []
     texts: List[TextSpec] = []
     lines: List[LineSpec] = []
@@ -469,14 +477,14 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 x=np.array([x0, x1, x1, x0, x0]),
                 y=np.array([y0, y0, y1, y1, y0]),
                 kind="block",
-                color=BLOCK_FACE,
-                edgecolor=LAUNCH if selected else BLOCK_EDGE,
+                color=face,
+                edgecolor=launch if selected else edge,
                 width=2.4 if selected else 1.2,
             )
         )
-        texts.append(TextSpec(b.label, b.x, b.y, "data", "center", "center", TEXT, 6.5, "label"))
+        texts.append(TextSpec(b.label, b.x, b.y, "data", "center", "center", text, 6.5, "label"))
     for s in view.stubs:
-        lines.append(LineSpec(np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", LINE_STYLES["stub"][0], 1.0))
+        lines.append(LineSpec(np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0))
         if s.label:
             out = 1.0 if s.side == "right" else -1.0
             launched = view.launch is not None and view.launch.label == s.label
@@ -485,7 +493,7 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 texts.append(
                     TextSpec(
                         s.label, s.x1 + out * gap, s.y1, "data",
-                        "left" if s.side == "right" else "right", "center", TEXT, 6.0, "port",
+                        "left" if s.side == "right" else "right", "center", text, 6.0, "port",
                         "bold" if launched else "normal",
                     )
                 )
@@ -493,19 +501,19 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 texts.append(
                     TextSpec(
                         s.label, s.x1 - out * 0.08, s.y1 + 0.12, "data",
-                        "right" if s.side == "right" else "left", "bottom", TEXT, 5.5, "port",
+                        "right" if s.side == "right" else "left", "bottom", text, 5.5, "port",
                     )
                 )
     for c in view.connections:
-        color, width, dash, alpha = LINE_STYLES[c.kind]
+        color, width, dash, alpha = line_style(c.kind)
         lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha))
     if view.launch is not None:
         marker = "triangle-right" if view.launch.side == "left" else "triangle-left"
         lines.append(
-            LineSpec(np.array([view.launch.x1]), np.array([view.launch.y1]), "launch", LAUNCH, 0.0, None, 1.0, marker, 7.0)
+            LineSpec(np.array([view.launch.x1]), np.array([view.launch.y1]), "launch", launch, 0.0, None, 1.0, marker, 7.0)
         )
     for m in view.monitors:
-        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, MONITOR, 6.0, "monitor"))
+        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, monitor, 6.0, "monitor"))
     x0, x1, y0, y1 = view.frame or view.limits
     width, height = options.figure_size or (
         max(4.0, (view.limits[1] - view.limits[0]) * 0.42) * 25.4,
@@ -615,8 +623,10 @@ def _compose_smatrix(view: SMatrixView, options: PlotOptions) -> FigureSpec:
 
 # ------------------------------------------------------------------ the material explorer
 
-#: The material explorer's line color.
-MATERIAL_LINE = "#3634A3"
+
+def material_line() -> str:
+    """The material explorer's line color, the line palette's first."""
+    return colormaps.line_palette()[0]
 
 
 def material_component(view: MaterialView) -> int:
@@ -671,10 +681,10 @@ def _compose_material(view: MaterialView, options: PlotOptions) -> FigureSpec:
     drawn: List[np.ndarray] = []
     if material_extrapolated(view) and view.extended_wavelengths is not None and view.n_extended is not None:
         ne = np.real(np.asarray(view.n_extended)[row])
-        lines.append(LineSpec(np.asarray(view.extended_wavelengths, float), ne, "extrapolated", MATERIAL_LINE, LW, "dash"))
+        lines.append(LineSpec(np.asarray(view.extended_wavelengths, float), ne, "extrapolated", material_line(), LW, "dash"))
         drawn.append(ne)
     n = np.real(np.asarray(view.n)[row])
-    lines.append(LineSpec(np.asarray(view.wavelengths, float), n, "index", MATERIAL_LINE, LW))
+    lines.append(LineSpec(np.asarray(view.wavelengths, float), n, "index", material_line(), LW))
     drawn.append(n)
     ylim = material_ylim(view) or _autoscale(drawn)
     width, height = options.figure_size or DEFAULT_SIZE_MM
