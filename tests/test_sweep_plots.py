@@ -653,3 +653,12 @@ def test_an_adaptive_scans_modes_by_wavelength_are_one_trace_per_mode():
     traces = _lines(compose(sweep_panel(scan)))
     assert [t.label for t in traces] == ["mode 0", "mode 1"]
     np.testing.assert_allclose(traces[1].y, n[1])
+
+
+def test_one_output_mode_and_ports_by_index():
+    panel = sweep_panel(length_sweep(), input=0, output=1, output_mode=0)
+    (trace,) = _lines(compose(panel))
+    assert trace.label == "left 0 to right 0"
+    menus = {m["name"]: m for m in sweep_menus(panel)}
+    assert menus["output_mode"]["options"] == ["all", "0", "1"]
+    assert len(_lines(compose(_select(panel, {"output_mode": "all"})))) == 2
