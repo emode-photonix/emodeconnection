@@ -423,9 +423,14 @@ class EMode:
             views = self.__dict__.setdefault("_view_registry", ViewRegistry())
         return views
 
-    def plot(self, block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,
-             file_type: str = "png", **kwargs):
+    def plot(self, result=None, /, block: bool = False, inline: "str | None" = None,
+             file_name: "str | None" = None, file_type: str = "png", **kwargs):
         """Plot a field, the index, the shapes or the outline, in this session's browser tab.
+
+        ``plot(result)`` plots a result this client holds instead, with no
+        EMode call: a ``sweep()`` or ``chi2_spectrum()`` result (or the dict
+        of a saved one), an ``OptimizationResult`` or a ``PulseResponse``, as
+        ``result.plot()`` does, taking the same selection and figure options.
 
         Returns at once with a ``PlotHandle`` (its ``view`` holds the arrays shown,
         ``png()`` and ``save()`` draw a static image), after fetching the plot's
@@ -462,6 +467,12 @@ class EMode:
         """
         from .ui import session as ui
 
+        if isinstance(result, bool):
+            # plot(True), from before a result could be given: block
+            result, block = None, result
+        if result is not None:
+            return ui.show_data(result, em=self, block=block, inline=inline, file_name=file_name,
+                                file_type=file_type, **kwargs)
         return ui.plot(self, block=block, inline=inline, file_name=file_name, file_type=file_type, **kwargs)
 
     def plot_S_matrix(self, input: "int | str" = 0, output: "int | str" = 1, plot_function: "str | None" = None,

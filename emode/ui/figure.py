@@ -147,6 +147,8 @@ class LineSpec:
     alpha: float = 1.0
     marker: Optional[str] = None
     marker_size: float = 0.0
+    #: The line's legend entry, None for a line without one.
+    label: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -253,6 +255,10 @@ class FigureSpec:
     texts: Tuple[TextSpec, ...] = ()
     colorbar: Optional[ColorbarSpec] = None
     legend: Tuple[LegendEntrySpec, ...] = ()
+    #: A figure of several panels: each panel's spec, row-major on a (rows, columns) grid.
+    #: The figure's own axes and drawables are then unused.
+    panels: Tuple["FigureSpec", ...] = ()
+    panel_grid: Tuple[int, int] = (1, 1)
     title: Optional[str] = None
     width_mm: float = DEFAULT_SIZE_MM[0]
     height_mm: float = DEFAULT_SIZE_MM[1]
@@ -273,7 +279,7 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     """The figure of `view` with `options` applied.
 
     `view` is a ``PlotView``, a ``Schematic``, an ``SMatrixView``, a
-    ``MaterialView`` or a ``FarField``.
+    ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
     """
     from ..free_space import FarField
     from ..gds import GDSView
@@ -294,6 +300,15 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
         return _compose_farfield(view, options)
     if isinstance(view, FarFieldPanel):
         return _compose_farfield(view.farfield, options, view.panel)
+    from .sweep_figure import SweepPanel, compose_sweep
+
+    if isinstance(view, SweepPanel):
+        return compose_sweep(view, options)
+    from ..figures import Figure
+    from .panels import compose_figure
+
+    if isinstance(view, Figure):
+        return compose_figure(view, options)
     if not isinstance(view, PlotView):
         raise TypeError(
             "compose() takes a PlotView, Schematic, SMatrixView, MaterialView, FarField or GDSView, "

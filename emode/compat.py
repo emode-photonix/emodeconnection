@@ -66,6 +66,7 @@ TYPE_SINCE: dict[str, str] = {
     "SMatrixView": "1.0.9",
     "Slider": "1.0.9",
     "Stub": "1.0.9",
+    "SweepResult": "1.0.9",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.

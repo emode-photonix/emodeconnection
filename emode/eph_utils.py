@@ -55,7 +55,13 @@ def get(variable, sim="emode", simulation_name=None):
 
     # Simulation files store registered wire types (e.g. SMatrix) as tagged
     # dicts; rebuild them the same way the live socket client does on recv().
-    return reconstruct(data)
+    data = reconstruct(data)
+    if variable == "sweep_data" and isinstance(data, dict) and "key" in data and "values" in data:
+        # the file keeps the sweep's plain dict, which plots as the live result does
+        from .sweep import SweepResult
+
+        data = SweepResult(data=data)
+    return data
 
 
 def inspect(sim="emode", simulation_name=None):
