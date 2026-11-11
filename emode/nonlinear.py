@@ -39,6 +39,10 @@ class Chi2Process(TaggedModel):
     for manual poling from alternating sections (optionally
     `EM_copy_section` copies of a normal/inverted pair), independent of
     whether `poling_period` is also set.
+
+    The period is measured along the section's length. On a bend that is the
+    centerline's arc length, so the domain walls are radial and a poled ring
+    or spiral keeps its period all the way round.
     """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
