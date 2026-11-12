@@ -41,6 +41,7 @@ TYPE_SINCE: dict[str, str] = {
     "FarField": "1.0.8",
     "Label": "1.0.9",
     "LegendEntry": "1.0.9",
+    "MaterialView": "1.0.9",
     "MenuState": "1.0.9",
     "ModeDict": "1.0.7",
     "Objective": "1.0.7",
@@ -59,6 +60,8 @@ TYPE_SINCE: dict[str, str] = {
     "Screen": "1.0.8",
     "ScreenField": "1.0.8",
     "Segments": "1.0.9",
+    "SessionInfo": "1.0.9",
+    "SMatrixView": "1.0.9",
     "Slider": "1.0.9",
     "Stub": "1.0.9",
 }

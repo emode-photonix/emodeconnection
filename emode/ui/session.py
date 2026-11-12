@@ -22,18 +22,19 @@ from __future__ import annotations
 import os
 import sys
 import time
+import weakref
 import webbrowser
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
 from ..plot import PlotImage
-from ..plotting import PlotView, Schematic
+from ..plotting import MaterialView, MenuState, PlotView, Schematic, SessionInfo, SMatrixView
 from ..types import EModeError
-from .figure import FigureSpec, PlotOptions, check_figure_arguments, compose, split_arguments
+from .figure import FarFieldPanel, FigureSpec, PlotOptions, check_figure_arguments, compose, split_arguments
 from .server import UIServer
-from .views import View
+from .views import KINDS, View, _select
 
 if TYPE_CHECKING:
     from ..emode import EMode
@@ -81,27 +82,82 @@ def compose_file_name(file_name: str, file_type: str) -> str:
     return f"{stem}.{extension}"
 
 
-def check_plot_support(em: "EMode") -> None:
-    """Refuse ``plot()`` before sending it to an EMode that draws its own window."""
+def check_plot_support(em: "EMode", kind: str = "plot") -> None:
+    """Refuse a plot call before sending it to an EMode that draws its own window.
+
+    ``plot()`` needs ``'plot': 'view'`` in EMode's ``version()`` answer
+    (1.0.9). ``plot_S_matrix()``, ``material_explorer()`` and the session page
+    also need their kind listed under ``'views'``.
+    """
     info = em._emode_info()
+    function = {"smatrix": "plot_S_matrix()", "material": "material_explorer()", "session": "The session page"}
     if isinstance(info, dict) and info.get("plot") == PLOT_VIEW:
-        return
+        if kind in ("plot", "schematic") or kind in (info.get("views") or ()):
+            return
     version = info.get("emode") if isinstance(info, dict) else None
     this = version or "older than 1.0.7"
     raise EModeError(
-        f"plot() needs EMode 1.0.9 or newer, and this EMode is {this}. Update it with emode-install."
+        f"{function.get(kind, 'plot()')} needs EMode 1.0.9 or newer, and this EMode is {this}. "
+        "Update it with emode-install."
     )
 
 
-def fetch_view(em: "EMode", arguments: Dict[str, Any], pixels: Tuple[int, int]) -> Union[PlotView, Schematic]:
-    """Ask EMode for the panel of `arguments` at a panel of `pixels`."""
-    data = em.call("EM_plot", **arguments, pixels=[int(pixels[0]), int(pixels[1])])
-    if not isinstance(data, (PlotView, Schematic)):
+#: The EMode function each kind of view is fetched with.
+FUNCTIONS = {
+    "plot": "EM_plot",
+    "schematic": "EM_plot",
+    "smatrix": "EM_plot_S_matrix",
+    "material": "EM_material_explorer",
+}
+
+#: What each function answers with.
+ANSWERS = {
+    "EM_plot": (PlotView, Schematic),
+    "EM_plot_S_matrix": (SMatrixView,),
+    "EM_material_explorer": (MaterialView,),
+}
+
+
+def fetch_view(
+    em: "EMode", arguments: Dict[str, Any], pixels: Tuple[int, int], kind: str = "plot"
+) -> Any:
+    """Ask EMode for the data of a view of `kind` with `arguments`, at a panel of `pixels`."""
+    function = FUNCTIONS[kind]
+    data = em.call(function, **arguments, pixels=[int(pixels[0]), int(pixels[1])])
+    if not isinstance(data, ANSWERS[function]):
         raise EModeError(
             "EMode answered plot() with something this client cannot draw. "
             "Update the client with pip install -U emode."
         )
     return data
+
+
+def client_rows(server: Optional[UIServer] = None) -> Dict[str, Any]:
+    """This client's rows of the session page: its version, Python, its process and the tab."""
+    from ..types import client_version
+
+    rows: Dict[str, Any] = {
+        "version": client_version(),
+        "python": sys.version.split()[0],
+        "executable": sys.executable,
+        "pid": os.getpid(),
+        "ui_port": server.port if server is not None and server.running else None,
+        "views": len(server.registry) if server is not None else 0,
+    }
+    try:
+        import psutil  # type: ignore
+    except ImportError:
+        rows["memory"] = "install psutil (pip install psutil) to show this client's memory and CPU"
+        return rows
+    process = psutil.Process()
+    rows["rss_bytes"] = int(process.memory_info().rss)
+    rows["cpu_percent"] = float(process.cpu_percent(interval=None))
+    rows["threads"] = int(process.num_threads())
+    return rows
+
+
+#: The documentation site the tab links to.
+DOCS_URL = "https://docs.emodephotonix.com/"
 
 
 def ensure_server(em: "EMode") -> UIServer:
@@ -112,15 +168,24 @@ def ensure_server(em: "EMode") -> UIServer:
         def refetch(view: View, arguments: Dict[str, Any], pixels: Tuple[int, int]) -> Any:
             if not em.running:
                 raise EModeError("This plot's EMode session has ended, so its data cannot change.")
-            return fetch_view(em, arguments, pixels)
+            return fetch_view(em, _sent(view.kind, arguments), pixels, view.kind)
 
-        server = UIServer(em._views, refetch, clock=clock).start()
+        def session_info() -> Dict[str, Any]:
+            if not em.running:
+                raise EModeError("This EMode session has ended.")
+            check_plot_support(em, "session")
+            info = em.call("EM_session_info")
+            if not isinstance(info, SessionInfo):
+                raise EModeError("EMode answered session_info() with something this client cannot read.")
+            return info.model_dump(mode="json")
+
+        server = UIServer(em._views, refetch, clock=clock, session_info=session_info).start()
         em._ui = server
     return server
 
 
 def headless_image(
-    data: Union[PlotView, Schematic],
+    data: Any,
     options: PlotOptions,
     file_name: Optional[str],
     file_type: str,
@@ -166,6 +231,12 @@ def open_tab(em: "EMode", server: UIServer, view: View) -> None:
     webbrowser.open(server.url(view.id))
 
 
+def _sent(kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """The arguments of a view EMode computes: the client-side selection stays here."""
+    local = KINDS[kind].local_arguments if kind in ("material", "farfield") else ()
+    return {k: v for k, v in arguments.items() if k not in local}
+
+
 def plot(
     em: "EMode",
     block: bool = False,
@@ -176,15 +247,46 @@ def plot(
 ) -> Union["PlotHandle", PlotImage, None]:
     check_figure_arguments(arguments)
     data_args, figure_args = split_arguments(arguments)
+    return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type)
+
+
+def show_call(
+    em: "EMode",
+    kind: str,
+    data_args: Dict[str, Any],
+    figure_args: Dict[str, Any],
+    block: bool = False,
+    inline: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+) -> Union["PlotHandle", PlotImage, None]:
+    """Fetch a view of `kind` from EMode and show it: in the tab, or as a static image."""
     options = PlotOptions.from_arguments(figure_args)
     if inline not in (None, "png"):
         raise EModeError("inline is 'png' or None")
-    inline = inline or os.environ.get("EMODE_PLOT_INLINE") or None
-    check_plot_support(em)
+    check_plot_support(em, kind)
+    sent = _sent(kind, data_args)
+    data = fetch_view(em, sent, DEFAULT_PIXELS, kind)
+    local = {k: v for k, v in data_args.items() if k not in sent}
+    if local:
+        data = _select(data, local)
+    return present(em, data, data_args, options, block, inline, file_name, file_type)
 
+
+def present(
+    em: "EMode",
+    data: Any,
+    arguments: Dict[str, Any],
+    options: PlotOptions,
+    block: bool = False,
+    inline: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+) -> Union["PlotHandle", PlotImage, None]:
+    """Show `data` (a view's data the client holds): register it with the tab, or draw it here."""
+    inline = inline or os.environ.get("EMODE_PLOT_INLINE") or None
     if headless_requested(file_name) or inline == "png":
         notebook = em.in_ipython()
-        data = fetch_view(em, data_args, DEFAULT_PIXELS)
         image = headless_image(data, options, file_name, file_type, inline=notebook)
         if notebook:
             from IPython.display import display  # type: ignore
@@ -193,8 +295,7 @@ def plot(
             return None
         return image
 
-    data = fetch_view(em, data_args, DEFAULT_PIXELS)
-    view = em._views.add(data, data_args, options, DEFAULT_PIXELS)
+    view = em._views.add(data, arguments, options, DEFAULT_PIXELS)
     handle = PlotHandle(em, view)
     if noninteractive():
         return handle
@@ -206,6 +307,126 @@ def plot(
     if block:
         wait_for_tab_to_close(server)
     return handle
+
+
+def plot_S_matrix(
+    em: "EMode",
+    block: bool = False,
+    inline: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+    **arguments: Any,
+) -> Union["PlotHandle", PlotImage, None]:
+    """``EMode.plot_S_matrix``: the S-matrix's block from `input` to `output`, as a view."""
+    data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "plot_S_matrix")
+    return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type)
+
+
+def material_explorer(
+    em: "EMode",
+    block: bool = False,
+    inline: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+    **arguments: Any,
+) -> Union["PlotHandle", PlotImage, None]:
+    """``EMode.material_explorer``: a material's refractive index against wavelength, as a view."""
+    data_args, figure_args = _split(
+        arguments, ("material", "wavelengths", "step", "x", "component"), "material_explorer"
+    )
+    return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type)
+
+
+def _split(arguments: Dict[str, Any], data: Sequence[str], function: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """`arguments` split into the view's data arguments and the figure options, refusing the rest."""
+    from ..types import ArgumentError
+
+    allowed = set(PlotOptions.__dataclass_fields__)
+    for name in arguments:
+        if name not in allowed and name not in data:
+            raise ArgumentError(
+                f"{function}() takes no argument {name!r}. It takes "
+                f"{', '.join(sorted(set(data) | allowed))}.",
+                function,
+                name,
+            )
+    data_args = {k: v for k, v in arguments.items() if k in data and v is not None}
+    figure_args = {k: v for k, v in arguments.items() if k in allowed}
+    return data_args, figure_args
+
+
+def show_data(
+    value: Any,
+    /,
+    em: Optional["EMode"] = None,
+    block: bool = False,
+    inline: Optional[str] = None,
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+    **arguments: Any,
+) -> Union["PlotHandle", PlotImage, None]:
+    """``FarField.show()`` and ``SMatrix.show()``: data this client holds, shown with no EMode call.
+
+    `em` is the session whose tab shows it, by default the newest session of
+    this process that is still running.
+    """
+    from ..free_space import FarField
+    from ..smatrix import SMatrix
+
+    em = em or current_session()
+    if isinstance(value, FarField):
+        data_args, figure_args = _split(arguments, ("data",), "FarField.show")
+        view_data: Any = _select(FarFieldPanel(value), data_args)
+    elif isinstance(value, SMatrix):
+        data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "SMatrix.show")
+        view_data = _select(smatrix_view(value), data_args)
+    else:
+        raise TypeError(f"show() takes a FarField or an SMatrix, not {type(value).__name__}")
+    options = PlotOptions.from_arguments(figure_args)
+    if em is None:
+        inline = inline or os.environ.get("EMODE_PLOT_INLINE") or None
+        if headless_requested(file_name) or inline == "png":
+            return headless_image(view_data, options, file_name, file_type, inline=False)
+        raise EModeError(
+            "show() opens the plot in an EMode session's browser tab. Start one with "
+            "em = emode.EMode(), or pass em=, file_name= or inline='png'."
+        )
+    return present(em, view_data, data_args, options, block, inline, file_name, file_type)
+
+
+def smatrix_view(smatrix: Any) -> SMatrixView:
+    """An ``SMatrix`` the user holds as the S-matrix plot's view, with the default selection."""
+    names = list(smatrix.port_names or [str(i) for i in range(smatrix.num_ports)])
+    wavelengths = list(smatrix.wavelengths or [])
+    several = len(set(wavelengths)) > 1
+    labels = [
+        f"{n}@{w * 1e9:.0f}nm" if several and w < 1e-3 else (f"{n}@{w:g}nm" if several else n)
+        for n, w in zip(names, wavelengths or [0.0] * len(names))
+    ]
+    modes = [[str(k) for k in range(size)] for size in smatrix.port_sizes]
+    menu = MenuState(
+        ports=labels,
+        components=["abs^2", "angle", "real", "imag"],
+        selected={"input": labels[0], "output": labels[-1], "component": "abs^2"},
+    )
+    return SMatrixView(smatrix=smatrix, port_labels=labels, mode_labels=modes, menu=menu)
+
+
+#: The sessions of this process, newest last.
+_SESSIONS: "List[weakref.ref]" = []
+
+
+def register_session(em: "EMode") -> None:
+    _SESSIONS.append(weakref.ref(em))
+
+
+def current_session() -> Optional["EMode"]:
+    """The newest session of this process that is still running, if any."""
+    for ref in reversed(_SESSIONS):
+        em = ref()
+        if em is not None and em.__dict__.get("running"):
+            return em
+    return None
 
 
 def wait_for_tab_to_close(server: UIServer) -> None:

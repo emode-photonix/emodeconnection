@@ -219,6 +219,18 @@ class SMatrix(TaggedModel, PortIndexed):
         """
         return float(-10 * np.log10(np.sum(self.power(from_port, to_port)[:, mode])))
 
+    def show(self, em=None, **kwargs):
+        """Show this S-matrix in an EMode session's browser tab, as a view of its plots list.
+
+        `em` is the session, by default the newest one still running. It takes
+        the figure options of ``plot()`` and `input`, `output` and `plot_function`, as ``plot_S_matrix()``, and returns a
+        ``PlotHandle``, or a ``PlotImage`` with ``file_name``, ``EMODE_HEADLESS=1``
+        or ``inline='png'``. Nothing is asked of EMode.
+        """
+        from .ui.session import show_data
+
+        return show_data(self, em=em, **kwargs)
+
     def plot(self, kind: Literal['abs**2', 'phase'] = 'abs**2', ax=None):
         """
         Plot the scattering matrix as an N x N grid of block heatmaps.

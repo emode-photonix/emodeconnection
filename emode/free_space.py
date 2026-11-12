@@ -204,6 +204,18 @@ class FarField(TaggedModel):
             return self.theta_y, np.asarray(self.intensity)[int(np.argmin(np.abs(self.ux))), :]
         raise ArgumentError(f"axis must be 'x' or 'y', got {axis!r}", "FarField.cut", "axis")
 
+    def show(self, em=None, **kwargs):
+        """Show this far field in an EMode session's browser tab, as a view of its plots list.
+
+        `em` is the session, by default the newest one still running. It takes
+        the figure options of ``plot()`` and `data` ('intensity', or 'screen' when it has a screen), and returns a
+        ``PlotHandle``, or a ``PlotImage`` with ``file_name``, ``EMODE_HEADLESS=1``
+        or ``inline='png'``. Nothing is asked of EMode.
+        """
+        from .ui.session import show_data
+
+        return show_data(self, em=em, **kwargs)
+
     def plot(self, ax=None):
         """Plot the radiant intensity against the angles, its x and y cuts, and the
         screen's flux when there is a screen. Returns the matplotlib Figure.
