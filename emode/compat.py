@@ -39,6 +39,8 @@ TYPE_SINCE: dict[str, str] = {
     "ConvergenceStep": "1.0.7",
     "Evaluation": "1.0.7",
     "FarField": "1.0.8",
+    "GDSLayer": "1.0.9",
+    "GDSView": "1.0.9",
     "Label": "1.0.9",
     "LegendEntry": "1.0.9",
     "MaterialView": "1.0.9",

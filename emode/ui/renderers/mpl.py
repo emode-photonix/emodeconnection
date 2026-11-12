@@ -67,7 +67,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     from matplotlib.colors import Normalize
     from matplotlib.figure import Figure
     from matplotlib.image import NonUniformImage
-    from matplotlib.patches import Patch, PathPatch
+    from matplotlib.patches import Patch, PathPatch, Rectangle
     from matplotlib.path import Path as MplPath
 
     from ... import colormaps
@@ -100,20 +100,44 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             )
         )
 
+    from matplotlib.collections import PolyCollection
+    from matplotlib.colors import to_rgba
+
+    for layer in spec.layers:
+        collection = PolyCollection(
+            [np.asarray(p, float) for p in layer.polygons],
+            closed=True,
+            facecolors=[to_rgba(layer.color, layer.opacity)] if layer.filled else "none",
+            edgecolors=layer.color,
+            linewidths=layer.width,
+            linestyles=_DASHES.get(layer.dash, "-"),
+            hatch=layer.hatch or None,
+            label=layer.label,
+            gid=f"layer:{layer.key}",
+        )
+        collection.set_visible(layer.visible)
+        ax.add_collection(collection)
+
     for r in spec.rasters:
         z = np.asarray(r.z, float)
         if r.mask is not None:
             # off the panel: NaN, which the colormap leaves transparent
             z = np.where(np.asarray(r.mask, bool), np.nan, z)
         x, y = np.asarray(r.x, float), np.asarray(r.y, float)
+        x0, x1 = _edges(x)[[0, -1]]
+        y0, y1 = _edges(y)[[0, -1]]
         im = NonUniformImage(
             ax,
             interpolation="bilinear" if r.interpolation == "bilinear" else "nearest",
-            extent=(*_edges(x)[[0, -1]], *_edges(y)[[0, -1]]),
+            extent=(x0, x1, y0, y1),
             cmap=cmap_of(r.colormap),
             norm=Normalize(vmin=r.vmin, vmax=r.vmax),
         )
         im.set_data(x, y, z)
+        # A NonUniformImage paints the whole axes, carrying its edge cells out to
+        # the panel's edges. A z panel is one image per slice, so without this
+        # clip the last slice drawn covered every other one.
+        im.set_clip_path(Rectangle((x0, y0), x1 - x0, y1 - y0, transform=ax.transData))
         ax.add_image(im)
         if r.contour_levels and min(z.shape) >= 2:
             for level in r.contour_levels:
@@ -210,10 +234,19 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
-    if spec.legend:
-        handles = [Patch(facecolor=e.color or "white", label=e.label, ec="k", lw=0.5) for e in spec.legend]
+    handles = [Patch(facecolor=e.color or "white", label=e.label, ec="k", lw=0.5) for e in spec.legend]
+    handles += [
+        Patch(
+            facecolor=to_rgba(layer.color, layer.opacity), edgecolor=layer.color,
+            hatch=layer.hatch or None, label=layer.label, lw=0.5,
+        )
+        for layer in spec.layers
+        if layer.legend and layer.visible
+    ]
+    if handles:
         ax.legend(
-            handles=handles, frameon=False, ncol=len(handles), loc="lower center",
+            handles=handles, frameon=False, ncol=len(handles) if spec.legend else min(len(handles), 4),
+            loc="lower center",
             bbox_to_anchor=(0.5, 1.0), fontsize=spec.font_size,
         )
     elif any(line.label is not None for line in spec.lines):

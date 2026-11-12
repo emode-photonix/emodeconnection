@@ -453,6 +453,17 @@ class EMode:
         ``title``, ``xlabel``, ``ylabel``, ``units``, ``font_size``,
         ``figure_size``, ``colorbar_label``, ``dpi``, ``colormap``,
         ``aspect_ratio``) stay in this client.
+
+        ``view='gds'`` shows the GDS layers of the device's GDS sections, each
+        layer and datatype placed where the layout puts it, with a layer panel
+        in the tab. Its options stay in this client too: ``layers`` (by
+        ``'layer/datatype'``, any of ``visible``, ``color``, ``opacity`` and
+        ``hatch``, one of ``'/'``, ``'\\'``, ``'x'``, ``'-'``, ``'|'``, ``'+'``,
+        ``'.'`` or ``''``), ``layer_properties`` (a KLayout ``.lyp`` file for a
+        PDK's names, colors and hatches), ``shapes`` (True draws the
+        simulation's shapes over the layers) and ``orientation`` (``'gds'``, the
+        default, y up as KLayout draws the cell, or ``'layout'``, the layout
+        view's axes with x increasing downward).
         """
         from .ui import session as ui
 

@@ -228,6 +228,30 @@ class LegendEntrySpec:
 
 
 @dataclass(frozen=True)
+class LayerSpec:
+    """A GDS layer (or the simulation's shapes): many polygons drawn as one, with one style.
+
+    ``polygons`` are ``(n, 2)`` rings in display units, each open. ``filled``
+    layers are filled with ``color`` at ``opacity`` and hatched with ``hatch``
+    (one of ``'/'``, ``'\\'``, ``'x'``, ``'-'``, ``'|'``, ``'+'``, ``'.'``, or ``''``),
+    the others only outlined. A layer that is not ``visible`` is kept, hidden, so the
+    tab can show it again without asking for the figure.
+    """
+
+    key: str
+    label: str
+    polygons: Tuple[np.ndarray, ...]
+    color: str
+    opacity: float = 0.5
+    hatch: str = ""
+    visible: bool = True
+    filled: bool = True
+    width: float = 0.5
+    dash: Optional[str] = None
+    legend: bool = True
+
+
+@dataclass(frozen=True)
 class FigureSpec:
     """A figure in display units, with every color, size and label decided."""
 
@@ -249,6 +273,7 @@ class FigureSpec:
     font_size: float = 7.0
     dpi: int = 600
     arrows: Tuple[Arrow, ...] = ()
+    layers: Tuple[LayerSpec, ...] = ()
 
 
 # ------------------------------------------------------------------ compose
@@ -265,8 +290,14 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
     """
     from ..free_space import FarField
+    from ..gds import GDSView
+    from .gds import GDSPanel, compose_gds
 
     options = options or PlotOptions()
+    if isinstance(view, GDSView):
+        view = GDSPanel.from_view(view)
+    if isinstance(view, GDSPanel):
+        return compose_gds(view, options)
     if isinstance(view, Schematic):
         return _compose_schematic(view, options)
     if isinstance(view, SMatrixView):
@@ -288,7 +319,7 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
         return compose_figure(view, options)
     if not isinstance(view, PlotView):
         raise TypeError(
-            "compose() takes a PlotView, Schematic, SMatrixView, MaterialView or FarField, "
+            "compose() takes a PlotView, Schematic, SMatrixView, MaterialView, FarField or GDSView, "
             f"not {type(view).__name__}"
         )
     return _compose_view(view, options)

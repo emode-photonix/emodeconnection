@@ -11,6 +11,7 @@ from .plot import PlotImage
 from . import colormaps
 from .plotting import MaterialView, PlotView, Schematic, SessionInfo, SMatrixView
 from .free_space import FarField, FreeSpaceProjection, Screen, ScreenField
+from .gds import GDSView, read_lyp
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit, RankReport
 from .monitor import Monitor, PlaneField, BeamCoupling
 from .grating import grating_sections
