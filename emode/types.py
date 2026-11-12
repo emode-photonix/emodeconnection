@@ -220,8 +220,9 @@ class TaggedModel(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def _nan_to_none(cls, v: Any, info: ValidationInfo):
-        # A .mat file has no null, so None is written there as NaN. Read a NaN
-        # back as None wherever the field allows None.
+        # A .mat file had no null, so None was written there as NaN, and a
+        # simulation file from EMode 1.0.8 or older may still hold one. Read a
+        # NaN back as None wherever the field allows None.
         if not (isinstance(v, float) and math.isnan(v)):
             return v  # nothing to do
         if info.field_name is None:
