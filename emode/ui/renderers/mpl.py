@@ -25,7 +25,14 @@ INLINE_DPI = 150
 
 MISSING = "Saving a figure needs matplotlib. Install it with `pip install matplotlib`."
 
-_MARKERS = {"triangle-right": ">", "triangle-left": "<", "circle": "o", "square": "s"}
+_MARKERS = {
+    "triangle-right": ">",
+    "triangle-left": "<",
+    "triangle-up": "^",
+    "circle": "o",
+    "square": "s",
+    "diamond": "D",
+}
 _DASHES = {None: "-", "dash": "--", "dot": ":"}
 
 
@@ -49,9 +56,11 @@ def _edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[c[0] - (mid[0] - c[0])], mid, [c[-1] + (c[-1] - mid[-1])]])
 
 
-def to_figure(spec: FigureSpec) -> Any:
-    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas."""
+def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
+    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas (or on `ax` of `fig`)."""
     _matplotlib()
+    if spec.panels and ax is None:
+        return _panels(spec)
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.cm import ScalarMappable
     from matplotlib.collections import LineCollection
@@ -66,9 +75,10 @@ def to_figure(spec: FigureSpec) -> Any:
     def cmap_of(name: str) -> Any:
         return colormaps.get(name)
 
-    fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi)
-    FigureCanvasAgg(fig)
-    ax = fig.add_subplot(111)
+    if ax is None:
+        fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi)
+        FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
     a = spec.axes
     if a.background:
         ax.set_facecolor(a.background)
@@ -141,18 +151,9 @@ def to_figure(spec: FigureSpec) -> Any:
             LineCollection(np.asarray(s.xy), colors=s.color, linewidths=s.width, alpha=s.alpha, gid=s.kind)
         )
 
+    twin = ax.twinx() if a.y2range is not None else None
     for line in spec.lines:
-        if line.marker:
-            ax.plot(
-                line.x, line.y, linestyle="none", marker=_MARKERS.get(line.marker, "o"),
-                color=line.color, markersize=line.marker_size, gid=line.kind,
-            )
-        else:
-            ax.plot(
-                line.x, line.y, color=line.color, linewidth=line.width,
-                linestyle=_DASHES.get(line.dash, "-"), alpha=line.alpha, gid=line.kind,
-                solid_capstyle="butt",
-            )
+        _draw_line(twin if (line.axis == "right" and twin is not None) else ax, line)
 
     for t in spec.texts:
         kwargs = {"transform": ax.transAxes} if t.frame == "axes" else {}
@@ -189,9 +190,36 @@ def to_figure(spec: FigureSpec) -> Any:
     else:
         ax.set_xlabel(a.xlabel, fontsize=spec.font_size)
         ax.set_ylabel(a.ylabel, fontsize=spec.font_size)
-        ax.tick_params(axis="both", direction="in", labelsize=spec.font_size, top=True, right=True, length=3, width=0.5)
+        ax.tick_params(
+            axis="both", direction="in", labelsize=spec.font_size, top=True, right=twin is None, length=3, width=0.5
+        )
         for side in ("top", "bottom", "left", "right"):
             ax.spines[side].set_linewidth(0.5)
+        if a.ylabel_color:
+            ax.yaxis.label.set_color(a.ylabel_color)
+            ax.tick_params(axis="y", colors=a.ylabel_color)
+    if twin is not None:
+        twin.set_ylim(*a.y2range)
+        twin.set_ylabel(a.y2label or "", fontsize=spec.font_size)
+        twin.tick_params(axis="y", direction="in", labelsize=spec.font_size, length=3, width=0.5)
+        for side in ("top", "bottom", "left", "right"):
+            twin.spines[side].set_linewidth(0.5)
+        if a.y2label_color:
+            twin.yaxis.label.set_color(a.y2label_color)
+            twin.tick_params(axis="y", colors=a.y2label_color)
+        # The legend goes on the twin, and matplotlib keeps a legend off its own
+        # axes' lines only, so the left curves stand in there, transparent and
+        # mapped onto the right axis's scale.
+        (y0, y1), (r0, r1) = a.yrange, a.y2range
+        scale = (r1 - r0) / (y1 - y0) if y1 != y0 else 1.0
+        for line in spec.lines:
+            if line.axis == "left" and line.kind in ("user", "trace"):
+                twin.plot(
+                    line.x, r0 + (np.asarray(line.y, float) - y0) * scale,
+                    alpha=0.0, label="_nolegend_", gid="legend_avoid",
+                )
+        twin.set_ylim(*a.y2range)
+        ax.set_xlim(*a.xrange)
 
     if spec.colorbar is not None:
         cb = spec.colorbar
@@ -221,8 +249,46 @@ def to_figure(spec: FigureSpec) -> Any:
             loc="lower center",
             bbox_to_anchor=(0.5, 1.0), fontsize=spec.font_size,
         )
+    elif any(line.label is not None for line in spec.lines):
+        # the labeled curves, in the order drawn, both axes' in one legend on top
+        handles, labels = ax.get_legend_handles_labels()
+        if twin is not None:
+            more = twin.get_legend_handles_labels()
+            handles, labels = handles + more[0], labels + more[1]
+        (twin or ax).legend(handles, labels, loc="best", frameon=False, fontsize=spec.font_size - 1)
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
+    return fig
+
+
+def _draw_line(ax: Any, line: Any) -> None:
+    label = line.label if line.label is not None else "_nolegend_"
+    if line.marker:
+        ax.plot(
+            line.x, line.y, linestyle="none", marker=_MARKERS.get(line.marker, "o"),
+            color=line.color, markersize=line.marker_size, gid=line.kind, label=label,
+        )
+    else:
+        ax.plot(
+            line.x, line.y, color=line.color, linewidth=line.width,
+            linestyle=_DASHES.get(line.dash, "-"), alpha=line.alpha, gid=line.kind,
+            solid_capstyle="butt", label=label,
+        )
+
+
+def _panels(spec: FigureSpec) -> Any:
+    """A figure of several panels: one axes per panel on a grid, laid out to fit."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi, layout="constrained")
+    FigureCanvasAgg(fig)
+    rows, cols = spec.panel_grid
+    grid = fig.subplots(rows, cols, squeeze=False)
+    for panel, ax in zip(spec.panels, grid.ravel()):
+        to_figure(panel, fig, ax)
+    if spec.title:
+        fig.suptitle(spec.title, fontsize=spec.font_size + 1)
     return fig
 
 

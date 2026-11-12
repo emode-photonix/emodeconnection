@@ -343,9 +343,12 @@ def _extra(data: Any) -> Dict[str, Any]:
     """What a view's own controls need beyond its menu (the material explorer's entries)."""
     from ..plotting import MaterialView
     from .gds import extra as gds_extra
+    from .sweep_figure import SweepPanel, sweep_menus
 
     if isinstance(data, GDSPanel):
         return gds_extra(data)
+    if isinstance(data, SweepPanel):
+        return {"menus": sweep_menus(data)}
     if isinstance(data, MaterialView):
         return {
             "requested": list(data.requested),

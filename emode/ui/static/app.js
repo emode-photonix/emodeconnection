@@ -190,6 +190,7 @@ function buildControls(reply) {
   else if (kind === "material") buildMaterialControls(box, reply);
   else if (kind === "farfield") buildFarFieldControls(box, reply);
   else if (kind === "gds") buildGDSControls(box, reply);
+  else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
   box.append(exportPanel(reply));
 }
@@ -444,6 +445,16 @@ function buildGDSControls(box, reply) {
   const span = document.createElement("span");
   span.textContent = n + (n === 1 ? " GDS layer" : " GDS layers");
   box.append(span);
+}
+
+// A sweep's menus come in the reply, each {name, label, options, selected}: which
+// result, which part of it, which panel of a grid, which ports of an S-matrix.
+// A menu with one choice is not shown.
+function buildSweepControls(box, reply) {
+  for (const m of (reply.extra || {}).menus || []) {
+    if ((m.options || []).length < 2) continue;
+    box.append(select(m.label, m.options, m.selected, (v) => change({ [m.name]: v })));
+  }
 }
 
 // ------------------------------------------------------------ the export panel

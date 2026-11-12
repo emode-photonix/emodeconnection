@@ -163,6 +163,8 @@ def _layer_trace(layer: LayerSpec) -> Dict[str, Any]:
 
 def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
     """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``."""
+    if spec.panels:
+        return _panels(spec)
     data: List[Dict[str, Any]] = []
     for f in spec.fills:
         xs, ys = _closed(np.asarray(f.x), np.asarray(f.y), f.holes)
@@ -220,11 +222,17 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             "line": {"width": line.width, "color": line.color, "dash": _DASH.get(line.dash, "solid")},
             "opacity": line.alpha,
             "hoverinfo": "skip",
-            "showlegend": False,
-            "name": line.kind,
+            "showlegend": line.label is not None,
+            "name": line.label if line.label is not None else line.kind,
+            "meta": line.kind,
         }
+        if line.label is not None:
+            trace["hovertemplate"] = "%{x:.6g}, %{y:.6g}<extra>%{fullData.name}</extra>"
+            del trace["hoverinfo"]
         if line.marker:
             trace["marker"] = {"symbol": line.marker, "size": line.marker_size, "color": line.color}
+        if line.axis == "right" and spec.axes.y2range is not None:
+            trace["yaxis"] = "y2"
         data.append(trace)
 
     if spec.colorbar is not None and not spec.rasters:
@@ -291,6 +299,27 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "zeroline": False,
         "visible": a.visible,
     }
+    yaxis2: Optional[Dict[str, Any]] = None
+    if a.y2range is not None:
+        # the panel's twin: its own range and label on the right, the left axis's ticks only on the left
+        yaxis["mirror"] = False
+        yaxis2 = {
+            "title": {"text": a.y2label or ""},
+            "range": list(a.y2range),
+            "overlaying": "y",
+            "side": "right",
+            "anchor": "x",
+            "ticks": "inside",
+            "showline": True,
+            "linewidth": 0.5,
+            "showgrid": False,
+            "zeroline": False,
+            "visible": a.visible,
+        }
+    for axis, color in ((yaxis, a.ylabel_color), (yaxis2, a.y2label_color)):
+        if axis is not None and color:
+            axis["title"]["font"] = {"color": color}
+            axis["tickfont"] = {"color": color}
     if a.equal_aspect:
         yaxis["scaleanchor"] = "x"
         yaxis["scaleratio"] = 1
@@ -339,13 +368,86 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "yaxis": yaxis,
         "font": font,
         "annotations": annotations,
-        "showlegend": bool(spec.legend) or any(layer.legend for layer in spec.layers),
+        "showlegend": bool(spec.legend)
+        or any(layer.legend for layer in spec.layers)
+        or any(line.label is not None for line in spec.lines),
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
         "margin": {"l": 60, "r": 20, "t": 40, "b": 110 if any(t.kind == "footer" for t in spec.texts) else 50},
         "paper_bgcolor": "#ffffff",
         "plot_bgcolor": a.background or "#ffffff",
         "dragmode": "zoom",
     }
+    if yaxis2 is not None:
+        layout["yaxis2"] = yaxis2
+        layout["margin"]["r"] = 60
     if spec.title:
         layout["title"] = {"text": spec.title}
     return layout
+
+
+def _panels(spec: FigureSpec) -> Dict[str, Any]:
+    """A figure of several panels: each panel's traces on its own pair of axes, on one page.
+
+    Panel k (from 1) draws on ``x{k}``/``y{k}`` (``x``/``y`` for the first),
+    whose domains tile the page row-major, the first row on top. A panel's
+    colorbar sits at the right edge of its own domain, and its title above it.
+    """
+    rows, cols = spec.panel_grid
+    gap_x, gap_y = 0.1, 0.14
+    width, height = (1 - gap_x * (cols - 1)) / cols, (1 - gap_y * (rows - 1)) / rows
+    data: List[Dict[str, Any]] = []
+    layout: Dict[str, Any] = {}
+    annotations: List[Dict[str, Any]] = []
+    for k, panel in enumerate(spec.panels, start=1):
+        row, col = divmod(k - 1, cols)
+        x0 = col * (width + gap_x)
+        y1 = 1 - row * (height + gap_y)
+        xd, yd = [x0, x0 + width], [y1 - height, y1]
+        sub = to_plotly(panel)
+        suffix = "" if k == 1 else str(k)
+        # a panel's twin takes an axis numbered past every panel's own
+        twin = str(len(spec.panels) + k)
+        for trace in sub["data"]:
+            on_twin = trace.get("yaxis") == "y2"
+            trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
+            if "colorbar" in trace:
+                trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
+            data.append(trace)
+        xaxis, yaxis = dict(sub["layout"]["xaxis"]), dict(sub["layout"]["yaxis"])
+        xaxis.update({"domain": xd, "anchor": f"y{suffix}"})
+        yaxis.update({"domain": yd, "anchor": f"x{suffix}"})
+        if "scaleanchor" in yaxis:
+            yaxis["scaleanchor"] = f"x{suffix}"
+        layout[f"xaxis{suffix}"], layout[f"yaxis{suffix}"] = xaxis, yaxis
+        if "yaxis2" in sub["layout"]:
+            right = dict(sub["layout"]["yaxis2"])
+            right.update({"domain": yd, "anchor": f"x{suffix}", "overlaying": f"y{suffix}"})
+            layout[f"yaxis{twin}"] = right
+        for note in sub["layout"].get("annotations", []):
+            for ref in ("xref", "yref"):
+                axis = note.get(ref, "paper")
+                if axis != "paper":
+                    note[ref] = axis[0] + suffix + axis[1:]
+            annotations.append(note)
+        if panel.title:
+            annotations.append(
+                {"text": panel.title, "x": (xd[0] + xd[1]) / 2, "y": yd[1], "xref": "paper", "yref": "paper",
+                 "xanchor": "center", "yanchor": "bottom", "showarrow": False, "name": "panel_title",
+                 "font": {"size": spec.font_size + 4}}
+            )
+    first = _layout(spec.panels[0])
+    layout.update(
+        {
+            "font": first["font"],
+            "annotations": annotations,
+            "showlegend": any(t.get("showlegend") for t in data),
+            "legend": first["legend"],
+            "margin": {"l": 60, "r": 60 if any(p.axes.y2range is not None for p in spec.panels) else 20, "t": 60, "b": 50},
+            "paper_bgcolor": "#ffffff",
+            "plot_bgcolor": "#ffffff",
+            "dragmode": "zoom",
+        }
+    )
+    if spec.title:
+        layout["title"] = {"text": spec.title}
+    return {"data": data, "layout": layout}

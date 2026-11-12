@@ -19,6 +19,7 @@ from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel
 from .gds import apply as apply_gds
 from .gds import title as gds_title
+from .sweep_figure import SWEEP_CONTROLS, SweepPanel, select_sweep, sweep_title
 
 
 def _select(data: Any, controls: Dict[str, Any]) -> Any:
@@ -38,6 +39,8 @@ def _select(data: Any, controls: Dict[str, Any]) -> Any:
     if isinstance(data, MaterialView) and controls.get("component") is not None:
         selected = {**data.menu.selected, "component": str(controls["component"])}
         return data.model_copy(update={"menu": data.menu.model_copy(update={"selected": selected})})
+    if isinstance(data, SweepPanel):
+        return select_sweep(data, controls)
     if isinstance(data, FarFieldPanel) and controls.get("data") is not None:
         panel = str(controls["data"])
         return FarFieldPanel(data.farfield, panel if panel in data.panels else "intensity")
@@ -78,6 +81,8 @@ KINDS: Dict[str, Kind] = {
     "material": Kind("material", "m", ("material", "wavelengths", "step", "x"), ("component",)),
     "farfield": Kind("farfield", "f", (), ("data",)),
     "gds": Kind("gds", "g", DATA_ARGUMENTS, GDS_ARGUMENTS),
+    "sweep": Kind("sweep", "w", (), SWEEP_CONTROLS),
+    "figure": Kind("figure", "c", ()),
 }
 
 
@@ -92,6 +97,12 @@ def kind_of(data: Any) -> str:
         return "farfield"
     if isinstance(data, GDSPanel):
         return "gds"
+    if isinstance(data, SweepPanel):
+        return "sweep"
+    from ..figures import Figure
+
+    if isinstance(data, Figure):
+        return "figure"
     return "plot"
 
 
@@ -99,7 +110,11 @@ def menu_of(data: Any) -> MenuState:
     """The controls a view offers, as ``MenuState``."""
     if isinstance(data, FarFieldPanel):
         return MenuState(data=data.panels, selected={"data": data.panel})
-    return data.menu
+    if isinstance(data, SweepPanel):
+        # the menus themselves go in the reply's extra (sweep_menus): their names vary by result
+        selected = {k: ", ".join(v) if isinstance(v, list) else str(v) for k, v in data.selected.items()}
+        return MenuState(selected=selected)
+    return getattr(data, "menu", None) or MenuState()
 
 
 @dataclass
@@ -139,6 +154,12 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
         return f"far field {data.farfield.wavelength:g} nm {data.panel}"
     if isinstance(data, GDSPanel):
         return gds_title(data)
+    if isinstance(data, SweepPanel):
+        return sweep_title(data)
+    from ..figures import Figure
+
+    if isinstance(data, Figure):
+        return data.title or f"figure of {len(data.panels)} panels"
     selected = data.menu.selected
     what = selected.get("data") or arguments.get("component") or ""
     how = selected.get("component") or ""
