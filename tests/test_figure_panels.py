@@ -228,6 +228,28 @@ def test_matplotlib_draws_the_right_curves_on_a_twin_axes_with_one_legend():
     assert mpl.render(spec, "png")[:4] == b"\x89PNG"
 
 
+def test_the_twin_legend_keeps_off_the_left_curves_as_well():
+    """matplotlib places a legend away from the lines of its own axes only. The
+    legend sits on the twin, so without the left curves standing in there it
+    covered them (the SHG example's pump curves)."""
+    pytest.importorskip("matplotlib")
+    from emode.ui.renderers import mpl
+
+    x = np.linspace(0.0, 2.0, 41)
+    fig = emode.Figure()
+    p = fig.panel(0)
+    p.line(x, np.full_like(x, 9.4), label="along the top")
+    p.set(ylim=(0.0, 10.0))
+    p.twin().line(x, np.full_like(x, 0.6), label="along the bottom").set(ylim=(0.0, 10.0))
+    figure = mpl.to_figure(compose(fig))
+    figure.canvas.draw()
+    ax, twin = figure.axes
+    box = twin.get_legend().get_window_extent()
+    for axes, line in ((ax, ax.lines[0]), (twin, twin.lines[0])):
+        points = axes.transData.transform(np.column_stack(line.get_data()))
+        assert not any(box.contains(px, py) for px, py in points), line.get_label()
+
+
 def test_plotly_draws_the_right_curves_on_an_overlaying_axis():
     figure = to_plotly(compose(pump_and_signal()))
     layout = figure["layout"]

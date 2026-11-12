@@ -183,6 +183,19 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         if a.y2label_color:
             twin.yaxis.label.set_color(a.y2label_color)
             twin.tick_params(axis="y", colors=a.y2label_color)
+        # The legend goes on the twin, and matplotlib keeps a legend off its own
+        # axes' lines only, so the left curves stand in there, transparent and
+        # mapped onto the right axis's scale.
+        (y0, y1), (r0, r1) = a.yrange, a.y2range
+        scale = (r1 - r0) / (y1 - y0) if y1 != y0 else 1.0
+        for line in spec.lines:
+            if line.axis == "left" and line.kind in ("user", "trace"):
+                twin.plot(
+                    line.x, r0 + (np.asarray(line.y, float) - y0) * scale,
+                    alpha=0.0, label="_nolegend_", gid="legend_avoid",
+                )
+        twin.set_ylim(*a.y2range)
+        ax.set_xlim(*a.xrange)
 
     if spec.colorbar is not None:
         cb = spec.colorbar
