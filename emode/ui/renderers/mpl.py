@@ -58,7 +58,7 @@ def to_figure(spec: FigureSpec) -> Any:
     from matplotlib.colors import Normalize
     from matplotlib.figure import Figure
     from matplotlib.image import NonUniformImage
-    from matplotlib.patches import Patch, PathPatch
+    from matplotlib.patches import Patch, PathPatch, Rectangle
     from matplotlib.path import Path as MplPath
 
     from ... import colormaps
@@ -98,14 +98,20 @@ def to_figure(spec: FigureSpec) -> Any:
             # off the panel: NaN, which the colormap leaves transparent
             z = np.where(np.asarray(r.mask, bool), np.nan, z)
         x, y = np.asarray(r.x, float), np.asarray(r.y, float)
+        x0, x1 = _edges(x)[[0, -1]]
+        y0, y1 = _edges(y)[[0, -1]]
         im = NonUniformImage(
             ax,
             interpolation="bilinear" if r.interpolation == "bilinear" else "nearest",
-            extent=(*_edges(x)[[0, -1]], *_edges(y)[[0, -1]]),
+            extent=(x0, x1, y0, y1),
             cmap=cmap_of(r.colormap),
             norm=Normalize(vmin=r.vmin, vmax=r.vmax),
         )
         im.set_data(x, y, z)
+        # A NonUniformImage paints the whole axes, carrying its edge cells out to
+        # the panel's edges. A z panel is one image per slice, so without this
+        # clip the last slice drawn covered every other one.
+        im.set_clip_path(Rectangle((x0, y0), x1 - x0, y1 - y0, transform=ax.transData))
         ax.add_image(im)
         if r.contour_levels and min(z.shape) >= 2:
             for level in r.contour_levels:

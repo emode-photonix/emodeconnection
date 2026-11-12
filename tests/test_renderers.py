@@ -117,6 +117,41 @@ def test_the_matplotlib_image_holds_the_raster():
     np.testing.assert_array_equal(np.asarray(ax.images[0].get_array()), spec.rasters[0].z)
 
 
+def _pixel(fig, ax, x: float, y: float) -> np.ndarray:
+    """The rendered RGB at data point (x, y)."""
+    fig.canvas.draw()
+    rgba = np.asarray(fig.canvas.buffer_rgba())
+    px, py = ax.transData.transform((x, y))
+    return rgba[rgba.shape[0] - 1 - int(round(py)), int(round(px)), :3].astype(int)
+
+
+def test_each_matplotlib_image_stays_inside_its_own_extent():
+    """A z panel is one image per slice. An image painted past its cells covered
+    the panel with its edge values, so the last slice drawn showed everywhere and
+    a field growing along z rendered flat."""
+    spec = compose(zx_view())
+    fig = mpl_renderer.to_figure(spec)
+    ax = fig.axes[0]
+    first, second = spec.rasters
+    norm = ax.images[0].norm
+    cmap = ax.images[0].get_cmap()
+
+    def color(value: float) -> np.ndarray:
+        return np.round(np.asarray(cmap(norm(value)))[:3] * 255).astype(int)
+
+    # the middle of the first slice is the first slice's value, not the last's
+    at_first = _pixel(fig, ax, float(np.mean(first.x)), 0.0)
+    assert np.abs(at_first - color(0.5)).max() <= 2
+    # the second slice is still drawn where it is
+    at_second = _pixel(fig, ax, float(np.mean(second.x)), 0.0)
+    assert np.abs(at_second - color(0.25)).max() <= 2
+    # past the first slice's cells across x (it spans +-1067 nm, the panel +-1200)
+    # is the axes background, not the slice's edge row stretched outward
+    outside = _pixel(fig, ax, float(np.mean(first.x)), 1150.0)
+    assert np.abs(outside - color(0.5)).max() > 10
+    assert np.abs(outside - color(0.25)).max() > 10
+
+
 def test_one_matplotlib_artist_per_overlay():
     spec = compose(zx_view())
     ax = mpl_renderer.to_figure(spec).axes[0]
