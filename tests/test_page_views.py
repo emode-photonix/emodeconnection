@@ -91,7 +91,7 @@ def test_the_automatic_scale_is_the_windows():
 
 def test_phase_is_cyclic_and_the_typed_scale_wins():
     spec = compose(smatrix_view("angle"), PlotOptions(vmin=-3.0, vmax=3.0))
-    assert spec.rasters[0].colormap == "cyclic"
+    assert spec.rasters[0].colormap == "emode-cyclic"
     assert (spec.rasters[0].vmin, spec.rasters[0].vmax) == (-3.0, 3.0)
     assert spec.colorbar.tick_format == "%3.2f"
 

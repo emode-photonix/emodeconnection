@@ -216,14 +216,22 @@ class FarField(TaggedModel):
 
         return show_data(self, em=em, **kwargs)
 
-    def plot(self, ax=None):
+    def plot(self, ax=None, colormap: "str | None" = None):
         """Plot the radiant intensity against the angles, its x and y cuts, and the
         screen's flux when there is a screen. Returns the matplotlib Figure.
 
         `ax`, if given, is a sequence of Axes to draw into: two, or three with a
-        screen.
+        screen. `colormap` names the colormap of the intensity and the flux,
+        EMode's sequential map by default (``emode.colormaps``).
         """
         from matplotlib import pyplot as plt
+
+        from . import colormaps
+
+        if colormap is not None:
+            colormaps.check_colormap(colormap, "FarField.plot")
+        cmap = colormaps.get(colormap or "sequential")
+        lines = colormaps.line_palette()
 
         panels = 3 if self.screen is not None else 2
         if ax is None:
@@ -231,15 +239,15 @@ class FarField(TaggedModel):
         else:
             fig = ax[0].figure
         tx, ty = self.theta_x, self.theta_y
-        image = ax[0].pcolormesh(tx, ty, np.asarray(self.intensity).T, shading="auto")
+        image = ax[0].pcolormesh(tx, ty, np.asarray(self.intensity).T, shading="auto", cmap=cmap)
         ax[0].set_xlabel("θx (deg)")
         ax[0].set_ylabel("θy (deg)")
         ax[0].set_title(f"far field, {self.wavelength:g} nm")
         ax[0].set_aspect("equal")
         fig.colorbar(image, ax=ax[0], label="intensity (W/sr)")
-        for axis, label in (("x", "θx"), ("y", "θy")):
+        for i, (axis, label) in enumerate((("x", "θx"), ("y", "θy"))):
             angle, intensity = self.cut(axis)
-            ax[1].plot(angle, intensity, label=f"{label} cut")
+            ax[1].plot(angle, intensity, label=f"{label} cut", color=lines[i % len(lines)])
         ax[1].set_xlabel("angle (deg)")
         ax[1].set_ylabel("intensity (W/sr)")
         ax[1].set_title(f"M² = {self.m_squared[0]:.3f}, {self.m_squared[1]:.3f}")
@@ -247,7 +255,7 @@ class FarField(TaggedModel):
         if self.screen is not None:
             screen = self.screen
             image = ax[2].pcolormesh(
-                np.asarray(screen.s) / 1000, np.asarray(screen.t) / 1000, np.asarray(screen.Sn).T, shading="auto"
+                np.asarray(screen.s) / 1000, np.asarray(screen.t) / 1000, np.asarray(screen.Sn).T, shading="auto", cmap=cmap
             )
             ax[2].set_xlabel("u (µm)")
             ax[2].set_ylabel("v (µm)")

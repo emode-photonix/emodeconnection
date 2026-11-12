@@ -64,9 +64,7 @@ def to_figure(spec: FigureSpec) -> Any:
     from ... import colormaps
 
     def cmap_of(name: str) -> Any:
-        if name in colormaps.KINDS:
-            return colormaps.mpl_colormap(name)
-        return colormaps.mpl_colormap("sequential", name)
+        return colormaps.get(name)
 
     fig = Figure(figsize=(spec.width_mm / 25.4, spec.height_mm / 25.4), dpi=spec.dpi)
     FigureCanvasAgg(fig)
