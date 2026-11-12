@@ -177,6 +177,8 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             del trace["hoverinfo"]
         if line.marker:
             trace["marker"] = {"symbol": line.marker, "size": line.marker_size, "color": line.color}
+        if line.axis == "right" and spec.axes.y2range is not None:
+            trace["yaxis"] = "y2"
         data.append(trace)
 
     if spec.colorbar is not None and not spec.rasters:
@@ -243,6 +245,27 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "zeroline": False,
         "visible": a.visible,
     }
+    yaxis2: Optional[Dict[str, Any]] = None
+    if a.y2range is not None:
+        # the panel's twin: its own range and label on the right, the left axis's ticks only on the left
+        yaxis["mirror"] = False
+        yaxis2 = {
+            "title": {"text": a.y2label or ""},
+            "range": list(a.y2range),
+            "overlaying": "y",
+            "side": "right",
+            "anchor": "x",
+            "ticks": "inside",
+            "showline": True,
+            "linewidth": 0.5,
+            "showgrid": False,
+            "zeroline": False,
+            "visible": a.visible,
+        }
+    for axis, color in ((yaxis, a.ylabel_color), (yaxis2, a.y2label_color)):
+        if axis is not None and color:
+            axis["title"]["font"] = {"color": color}
+            axis["tickfont"] = {"color": color}
     if a.equal_aspect:
         yaxis["scaleanchor"] = "x"
         yaxis["scaleratio"] = 1
@@ -298,6 +321,9 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "plot_bgcolor": a.background or "#ffffff",
         "dragmode": "zoom",
     }
+    if yaxis2 is not None:
+        layout["yaxis2"] = yaxis2
+        layout["margin"]["r"] = 60
     if spec.title:
         layout["title"] = {"text": spec.title}
     return layout
@@ -323,8 +349,11 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         xd, yd = [x0, x0 + width], [y1 - height, y1]
         sub = to_plotly(panel)
         suffix = "" if k == 1 else str(k)
+        # a panel's twin takes an axis numbered past every panel's own
+        twin = str(len(spec.panels) + k)
         for trace in sub["data"]:
-            trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{suffix}"
+            on_twin = trace.get("yaxis") == "y2"
+            trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
             if "colorbar" in trace:
                 trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
             data.append(trace)
@@ -334,6 +363,10 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         if "scaleanchor" in yaxis:
             yaxis["scaleanchor"] = f"x{suffix}"
         layout[f"xaxis{suffix}"], layout[f"yaxis{suffix}"] = xaxis, yaxis
+        if "yaxis2" in sub["layout"]:
+            right = dict(sub["layout"]["yaxis2"])
+            right.update({"domain": yd, "anchor": f"x{suffix}", "overlaying": f"y{suffix}"})
+            layout[f"yaxis{twin}"] = right
         for note in sub["layout"].get("annotations", []):
             for ref in ("xref", "yref"):
                 axis = note.get(ref, "paper")
@@ -353,7 +386,7 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
             "annotations": annotations,
             "showlegend": any(t.get("showlegend") for t in data),
             "legend": first["legend"],
-            "margin": {"l": 60, "r": 20, "t": 60, "b": 50},
+            "margin": {"l": 60, "r": 60 if any(p.axes.y2range is not None for p in spec.panels) else 20, "t": 60, "b": 50},
             "paper_bgcolor": "#ffffff",
             "plot_bgcolor": "#ffffff",
             "dragmode": "zoom",

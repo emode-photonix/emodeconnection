@@ -154,6 +154,111 @@ def test_a_panel_heatmaps_colorbar_sits_beside_its_panel():
     assert heatmap["xaxis"] == "x" and heatmap["colorbar"]["x"] <= figure["layout"]["xaxis2"]["domain"][0]
 
 
+# ------------------------------------------------------------------ a second y axis
+
+
+def pump_and_signal() -> "emode.Figure":
+    """One panel, milliwatts on the left and microwatts on the right, as the SHG example draws."""
+    fig = emode.Figure()
+    p = fig.panel(0)
+    p.line([0.0, 1.0, 2.0], [10.0, 8.0, 6.0], label="pump", color=0)
+    p.set(xlabel="Position (mm)", ylabel="Pump (mW)")
+    right = p.twin()
+    right.line([0.0, 1.0, 2.0], [0.0, 2.0, 4.0], style="--", label="signal", color=3)
+    right.hline(3.0, label="target")
+    right.set(ylabel="Signal (uW)", ylim=(0.0, 5.0))
+    return fig
+
+
+def test_twin_is_the_panels_one_right_axis():
+    p = emode.Figure().panel(0)
+    assert p.twin() is p.twin()
+
+
+def test_a_twin_axis_puts_its_curves_on_the_right_with_its_own_label_and_range():
+    (spec,) = compose(pump_and_signal()).panels
+    a = spec.axes
+    assert (a.ylabel, a.y2label) == ("Pump (mW)", "Signal (uW)")
+    assert a.y2range == (0.0, 5.0)
+    # the left range spans the left curves only, not the right ones
+    assert a.yrange[0] > 5.0 and a.yrange[1] > 10.0
+    sides = [(line.label, line.axis) for line in spec.lines]
+    assert sides == [("pump", "left"), ("signal", "right"), ("target", "right")]
+    (target,) = [line for line in spec.lines if line.kind == "hline"]
+    assert tuple(target.x) == a.xrange and list(target.y) == [3.0, 3.0]
+
+
+def test_each_axis_label_takes_the_color_of_its_one_curve():
+    palette = emode.colormaps.line_palette()
+    a = compose(pump_and_signal()).axes
+    assert (a.ylabel_color, a.y2label_color) == (palette[0], palette[3])
+    # a panel without a twin keeps black labels and has no right axis
+    plain = compose(two_panels()).panels[1].axes
+    assert plain.ylabel_color is None and plain.y2range is None
+
+
+def test_the_right_curves_continue_the_palette_after_the_left_ones():
+    fig = emode.Figure()
+    p = fig.panel(0)
+    p.line([0, 1], [0, 1])
+    p.twin().line([0, 1], [1, 0])
+    (spec,) = compose(fig).panels
+    left, right = spec.lines
+    palette = emode.colormaps.line_palette()
+    assert (left.color, right.color) == (palette[0], palette[1])
+    # without its own ylim the right range is its curves' span
+    assert spec.axes.y2range[0] < 0.0 < 1.0 < spec.axes.y2range[1]
+
+
+def test_matplotlib_draws_the_right_curves_on_a_twin_axes_with_one_legend():
+    pytest.importorskip("matplotlib")
+    from emode.ui.renderers import mpl
+
+    spec = compose(pump_and_signal())
+    fig = mpl.to_figure(spec)
+    ax, twin = fig.axes
+    assert ax.get_ylabel() == "Pump (mW)" and twin.get_ylabel() == "Signal (uW)"
+    assert twin.get_ylim() == pytest.approx((0.0, 5.0))
+    assert [line.get_label() for line in ax.lines] == ["pump"]
+    np.testing.assert_allclose(twin.lines[0].get_ydata(), [0.0, 2.0, 4.0])
+    assert ax.yaxis.label.get_color() == emode.colormaps.line_palette()[0]
+    legends = [a.get_legend() for a in (ax, twin) if a.get_legend() is not None]
+    assert len(legends) == 1
+    assert [t.get_text() for t in legends[0].get_texts()] == ["pump", "signal", "target"]
+    assert mpl.render(spec, "png")[:4] == b"\x89PNG"
+
+
+def test_plotly_draws_the_right_curves_on_an_overlaying_axis():
+    figure = to_plotly(compose(pump_and_signal()))
+    layout = figure["layout"]
+    right = layout["yaxis2"]
+    assert right["overlaying"] == "y" and right["side"] == "right"
+    assert right["range"] == [0.0, 5.0] and right["title"]["text"] == "Signal (uW)"
+    by_name = {t["name"]: t for t in figure["data"] if t["type"] == "scatter"}
+    assert by_name["signal"]["yaxis"] == "y2" and by_name["pump"].get("yaxis", "y") == "y"
+
+
+def test_a_twin_in_a_figure_of_panels_gets_an_axis_of_its_own():
+    fig = emode.Figure(rows=2)
+    fig.panel(0).line([0, 1], [0, 1], label="a")
+    bottom = fig.panel(1)
+    bottom.line([0, 1], [1, 2], label="b")
+    bottom.twin().line([0, 1], [5, 6], label="c")
+    figure = to_plotly(compose(fig))
+    layout = figure["layout"]
+    by_name = {t["name"]: t for t in figure["data"] if t["type"] == "scatter"}
+    assert (by_name["a"]["yaxis"], by_name["b"]["yaxis"]) == ("y", "y2")
+    twin_axis = by_name["c"]["yaxis"]
+    assert twin_axis not in ("y", "y2")
+    twin = layout["yaxis" + twin_axis[1:]]
+    assert twin["overlaying"] == "y2" and twin["side"] == "right"
+    assert twin["anchor"] == by_name["c"]["xaxis"] == "x2"
+    pytest.importorskip("matplotlib")
+    from emode.ui.renderers import mpl
+
+    assert len(mpl.to_figure(compose(fig)).axes) == 3
+
+
 # ------------------------------------------------------------------ showing it
 
 

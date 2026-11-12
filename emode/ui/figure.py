@@ -149,6 +149,8 @@ class LineSpec:
     marker_size: float = 0.0
     #: The line's legend entry, None for a line without one.
     label: Optional[str] = None
+    #: The y axis the line is read against: the panel's own ('left') or its twin ('right').
+    axis: str = "left"
 
 
 @dataclass(frozen=True)
@@ -200,6 +202,12 @@ class AxesSpec:
     visible: bool = True
     grid: bool = False
     integer_ticks: bool = False
+    #: A second y axis on the right (``Panel.twin()``): its label and range, None without one.
+    y2label: Optional[str] = None
+    y2range: Optional[Tuple[float, float]] = None
+    #: Each y axis's label and tick color, None for the default black.
+    ylabel_color: Optional[str] = None
+    y2label_color: Optional[str] = None
 
 
 @dataclass(frozen=True)

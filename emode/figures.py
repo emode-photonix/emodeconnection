@@ -13,6 +13,16 @@ as a static image, as every other EMode plot is::
     fig.panel(1).line(x, y, style='o-', label='measured')
     fig.plot(file_name='spectrum')                     # EM_figures/spectrum.png
 
+A panel's ``twin()`` is a second y axis on its right, for a curve in other units
+on the same x axis::
+
+    p = fig.panel(0)
+    p.line(z, pump_mW, label='pump')
+    p.set(xlabel='Position (mm)', ylabel='Pump (mW)')
+    right = p.twin()
+    right.line(z, signal_uW, style='--', label='signal')
+    right.set(ylabel='Signal (uW)')
+
 A panel's ``style`` is a short string as in matplotlib: ``'-'`` (solid),
 ``'--'`` (dashed), ``':'`` (dotted), a marker (``'o'``, ``'s'``, ``'^'``,
 ``'D'``, ``'>'``, ``'<'``), or both (``'o-'``). ``color`` is an index into
@@ -27,6 +37,39 @@ from .types import ArgumentError
 Range = Optional[Tuple[float, float]]
 
 
+class TwinAxis:
+    """A panel's second y axis, on its right: curves in other units against the same x."""
+
+    def __init__(self) -> None:
+        self.items: List[Tuple[str, dict]] = []
+        self.settings: dict = {}
+
+    def line(
+        self,
+        x: Sequence[float],
+        y: Sequence[float],
+        style: str = "-",
+        label: Optional[str] = None,
+        color: Union[int, str, None] = None,
+        width: Optional[float] = None,
+    ) -> "TwinAxis":
+        """A curve through (`x`, `y`), read against the right axis."""
+        self.items.append(("line", dict(x=x, y=y, style=style, label=label, color=color, width=width)))
+        return self
+
+    def hline(self, y: float, style: str = "--", label: Optional[str] = None, color: Union[int, str, None] = None) -> "TwinAxis":
+        """A horizontal line at `y` on the right axis, across the panel."""
+        self.items.append(("hline", dict(at=y, style=style, label=label, color=color)))
+        return self
+
+    def set(self, ylabel: Optional[str] = None, ylim: Range = None) -> "TwinAxis":
+        """The right axis's label and range. The x axis is the panel's own."""
+        for name, value in dict(ylabel=ylabel, ylim=ylim).items():
+            if value is not None:
+                self.settings[name] = value
+        return self
+
+
 class Panel:
     """One panel of a ``Figure``: what is drawn on it, and its labels and ranges."""
 
@@ -35,6 +78,13 @@ class Panel:
         self.selection: dict = {}
         self.items: List[Tuple[str, dict]] = []
         self.settings: dict = {}
+        self.right: Optional[TwinAxis] = None
+
+    def twin(self) -> TwinAxis:
+        """The panel's second y axis, on its right, made on the first call."""
+        if self.right is None:
+            self.right = TwinAxis()
+        return self.right
 
     def sweep(self, result: Any, **selection: Any) -> "Panel":
         """Draw `result` here as its own plot draws it: a sweep's result, an ``OptimizationResult``

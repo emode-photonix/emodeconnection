@@ -76,28 +76,29 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
     xs: List[np.ndarray] = []
     ys: List[np.ndarray] = []
     count = sum(1 for line in lines if line.kind == "trace")
-    for kind, item in panel.items:
-        if kind != "line":
-            continue
-        x = np.asarray(item["x"], float).ravel()
-        y = np.real(np.asarray(item["y"])).astype(float).ravel()
-        xs.append(x)
-        ys.append(y)
-        marker, dash, has_line = parse_style(item["style"])
-        color = _color(item["color"], count)
-        count += 1
-        width = LW * 1.5 if item["width"] is None else float(item["width"])
-        if has_line:
-            lines.append(LineSpec(x, y, "user", color, width, dash, label=item["label"]))
-        if marker is not None:
-            label = None if has_line else item["label"]
-            lines.append(LineSpec(x, y, "user", color, 0.0, None, 1.0, marker, 4.0, label=label))
+    count = _curves(panel.items, count, "left", lines, xs, ys)
+    twin = panel.right
+    y2s: List[np.ndarray] = []
+    right_lines: List[LineSpec] = []
+    if twin is not None:
+        # the right curves continue the palette, so no two curves share a color by default
+        _curves(twin.items, count, "right", right_lines, xs, y2s)
 
     settings = panel.settings
     xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0))
     yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys))
     xrange = tuple(float(v) for v in (xrange or (0.0, 1.0)))
     yrange = tuple(float(v) for v in (yrange or (0.0, 1.0)))
+    y2range: Optional[Tuple[float, float]] = None
+    if twin is not None:
+        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s) or (0.0, 1.0)))
+        for kind, item in twin.items:
+            if kind == "hline":
+                _marker, dash, _ = parse_style(item["style"])
+                right_lines.append(
+                    LineSpec(np.array(xrange), np.array([item["at"], item["at"]], float), "hline",
+                             _color(item["color"], 5), LW, dash, label=item["label"], axis="right")
+                )
     for kind, item in panel.items:
         if kind in ("vline", "hline"):
             _marker, dash, _ = parse_style(item["style"])
@@ -116,12 +117,17 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
             if item["label"]:
                 # the band's legend entry, a wide line of its color
                 lines.append(LineSpec(np.array([np.nan]), np.array([np.nan]), "vspan", color, 6.0, label=item["label"]))
+    lines.extend(right_lines)
     axes = AxesSpec(
         xlabel=settings.get("xlabel") or (base.axes.xlabel if base else ""),
         ylabel=settings.get("ylabel") or (base.axes.ylabel if base else ""),
         xrange=xrange,
         yrange=yrange,
         grid=not (base and base.rasters),
+        y2label=(twin.settings.get("ylabel") or "") if twin is not None else None,
+        y2range=y2range,
+        ylabel_color=_one_color(lines, "left") if twin is not None else None,
+        y2label_color=_one_color(lines, "right") if twin is not None else None,
     )
     return FigureSpec(
         axes=axes,
@@ -136,6 +142,43 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         font_size=options.font_size,
         dpi=options.dpi,
     )
+
+
+def _curves(
+    items: List[Tuple[str, dict]],
+    count: int,
+    axis: str,
+    lines: List[LineSpec],
+    xs: List[np.ndarray],
+    ys: List[np.ndarray],
+) -> int:
+    """Append the curves among `items` to `lines` on `axis`, their data to `xs` and `ys`.
+
+    Returns the palette count after them.
+    """
+    for kind, item in items:
+        if kind != "line":
+            continue
+        x = np.asarray(item["x"], float).ravel()
+        y = np.real(np.asarray(item["y"])).astype(float).ravel()
+        xs.append(x)
+        ys.append(y)
+        marker, dash, has_line = parse_style(item["style"])
+        color = _color(item["color"], count)
+        count += 1
+        width = LW * 1.5 if item["width"] is None else float(item["width"])
+        if has_line:
+            lines.append(LineSpec(x, y, "user", color, width, dash, label=item["label"], axis=axis))
+        if marker is not None:
+            label = None if has_line else item["label"]
+            lines.append(LineSpec(x, y, "user", color, 0.0, None, 1.0, marker, 4.0, label=label, axis=axis))
+    return count
+
+
+def _one_color(lines: List[LineSpec], axis: str) -> Optional[str]:
+    """The color of every curve on `axis` when they share one, so its label can say which axis is whose."""
+    colors = {line.color for line in lines if line.axis == axis and line.kind in ("user", "trace")}
+    return colors.pop() if len(colors) == 1 else None
 
 
 def _merge(a: Optional[Tuple[float, float]], b: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
