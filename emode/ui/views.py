@@ -15,10 +15,16 @@ from typing import Any, Dict, List, Optional, Union
 
 from ..plotting import MaterialView, MenuState, PlotView, Schematic, SMatrixView
 from .figure import DATA_ARGUMENTS, FarFieldPanel, PlotOptions
+from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
+from .gds import GDSPanel
+from .gds import apply as apply_gds
+from .gds import title as gds_title
 
 
 def _select(data: Any, controls: Dict[str, Any]) -> Any:
     """`data` with the client-side selection of `controls` applied, without asking EMode."""
+    if isinstance(data, GDSPanel):
+        return apply_gds(data, controls)
     if isinstance(data, SMatrixView):
         selected = dict(data.menu.selected)
         for name, key in (("input", "input"), ("output", "output"), ("plot_function", "component")):
@@ -71,6 +77,7 @@ KINDS: Dict[str, Kind] = {
     "smatrix": Kind("smatrix", "x", (), ("input", "output", "plot_function")),
     "material": Kind("material", "m", ("material", "wavelengths", "step", "x"), ("component",)),
     "farfield": Kind("farfield", "f", (), ("data",)),
+    "gds": Kind("gds", "g", DATA_ARGUMENTS, GDS_ARGUMENTS),
 }
 
 
@@ -83,6 +90,8 @@ def kind_of(data: Any) -> str:
         return "material"
     if isinstance(data, FarFieldPanel):
         return "farfield"
+    if isinstance(data, GDSPanel):
+        return "gds"
     return "plot"
 
 
@@ -128,6 +137,8 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
         return f"material {data.material} {data.menu.selected.get('component', '')}".strip()
     if isinstance(data, FarFieldPanel):
         return f"far field {data.farfield.wavelength:g} nm {data.panel}"
+    if isinstance(data, GDSPanel):
+        return gds_title(data)
     selected = data.menu.selected
     what = selected.get("data") or arguments.get("component") or ""
     how = selected.get("component") or ""

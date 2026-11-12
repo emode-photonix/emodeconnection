@@ -32,7 +32,18 @@ import numpy as np
 from ..plot import PlotImage
 from ..plotting import MaterialView, MenuState, PlotView, Schematic, SessionInfo, SMatrixView
 from ..types import EModeError
-from .figure import FarFieldPanel, FigureSpec, PlotOptions, check_figure_arguments, compose, split_arguments
+from ..gds import GDSView
+from .figure import (
+    DATA_ARGUMENTS,
+    FarFieldPanel,
+    FigureSpec,
+    PlotOptions,
+    check_figure_arguments,
+    compose,
+    split_arguments,
+)
+from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
+from .gds import GDSPanel, state_arguments
 from .server import UIServer
 from .views import KINDS, View, _select
 
@@ -106,13 +117,14 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
 FUNCTIONS = {
     "plot": "EM_plot",
     "schematic": "EM_plot",
+    "gds": "EM_plot",
     "smatrix": "EM_plot_S_matrix",
     "material": "EM_material_explorer",
 }
 
 #: What each function answers with.
 ANSWERS = {
-    "EM_plot": (PlotView, Schematic),
+    "EM_plot": (PlotView, Schematic, GDSView),
     "EM_plot_S_matrix": (SMatrixView,),
     "EM_material_explorer": (MaterialView,),
 }
@@ -129,6 +141,8 @@ def fetch_view(
             "EMode answered plot() with something this client cannot draw. "
             "Update the client with pip install -U emode."
         )
+    if isinstance(data, GDSView):
+        data = GDSPanel.from_view(data)
     return data
 
 
@@ -233,7 +247,7 @@ def open_tab(em: "EMode", server: UIServer, view: View) -> None:
 
 def _sent(kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """The arguments of a view EMode computes: the client-side selection stays here."""
-    local = KINDS[kind].local_arguments if kind in ("material", "farfield") else ()
+    local = KINDS[kind].local_arguments if kind in ("material", "farfield", "gds") else ()
     return {k: v for k, v in arguments.items() if k not in local}
 
 
@@ -245,6 +259,10 @@ def plot(
     file_type: str = "png",
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
+    if arguments.get("view") == "gds":
+        # the GDS layer view: its layer panel's arguments stay in this client
+        data_args, figure_args = _split(arguments, DATA_ARGUMENTS + GDS_ARGUMENTS, "plot")
+        return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type)
     check_figure_arguments(arguments)
     data_args, figure_args = split_arguments(arguments)
     return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type)
@@ -270,6 +288,9 @@ def show_call(
     local = {k: v for k, v in data_args.items() if k not in sent}
     if local:
         data = _select(data, local)
+    if isinstance(data, GDSPanel):
+        # the view keeps the panel's resolved state, which a fetch again reapplies
+        data_args = state_arguments(data_args, data)
     return present(em, data, data_args, options, block, inline, file_name, file_type)
 
 

@@ -28,7 +28,16 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #controls select, #controls input[type=text] { font: inherit; padding: 1px 3px; }
 #controls details { position: relative; }
 #controls details > div { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; display: grid; gap: 3px; white-space: nowrap; }
-#figure { flex: 1; min-height: 300px; }
+#stage { flex: 1; display: flex; min-height: 0; }
+#figure { flex: 1; min-height: 300px; min-width: 0; }
+#layer-panel { width: 330px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 6px 8px; }
+#layer-panel .layer-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding-bottom: 6px; }
+#layer-panel table { border-collapse: collapse; width: 100%; }
+#layer-panel td { padding: 2px 3px; vertical-align: middle; }
+#layer-panel input[type=color] { width: 26px; height: 20px; padding: 0; border: 0; }
+#layer-panel input[type=range] { width: 60px; }
+#layer-panel button, #layer-panel select { font: inherit; padding: 0 4px; }
+#layer-panel .note { color: var(--muted); font-size: 11px; }
 #message { color: var(--warn); padding: 4px 0; }
 body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
