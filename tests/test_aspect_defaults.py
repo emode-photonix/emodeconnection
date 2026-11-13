@@ -20,7 +20,14 @@ from emode.ui.server import UIServer
 from emode.ui.views import ViewRegistry
 
 from js_harness import needs_jsc, run_app
-from plot_fixtures import layout_view, material_view, schematic, smatrix_view, xy_view, zx_view
+from plot_fixtures import (
+    layout_view,
+    material_view,
+    schematic,
+    smatrix_view,
+    xy_view,
+    zx_view,
+)
 from test_ui_server import request
 
 
@@ -38,14 +45,20 @@ def test_an_xy_cross_section_has_the_windows_true_ratio():
     assert compose(view).axes.box_aspect == pytest.approx((y1 - y0) / (x1 - x0))
 
 
-@pytest.mark.parametrize("make", [zx_view, layout_view, material_view, schematic], ids=lambda f: f.__name__)
+@pytest.mark.parametrize(
+    "make", [zx_view, layout_view, material_view, schematic], ids=lambda f: f.__name__
+)
 def test_every_other_plot_is_golden_and_wider_than_tall(make):
     assert compose(make()).axes.box_aspect == pytest.approx(1 / GOLDEN)
 
 
-@pytest.mark.parametrize("make", [zx_view, xy_view, smatrix_view, material_view], ids=lambda f: f.__name__)
+@pytest.mark.parametrize(
+    "make", [zx_view, xy_view, smatrix_view, material_view], ids=lambda f: f.__name__
+)
 def test_an_explicit_aspect_ratio_wins(make):
-    assert compose(make(), PlotOptions(aspect_ratio=0.25)).axes.box_aspect == pytest.approx(0.25)
+    assert compose(
+        make(), PlotOptions(aspect_ratio=0.25)
+    ).axes.box_aspect == pytest.approx(0.25)
 
 
 def test_real_is_the_limits_own_ratio():
@@ -57,7 +70,12 @@ def test_real_is_the_limits_own_ratio():
 
 @pytest.mark.parametrize(
     "make, ratio",
-    [(smatrix_view, 1.0), (zx_view, 1 / GOLDEN), (layout_view, 1 / GOLDEN), (schematic, 1 / GOLDEN)],
+    [
+        (smatrix_view, 1.0),
+        (zx_view, 1 / GOLDEN),
+        (layout_view, 1 / GOLDEN),
+        (schematic, 1 / GOLDEN),
+    ],
     ids=["smatrix", "zx", "layout", "schematic"],
 )
 def test_matplotlib_draws_the_same_box(make, ratio):
@@ -76,7 +94,9 @@ def test_the_xy_box_in_matplotlib_is_the_windows_ratio():
     fig.canvas.draw()
     box = fig.axes[0].get_position()
     w, h = fig.get_size_inches()
-    assert (box.height * h) / (box.width * w) == pytest.approx((y1 - y0) / (x1 - x0), rel=0.02)
+    assert (box.height * h) / (box.width * w) == pytest.approx(
+        (y1 - y0) / (x1 - x0), rel=0.02
+    )
 
 
 def test_figure_aspect_reads_the_box():
@@ -89,7 +109,9 @@ def test_the_tab_reply_carries_the_aspect():
     view = registry.add(zx_view(), {"plane": "z-x"}, PlotOptions(), (1200, 750))
     server = UIServer(registry, lambda v, a, p: zx_view()).start()
     try:
-        _, _, body = request(server, "POST", f"/api/views/{view.id}/data", body={"controls": {}})
+        _, _, body = request(
+            server, "POST", f"/api/views/{view.id}/data", body={"controls": {}}
+        )
         assert json.loads(body)["aspect"] == pytest.approx(1 / GOLDEN)
     finally:
         server.stop()

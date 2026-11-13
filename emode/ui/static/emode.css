@@ -35,8 +35,8 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #controls .slider input[type=range] { width: 240px; max-width: 70vw; height: 28px; accent-color: var(--accent); }
 #controls details { position: relative; }
 #controls details > div { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; display: grid; gap: 3px; white-space: nowrap; }
-#stage { flex: 1; display: flex; min-height: 0; }
-#figure { flex: 1; min-height: 300px; min-width: 0; }
+#stage { flex: 1; display: flex; min-height: 0; overflow-y: auto; align-items: flex-start; }
+#figure { flex: 1; min-width: 0; }
 #layer-panel { width: 330px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 6px 8px; }
 #layer-panel .layer-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding-bottom: 6px; }
 #layer-panel table { border-collapse: collapse; width: 100%; }

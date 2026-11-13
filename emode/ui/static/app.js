@@ -179,9 +179,34 @@ async function show(id, controls) {
   }
 }
 
+// The plot's height from its width (emodeconnection#160): the plot box takes
+// the reply's aspect (height over width) and the margins go around it, so a
+// phone's tall frame scrolls rather than stretching the plot.
+function figureHeight(fig, reply) {
+  const layout = reply.figure.layout || {};
+  const m = layout.margin || {};
+  const colorbar = (reply.figure.data || []).some((t) => t.showscale || t.colorbar) ? 90 : 0;
+  const legend = layout.showlegend ? 30 : 0;
+  const box = Math.max(100, fig.clientWidth - (m.l || 0) - (m.r || 0) - colorbar);
+  return Math.round(box * (reply.aspect || 0.618) + (m.t || 0) + (m.b || 0) + legend);
+}
+
+function sizeFigure(reply) {
+  const fig = document.getElementById("figure");
+  const height = figureHeight(fig, reply);
+  fig.style.height = height + "px";
+  return height;
+}
+
+window.addEventListener("resize", () => {
+  if (!state.reply || !state.reply.figure) return;
+  Plotly.relayout(document.getElementById("figure"), { height: sizeFigure(state.reply) });
+});
+
 function draw(reply) {
   const fig = document.getElementById("figure");
-  Plotly.react(fig, reply.figure.data, reply.figure.layout, {
+  const layout = { ...reply.figure.layout, height: sizeFigure(reply), autosize: true };
+  Plotly.react(fig, reply.figure.data, layout, {
     responsive: true,
     displaylogo: false,
     toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
