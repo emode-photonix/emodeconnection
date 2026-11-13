@@ -426,7 +426,7 @@ def test_each_request_on_a_kept_alive_connection_reads_its_own_body(server):
     body = json.dumps({"controls": {"component": "Ey"}, "pixels": [1200, 750]}).encode()
     conn.request("POST", f"/api/views/{view_id}/data", body=body, headers=headers)
     response = conn.getresponse()
-    reply = json.loads(response.read())
+    assert "figure" in json.loads(response.read())
     conn.close()
     assert response.status == 200
     assert server.fetched[-1][0].get("component") == "Ey"
