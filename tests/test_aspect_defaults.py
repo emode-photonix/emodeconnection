@@ -188,4 +188,5 @@ def test_no_rule_lets_the_figure_outgrow_its_container():
     assert "align-items: flex-start" not in stage
     figure = re.search(r"#figure\s*\{([^}]*)\}", css).group(1)
     assert "max-width: 100%" in figure
-    assert not re.search(r"min-width:\s*[1-9]\d*px", css)
+    # a button's touch size is fine, a width that pushes the layout (100 px and up) is not
+    assert not re.search(r"min-width:\s*[1-9]\d{2,}px", css)
