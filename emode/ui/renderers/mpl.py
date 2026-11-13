@@ -83,6 +83,8 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if a.background:
         ax.set_facecolor(a.background)
 
+    from matplotlib.colors import to_rgba
+
     for f in spec.fills:
         rings = [np.column_stack([f.x, f.y])] + [np.asarray(h) for h in f.holes]
         vertices = np.concatenate([np.vstack([r, r[:1]]) for r in rings])
@@ -92,7 +94,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         ax.add_patch(
             PathPatch(
                 MplPath(vertices, codes),
-                facecolor=f.color or "none",
+                facecolor=to_rgba(f.color, f.alpha) if f.color else "none",
                 edgecolor=f.edgecolor or "none",
                 lw=f.width,
                 hatch=f.hatch,
