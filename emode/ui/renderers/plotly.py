@@ -176,7 +176,8 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
         z = np.where(np.asarray(r.mask, bool), np.nan, z).astype(np.float32)
     trace: Dict[str, Any] = {
         "type": "heatmap",
-        "x": typed_array(r.x),
+        # the columns' own edges when the image joins slices, else their centers
+        "x": typed_array(r.x if r.x_edges is None else r.x_edges),
         "y": typed_array(r.y),
         "z": typed_array(z),
         "colorscale": colorscale(r.colormap),
