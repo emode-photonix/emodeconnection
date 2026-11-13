@@ -48,6 +48,61 @@ function showMessage(text) {
   el.textContent = text || "";
 }
 
+// ------------------------------------------------------------ the collapsible sidebar
+
+const SIDEBAR_KEY = "emode.sidebar";
+const narrowQuery = window.matchMedia("(max-width: 800px)");
+
+function storedSidebar() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY);
+  } catch (err) {
+    return null;
+  }
+}
+
+function setSidebar(open, remember) {
+  const app = document.getElementById("app");
+  app.classList.toggle("sidebar-collapsed", !open);
+  document.getElementById("sidebar-toggle").setAttribute("aria-expanded", String(open));
+  // a wide screen remembers the choice, a narrow one always starts with the drawer shut
+  if (remember && !narrowQuery.matches) {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, open ? "open" : "closed");
+    } catch (err) {
+      // the choice is only a convenience
+    }
+  }
+  // the plot takes the freed width once the transition is over
+  setTimeout(() => {
+    if (state.reply) Plotly.Plots.resize(document.getElementById("figure"));
+  }, 250);
+}
+
+function sidebarOpen() {
+  return !document.getElementById("app").classList.contains("sidebar-collapsed");
+}
+
+function closeDrawer() {
+  if (narrowQuery.matches && sidebarOpen()) {
+    setSidebar(false, false);
+    document.getElementById("sidebar-toggle").focus();
+  }
+}
+
+function startSidebar() {
+  setSidebar(narrowQuery.matches ? false : storedSidebar() !== "closed", false);
+}
+
+document.getElementById("sidebar-toggle").addEventListener("click", () => setSidebar(!sidebarOpen(), true));
+narrowQuery.addEventListener("change", startSidebar);
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && narrowQuery.matches && sidebarOpen()) {
+    ev.stopImmediatePropagation();
+    closeDrawer();
+  }
+});
+
 // ------------------------------------------------------------ the plots list
 
 function routeId() {
@@ -67,7 +122,7 @@ async function loadList() {
     when.className = "when";
     when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
     li.appendChild(when);
-    li.addEventListener("click", () => { location.hash = "#/plots/" + v.id; });
+    li.addEventListener("click", () => { closeDrawer(); location.hash = "#/plots/" + v.id; });
     ol.appendChild(li);
   }
   markSelected();
@@ -826,6 +881,7 @@ function route() {
   const onSession = location.hash.startsWith("#/session");
   document.getElementById("app").hidden = onSession;
   document.getElementById("session").hidden = !onSession;
+  document.getElementById("nav").classList.toggle("on-session", onSession);
   for (const a of document.querySelectorAll("#nav .tab[data-route]")) {
     a.classList.toggle("active", a.dataset.route === (onSession ? "session" : "plots"));
   }
@@ -850,6 +906,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  startSidebar();
   await loadList().catch((err) => showMessage(String(err)));
   route();
   // the docs link names the running EMode's version
