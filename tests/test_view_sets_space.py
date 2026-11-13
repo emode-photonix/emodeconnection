@@ -12,10 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from emode.ui import session as ui
-
 from js_harness import needs_jsc, run_app
-from plot_standin import session
 from test_plot_call import browser, clock, em, interactive  # noqa: F401  (fixtures)
 
 APP_JS = Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "app.js"
@@ -46,8 +43,11 @@ return __text(box);
 
 @pytest.mark.parametrize("physical, view", [(True, "layout"), (False, "simulation")])
 def test_plot_physical_space_is_deprecated_and_sets_the_view(
-    em, browser, physical, view
-):  # noqa: F811
+    em,  # noqa: F811
+    browser,  # noqa: F811
+    physical,
+    view,
+):
     with pytest.warns(DeprecationWarning, match="view="):
         em.plot(plane="z-x", physical_space=physical)
     (sent,) = em.client.calls("EM_plot")
