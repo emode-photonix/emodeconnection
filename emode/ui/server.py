@@ -357,6 +357,8 @@ class UIServer:
             raise EModeError(
                 f"file_type must be one of {EXPORT_TYPES}, got {file_type!r}"
             )
+        if file_type == "pdf":
+            _require_matplotlib_for_pdf()
         figure_args = {
             k: request[k] for k in FIGURE_OPTIONS if request.get(k) is not None
         }
@@ -377,12 +379,33 @@ class UIServer:
 
         The name is relative to the working directory and may not leave it.
         A bare name goes in ``EM_figures/``, as ``plot(file_name=)`` saves.
+        A PNG or an SVG comes as the tab drew it (``image``, a data URL from
+        ``Plotly.toImage``), which is written as is, with no matplotlib (#164).
         """
-        body, file_type, name = self.export(view, request)
+        if request.get("image"):
+            body, file_type, name = _tab_image(view, request)
+        else:
+            body, file_type, name = self.export(view, request)
         path = _save_path(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(body)
         return path.resolve()
+
+
+#: What the tab shows when a PDF is asked for and matplotlib is not installed (#164).
+NO_PDF = (
+    "Saving as PDF needs matplotlib. Install it with: pip install matplotlib. "
+    "PNG and SVG work without it."
+)
+
+
+def _require_matplotlib_for_pdf() -> None:
+    """Refuse a PDF with the tab's warning when matplotlib is missing, rather than failing."""
+    try:
+        import matplotlib  # noqa: F401
+        from matplotlib.figure import Figure  # noqa: F401
+    except ImportError as exc:
+        raise EModeError(NO_PDF) from exc
 
 
 #: The file types the export panel saves through matplotlib.
@@ -390,6 +413,31 @@ EXPORT_TYPES = ("png", "pdf", "svg")
 
 #: The content type of each exported file.
 CONTENT_TYPES = {"png": "image/png", "pdf": "application/pdf", "svg": "image/svg+xml"}
+
+
+#: The data URL prefix of each image the tab draws itself (#164).
+TAB_IMAGES = {"png": "image/png", "svg": "image/svg+xml"}
+
+
+def _tab_image(view: View, request: Dict[str, Any]) -> Tuple[bytes, str, str]:
+    """The tab's own PNG or SVG from its data URL: its bytes, its type and its file name."""
+    import base64
+    from urllib.parse import unquote
+
+    from .session import compose_file_name
+
+    file_type = str(request.get("file_type") or "png").lower().lstrip(".")
+    if file_type not in TAB_IMAGES:
+        raise EModeError(f"the tab draws only {tuple(TAB_IMAGES)} itself, so a {file_type} is not sent as an image")
+    head, _, data = str(request["image"]).partition(",")
+    if not head.startswith(f"data:{TAB_IMAGES[file_type]}"):
+        raise EModeError(f"the image sent is not a {file_type}")
+    try:
+        body = base64.b64decode(data, validate=True) if head.endswith(";base64") else unquote(data).encode()
+    except ValueError as exc:
+        raise EModeError(f"the image sent is not a readable {file_type}") from exc
+    name = compose_file_name(str(request.get("file_name") or f"EM_{view.id}"), file_type)
+    return body, file_type, name
 
 
 def _save_path(name: str) -> Path:

@@ -44,7 +44,10 @@ function __el(tag) {
     append: function () { for (var i = 0; i < arguments.length; i++) this.appendChild(arguments[i]); },
     appendChild: function (c) {
       if (typeof c === "string") { var t = __el("#text"); t.textContent = c; c = t; }
-      c.parentNode = this; this.children.push(c); return c;
+      c.parentNode = this; this.children.push(c);
+      // a select shows its first option until one is chosen
+      if (this.tagName === "SELECT" && c.tagName === "OPTION" && (this.value === "" || c.selected)) this.value = c.value;
+      return c;
     },
     replaceChildren: function () { this.children = []; this.append.apply(this, arguments); },
     remove: function () {},
