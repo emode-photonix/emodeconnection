@@ -454,6 +454,14 @@ class EMode:
         ``figure_size``, ``colorbar_label``, ``dpi``, ``colormap``,
         ``aspect_ratio``) stay in this client.
 
+        The figure options: ``title``, ``xlabel`` and ``ylabel`` replace the
+        panel's own text, ``colorbar_label`` names the colorbar, ``units``
+        ('nm' or 'um', one for both axes or ``(x_unit, y_unit)``) rescales the
+        coordinates, ``font_size`` is in points, ``figure_size`` is
+        ``(width, height)`` in millimeters (80 by 56.6 by default) and ``dpi``
+        is the resolution of a saved file (600 by default). An invalid
+        ``units`` raises an ``ArgumentError`` naming it.
+
         ``view='gds'`` shows the GDS layers of the device's GDS sections, each
         layer and datatype placed where the layout puts it, with a layer panel
         in the tab. Its options stay in this client too: ``layers`` (by
@@ -488,8 +496,8 @@ class EMode:
         color scale. Returns a ``PlotHandle`` at once, or a ``PlotImage`` with
         ``file_name``, ``EMODE_HEADLESS=1`` or ``inline='png'``, as ``plot()``
         does, and takes the figure options of ``plot()`` (``title``,
-        ``xlabel``, ``ylabel``, ``font_size``, ``figure_size``,
-        ``colorbar_label``, ``dpi``, ``colormap``).
+        ``xlabel``, ``ylabel``, ``font_size``, ``figure_size`` (width and
+        height in millimeters), ``colorbar_label``, ``dpi``, ``colormap``).
         """
         from .ui import session as ui
 
@@ -507,7 +515,9 @@ class EMode:
         the sampling in nm (1 nm by default), `x` the alloy fraction of a
         ternary (AlGaAs, InGaAs), and `component` 'n_x', 'n_y' or 'n_z'. The
         part of a range outside the model's is drawn dashed, extrapolated.
-        Returns as ``plot()`` does, and takes its figure options.
+        Returns as ``plot()`` does, and takes its figure options (``title``,
+        ``xlabel``, ``ylabel``, ``font_size``, ``figure_size`` in millimeters,
+        ``dpi``).
         """
         from .ui import session as ui
 
