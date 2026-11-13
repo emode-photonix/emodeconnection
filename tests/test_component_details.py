@@ -104,7 +104,9 @@ def _server(data, answer=None):
 
 
 def test_the_details_route_answers_the_components_rows():
-    server, view, asked = _server(schematic_with_ids(), details)
+    server, view, asked = _server(
+        schematic_with_ids(), lambda c: details(c).model_dump(mode="json")
+    )
     try:
         status, _, body = request(
             server,
@@ -115,11 +117,8 @@ def test_the_details_route_answers_the_components_rows():
         reply = json.loads(body)
         assert status == 200 and asked == ["section:a"]
         assert reply["title"] == "a, straight"
-        assert reply["rows"][0] == {
-            "group": "Section",
-            "name": "length",
-            "value": "1000 nm",
-        }
+        row = reply["rows"][0]
+        assert (row["group"], row["name"], row["value"]) == ("Section", "length", "1000 nm")
     finally:
         server.stop()
 

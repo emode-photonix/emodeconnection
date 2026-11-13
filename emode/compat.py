@@ -66,6 +66,8 @@ TYPE_SINCE: dict[str, str] = {
     "SMatrixView": "1.0.9",
     "Slider": "1.0.9",
     "Stub": "1.0.9",
+    "DetailRow": "1.0.9",
+    "ComponentDetails": "1.0.9",
     "SweepResult": "1.0.9",
 }
 

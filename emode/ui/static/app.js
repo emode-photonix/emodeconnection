@@ -175,6 +175,7 @@ async function show(id, controls) {
     draw(reply);
   }
   if (first) {
+    closeDetails();
     document.title = "EMode: " + (reply.title || id);
     api("views/" + id + "/fetched", {}).catch(() => {});
   }
@@ -211,6 +212,13 @@ function draw(reply) {
     responsive: true,
     displaylogo: false,
     toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
+  });
+  fig.removeAllListeners && fig.removeAllListeners("plotly_click");
+  fig.on && fig.on("plotly_click", (ev) => {
+    // a schematic's block, port or connection opens its details (#159)
+    const point = ev.points && ev.points[0];
+    const meta = point && point.data && point.data.meta;
+    if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
@@ -309,8 +317,90 @@ function buildControls(reply) {
   else if (kind === "gds") buildGDSControls(box, reply);
   else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
+  if (kind === "schematic") box.append(componentMenu(reply));
   box.append(exportPanel(reply));
 }
+
+// ------------------------------------------------------------ a component's details (#159)
+//
+// A tap or click on a schematic's block, port or connection, or a choice in the
+// Details menu (the keyboard's and a screen reader's way in), asks the client
+// for the component's settings and parameters and shows them in the details
+// panel: beside the plot on a wide screen, a sheet over its lower part on a phone.
+
+function componentMenu(reply) {
+  const wrap = document.createElement("label");
+  wrap.append("Details:");
+  const s = document.createElement("select");
+  s.setAttribute("aria-label", "Component details");
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "choose a component";
+  s.appendChild(none);
+  for (const [id, label] of (reply.extra || {}).components || []) {
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = label;
+    s.appendChild(o);
+  }
+  s.addEventListener("change", () => { if (s.value) openDetails(s.value); });
+  wrap.appendChild(s);
+  return wrap;
+}
+
+let detailsOpener = null;
+
+async function openDetails(id) {
+  let reply;
+  try {
+    reply = await api("views/" + state.current + "/details", { component: id });
+  } catch (err) {
+    return showMessage(String(err));
+  }
+  if (reply.error) return showMessage(reply.error);
+  showMessage("");
+  showDetails(reply);
+}
+
+function showDetails(details) {
+  const panel = document.getElementById("details");
+  document.getElementById("details-title").textContent = details.title;
+  const body = document.getElementById("details-body");
+  body.replaceChildren();
+  let table = null;
+  let group = null;
+  for (const row of details.rows || []) {
+    if (row.group !== group) {
+      group = row.group;
+      table = document.createElement("table");
+      const caption = document.createElement("caption");
+      caption.textContent = group;
+      table.appendChild(caption);
+      body.appendChild(table);
+    }
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.setAttribute("scope", "row");
+    th.textContent = row.name;
+    const td = document.createElement("td");
+    td.textContent = row.value;
+    tr.append(th, td);
+    table.appendChild(tr);
+  }
+  if (panel.hidden) detailsOpener = document.activeElement || null;
+  panel.hidden = false;
+  panel.focus();
+}
+
+function closeDetails() {
+  const panel = document.getElementById("details");
+  if (panel.hidden) return;
+  panel.hidden = true;
+  if (detailsOpener && detailsOpener.focus) detailsOpener.focus();
+  detailsOpener = null;
+}
+
+document.getElementById("details-close").addEventListener("click", closeDetails);
 
 function numberOrNull(text) {
   const v = String(text).trim();
@@ -878,6 +968,10 @@ async function openView(name) {
 // ------------------------------------------------------------ keys: the section zoom
 
 document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !document.getElementById("details").hidden) {
+    ev.preventDefault();
+    return closeDetails();
+  }
   if (!state.reply || ev.target.closest("input, select")) return;
   const arrows = (state.reply.figure.layout.annotations || []).filter((a) => a.name === "arrow");
   if (ev.key === "Escape") return change({ section: null });
