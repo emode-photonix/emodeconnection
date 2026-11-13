@@ -32,8 +32,8 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
-#: The golden ratio: every plot but the S-matrix and an x-y cross section is this
-#: much wider than tall by default (emodeconnection#160).
+#: The golden ratio: every plot but the S-matrix is this much wider than tall
+#: by default, an x-y cross section included (emodeconnection#160).
 GOLDEN = (1 + math.sqrt(5)) / 2
 
 #: The window's line width (points), from which every overlay's width is taken.
@@ -296,8 +296,8 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
 
     The plot box's height over its width (``AxesSpec.box_aspect``) is 1 for the
-    S-matrix, the window's own for an x-y cross section and 1 / ``GOLDEN`` for
-    every other plot, unless ``aspect_ratio`` gives one: a number, or ``'real'``
+    S-matrix and 1 / ``GOLDEN`` for every other plot, an x-y cross section
+    included, unless ``aspect_ratio`` gives one: a number, or ``'real'``
     for the limits' own ratio (emodeconnection#160).
     """
     options = options or PlotOptions()
@@ -318,8 +318,6 @@ def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> f
         return limits
     if isinstance(view, SMatrixView):
         return 1.0
-    if isinstance(view, PlotView) and view.plane == "x-y":
-        return limits
     return 1 / GOLDEN
 
 
