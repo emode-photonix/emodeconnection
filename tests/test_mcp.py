@@ -232,8 +232,9 @@ def test_solve_applies_overrides_before_solving() -> None:
     session(("emode_open", WG), ("emode_solve", {"wavelength": 1310, "num_modes": 4}))
     calls = FakeEMode.instances[0].calls
     names = [c[0] for c in calls]
-    assert names[-4:] == ["settings", "FDM", "get", "get"]
-    assert calls[-4][1] == {"wavelength": 1310, "num_modes": 4}
+    # then the solver's warnings for the tool (#95)
+    assert names[-5:] == ["settings", "FDM", "get", "get", "warnings"]
+    assert calls[-5][1] == {"wavelength": 1310, "num_modes": 4}
 
 
 def test_solve_without_a_session_says_to_open_one() -> None:
