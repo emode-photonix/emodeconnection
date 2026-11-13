@@ -68,7 +68,9 @@ def test_menu_state_carries_views_and_the_position_across_the_wire() -> None:
 def test_the_reply_offers_the_eme_views() -> None:
     server, view, _ = _server(eme_zx())
     try:
-        status, _, body = request(server, "POST", f"/api/views/{view.id}/data", body={"controls": {}})
+        status, _, body = request(
+            server, "POST", f"/api/views/{view.id}/data", body={"controls": {}}
+        )
         reply = json.loads(body)
         assert reply["menu"]["views"] == EME_VIEWS
         assert reply["menu"]["selected"]["view"] == "simulation"
@@ -80,7 +82,9 @@ def test_the_reply_offers_the_eme_views() -> None:
 def test_a_mode_solves_plot_offers_no_view_menu() -> None:
     server, view, _ = _server(xy_view())
     try:
-        _, _, body = request(server, "POST", f"/api/views/{view.id}/data", body={"controls": {}})
+        _, _, body = request(
+            server, "POST", f"/api/views/{view.id}/data", body={"controls": {}}
+        )
         assert json.loads(body)["menu"]["views"] == []
     finally:
         server.stop()
@@ -89,7 +93,12 @@ def test_a_mode_solves_plot_offers_no_view_menu() -> None:
 def test_choosing_layout_refetches_with_view() -> None:
     server, view, fetched = _server(eme_zx())
     try:
-        request(server, "POST", f"/api/views/{view.id}/data", body={"controls": {"view": "layout"}})
+        request(
+            server,
+            "POST",
+            f"/api/views/{view.id}/data",
+            body={"controls": {"view": "layout"}},
+        )
         assert fetched[-1] == ("plot", {"plane": "z-x", "view": "layout"})
     finally:
         server.stop()
@@ -98,7 +107,9 @@ def test_choosing_layout_refetches_with_view() -> None:
 def test_choosing_the_schematic_opens_it_as_its_own_plot() -> None:
     server, view, fetched = _server(eme_zx())
     try:
-        status, _, body = request(server, "POST", f"/api/views/{view.id}/open", body={"view": "schematic"})
+        status, _, body = request(
+            server, "POST", f"/api/views/{view.id}/open", body={"view": "schematic"}
+        )
         assert status == 200
         opened = json.loads(body)["id"]
         assert fetched[-1] == ("schematic", {"plane": "z-x", "view": "schematic"})
@@ -112,7 +123,9 @@ def test_choosing_the_schematic_opens_it_as_its_own_plot() -> None:
 def test_open_refuses_a_view_the_menu_does_not_offer() -> None:
     server, view, fetched = _server(eme_zx())
     try:
-        _, _, body = request(server, "POST", f"/api/views/{view.id}/open", body={"view": "gds"})
+        _, _, body = request(
+            server, "POST", f"/api/views/{view.id}/open", body={"view": "gds"}
+        )
         assert "error" in json.loads(body)
         assert fetched == []
     finally:
@@ -123,7 +136,12 @@ def test_z_position_is_a_data_argument_that_refetches() -> None:
     assert "z_position" in DATA_ARGUMENTS
     server, view, fetched = _server(eme_zx())
     try:
-        request(server, "POST", f"/api/views/{view.id}/data", body={"controls": {"z_position": 2.0}})
+        request(
+            server,
+            "POST",
+            f"/api/views/{view.id}/data",
+            body={"controls": {"z_position": 2.0}},
+        )
         assert fetched[-1][1]["z_position"] == 2.0
     finally:
         server.stop()
