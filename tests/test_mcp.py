@@ -296,3 +296,14 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(
         main([])
     assert exit_info.value.code != 0
     assert "emode[mcp]" in err.getvalue()
+
+
+def test_the_specs_say_where_te_folds_and_where_a_first_shape_sits() -> None:
+    """An agent read 'TE' as folding about the window's floor and stacked a core on
+    it with no layer under it (emode#1360). The specs say where each goes."""
+    from emode.mcp.specs import SettingsSpec, ShapeSpec
+
+    bc = SettingsSpec.model_fields['boundary_condition'].description
+    assert "center lines" in bc and 'window_height / 2' in bc
+    position = ShapeSpec.model_fields['position'].description
+    assert 'floor' in position and 'continues past it' in position
