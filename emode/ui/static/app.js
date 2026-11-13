@@ -75,7 +75,7 @@ function setSidebar(open, remember) {
   }
   // the plot takes the freed width once the transition is over
   setTimeout(() => {
-    if (state.reply) Plotly.Plots.resize(document.getElementById("figure"));
+    fitFigure();
   }, 250);
 }
 
@@ -179,33 +179,45 @@ async function show(id, controls) {
   }
 }
 
-// The plot's height from its width (emodeconnection#160): the plot box takes
-// the reply's aspect (height over width) and the margins go around it, so a
-// phone's tall frame scrolls rather than stretching the plot.
-function figureHeight(fig, reply) {
+// The plot's size (emodeconnection#160): as wide as its container allows,
+// never wider (the stage, which a figure grown to Plotly's default 700 px must
+// not push out), and as tall as the reply's aspect (the plot box's height over
+// its width) makes it, with the margins around the box. A phone's tall frame
+// scrolls rather than stretching the plot.
+function figureWidth(fig) {
+  const room = document.getElementById("stage").clientWidth;
+  const own = fig.clientWidth;
+  return Math.max(100, own > 0 && room > 0 ? Math.min(own, room) : room || own);
+}
+
+function figureSize(fig, reply) {
   const layout = reply.figure.layout || {};
   const m = layout.margin || {};
   const colorbar = (reply.figure.data || []).some((t) => t.showscale || t.colorbar) ? 90 : 0;
   const legend = layout.showlegend ? 30 : 0;
-  const box = Math.max(100, fig.clientWidth - (m.l || 0) - (m.r || 0) - colorbar);
-  return Math.round(box * (reply.aspect || 0.618) + (m.t || 0) + (m.b || 0) + legend);
+  const width = figureWidth(fig);
+  const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
+  return { width: width, height: Math.round(box * (reply.aspect || 0.618) + (m.t || 0) + (m.b || 0) + legend) };
 }
 
 function sizeFigure(reply) {
   const fig = document.getElementById("figure");
-  const height = figureHeight(fig, reply);
-  fig.style.height = height + "px";
-  return height;
+  const size = figureSize(fig, reply);
+  fig.style.height = size.height + "px";
+  return size;
 }
 
-window.addEventListener("resize", () => {
+// Refit the shown plot to its container: after a resize, a turn of the phone or the sidebar.
+function fitFigure() {
   if (!state.reply || !state.reply.figure) return;
-  Plotly.relayout(document.getElementById("figure"), { height: sizeFigure(state.reply) });
-});
+  Plotly.relayout(document.getElementById("figure"), sizeFigure(state.reply));
+}
+
+window.addEventListener("resize", fitFigure);
 
 function draw(reply) {
   const fig = document.getElementById("figure");
-  const layout = { ...reply.figure.layout, height: sizeFigure(reply), autosize: true };
+  const layout = { ...reply.figure.layout, ...sizeFigure(reply), autosize: true };
   Plotly.react(fig, reply.figure.data, layout, {
     responsive: true,
     displaylogo: false,
@@ -961,7 +973,7 @@ function route() {
   }
   const id = routeId() || (state.views.length ? state.views[state.views.length - 1].id : null);
   if (id && id !== state.current) show(id);
-  else if (id && state.reply) Plotly.Plots.resize(document.getElementById("figure"));
+  else if (id && state.reply) fitFigure();
 }
 
 window.addEventListener("hashchange", route);
