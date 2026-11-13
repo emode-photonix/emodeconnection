@@ -78,8 +78,9 @@ class PlotOptions:
     """The figure-only arguments of ``plot()``, with their defaults.
 
     ``contours`` None is on for the x-y plane and off for the z planes, as the
-    window had it. ``units`` shows both axes in one unit (``'nm'`` or ``'um'``)
-    instead of each axis's own. ``figure_size`` is ``(width, height)`` in mm.
+    window had it. ``units`` shows both axes in one unit (``'nm'`` or ``'um'``),
+    or each axis in its own with ``(x_unit, y_unit)``, instead of the view's
+    own. ``figure_size`` is ``(width, height)`` in mm.
     ``colormap`` names the colormap every raster is drawn with instead of the
     family's map for its kind: one of ``colormaps.NAMES``, a kind, or any
     colormap matplotlib has registered.
@@ -94,7 +95,7 @@ class PlotOptions:
     title: Optional[str] = None
     xlabel: Optional[str] = None
     ylabel: Optional[str] = None
-    units: Optional[str] = None
+    units: Union[str, Tuple[str, str], None] = None
     font_size: float = 7.0
     figure_size: Optional[Tuple[float, float]] = None
     colorbar_label: Optional[str] = None
@@ -109,8 +110,16 @@ class PlotOptions:
         """The options among `arguments`, the rest ignored. Raises on a bad value."""
         known = {f for f in cls.__dataclass_fields__}
         options = cls(**{k: v for k, v in arguments.items() if k in known and v is not None})
-        if options.units not in (None, "nm", "um"):
-            raise ArgumentError("units must be 'nm' or 'um'", "plot", "units")
+        units = options.units
+        if isinstance(units, (list, tuple)):
+            units = tuple(units)
+            options = replace(options, units=units)
+        if units is not None and not (
+            units in ("nm", "um") or (isinstance(units, tuple) and len(units) == 2 and all(u in ("nm", "um") for u in units))
+        ):
+            raise ArgumentError(
+                "units must be 'nm', 'um' or a pair (x_unit, y_unit) of them", "plot", "units"
+            )
         if options.figure_size is not None and len(options.figure_size) != 2:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
         if "colormap" in arguments and arguments["colormap"] is not None:
@@ -343,9 +352,15 @@ def _color(value: Optional[float], color: Optional[str], options: PlotOptions) -
     return to_hex(colormaps.get(options.colormap)(value))
 
 
+def units_pair(options: PlotOptions) -> Tuple[str, str]:
+    """The (x, y) units of the ``units`` option, which is one unit for both axes or a pair."""
+    u = options.units
+    return (u, u) if isinstance(u, str) else tuple(u)  # type: ignore[return-value]
+
+
 def _units(view: PlotView, options: PlotOptions) -> Tuple[str, str]:
     if options.units is not None:
-        return options.units, options.units
+        return units_pair(options)
     return view.axes.x_unit, view.axes.y_unit
 
 

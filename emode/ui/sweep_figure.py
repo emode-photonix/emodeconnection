@@ -32,6 +32,7 @@ import numpy as np
 from .. import colormaps
 from ..types import ArgumentError, EModeError
 from .figure import (
+    units_pair,
     DEFAULT_SIZE_MM,
     LW,
     AxesSpec,
@@ -420,7 +421,7 @@ def _unit(key: str) -> str:
 def key_scale(key: str, options: PlotOptions) -> Tuple[float, str]:
     """How a key's values are shown: (the divisor, the unit). ``units='um'`` turns nm into μm."""
     unit = _unit(key)
-    if unit == "nm" and options.units == "um":
+    if unit == "nm" and options.units is not None and units_pair(options)[0] == "um":
         return 1000.0, "μm"
     return 1.0, unit
 
