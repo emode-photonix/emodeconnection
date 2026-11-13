@@ -357,6 +357,8 @@ class UIServer:
             raise EModeError(
                 f"file_type must be one of {EXPORT_TYPES}, got {file_type!r}"
             )
+        if file_type == "pdf":
+            _require_matplotlib_for_pdf()
         figure_args = {
             k: request[k] for k in FIGURE_OPTIONS if request.get(k) is not None
         }
@@ -388,6 +390,22 @@ class UIServer:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(body)
         return path.resolve()
+
+
+#: What the tab shows when a PDF is asked for and matplotlib is not installed (#164).
+NO_PDF = (
+    "Saving as PDF needs matplotlib. Install it with: pip install matplotlib. "
+    "PNG and SVG work without it."
+)
+
+
+def _require_matplotlib_for_pdf() -> None:
+    """Refuse a PDF with the tab's warning when matplotlib is missing, rather than failing."""
+    try:
+        import matplotlib  # noqa: F401
+        from matplotlib.figure import Figure  # noqa: F401
+    except ImportError as exc:
+        raise EModeError(NO_PDF) from exc
 
 
 #: The file types the export panel saves through matplotlib.

@@ -700,7 +700,7 @@ function exportPanel(reply) {
   const panel = document.createElement("div");
   const format = document.createElement("select");
   // PNG and SVG are drawn here by Plotly, PDF by matplotlib in the client (#164)
-  for (const [value, text] of [["png", "PNG"], ["svg", "SVG"], ["pdf", "PDF (matplotlib)"]]) {
+  for (const [value, text] of [["png", "PNG"], ["svg", "SVG"], ["pdf", "PDF"]]) {
     const o = document.createElement("option");
     o.value = value;
     o.textContent = text;
