@@ -23,7 +23,9 @@ import pytest
 
 APP_JS = Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "app.js"
 
-needs_jsc = pytest.mark.skipif(shutil.which("osascript") is None, reason="needs macOS's osascript")
+needs_jsc = pytest.mark.skipif(
+    shutil.which("osascript") is None, reason="needs macOS's osascript"
+)
 
 #: The stand-in page: elements that keep their children, attributes, listeners and style.
 DOM = r"""
@@ -106,16 +108,28 @@ var console = { log: function () {} };
 
 def run_app(test_js: str) -> Any:
     """Evaluate app.js on the stand-in page, then `test_js`, whose last expression is JSON-dumped."""
-    source = DOM + "\n" + APP_JS.read_text() + "\n;JSON.stringify((function () {\n" + test_js + "\n})());"
+    source = (
+        DOM
+        + "\n"
+        + APP_JS.read_text()
+        + "\n;JSON.stringify((function () {\n"
+        + test_js
+        + "\n})());"
+    )
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as handle:
         handle.write(source)
         path = handle.name
     try:
         done = subprocess.run(
-            ["osascript", "-l", "JavaScript", path], capture_output=True, text=True, timeout=60
+            ["osascript", "-l", "JavaScript", path],
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     finally:
         Path(path).unlink(missing_ok=True)
     if done.returncode != 0:
-        raise AssertionError(f"app.js failed on the stand-in page: {done.stderr.strip()}")
+        raise AssertionError(
+            f"app.js failed on the stand-in page: {done.stderr.strip()}"
+        )
     return json.loads(done.stdout.strip())

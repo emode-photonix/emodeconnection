@@ -38,7 +38,10 @@ var text = box.querySelector("input[type=text]");
 
 @needs_jsc
 def test_the_xy_z_slider_is_a_range_input_with_the_menus_limits_and_value():
-    got = run_app(XY + "return range && {min: range.min, max: range.max, value: range.value, text: text.value};")
+    got = run_app(
+        XY
+        + "return range && {min: range.min, max: range.max, value: range.value, text: text.value};"
+    )
     assert got is not None, "no range input for the z slider"
     assert float(got["min"]) == 0.0
     assert float(got["max"]) == 30.0
@@ -75,7 +78,10 @@ text.dispatch("change", {target: text});
 return changes;
 """
     )
-    assert got == [{"slice_position": "Exit"}, {"slice_position": "3.25", "z_position": 3.25}]
+    assert got == [
+        {"slice_position": "Exit"},
+        {"slice_position": "3.25", "z_position": 3.25},
+    ]
 
 
 @needs_jsc
