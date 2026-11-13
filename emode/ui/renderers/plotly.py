@@ -9,7 +9,8 @@ JSON at the array's size. Every coordinate is already in display units.
 from __future__ import annotations
 
 import base64
-from typing import Any, Dict, List, Optional
+import html
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -24,6 +25,130 @@ _HATCH = {"/": "/", "//": "/", "x": "x", "xx": "x"}
 
 #: Points per millimeter, at the browser's 96 px per inch.
 PX_PER_MM = 96 / 25.4
+
+
+# ------------------------------------------------------------ math in labels
+
+#: The bundled plotly has no MathJax, so a label's ``$...$`` math is written in
+#: plotly's HTML subset: ``<sub>``, ``<sup>`` and Unicode (emodeconnection#145).
+_MATH_SYMBOLS = {
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε", "varepsilon": "ε",
+    "zeta": "ζ", "eta": "η", "theta": "θ", "vartheta": "ϑ", "iota": "ι", "kappa": "κ",
+    "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π", "rho": "ρ", "sigma": "σ",
+    "tau": "τ", "upsilon": "υ", "phi": "φ", "varphi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω",
+    "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ", "Pi": "Π", "Sigma": "Σ",
+    "Upsilon": "Υ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+    "cdot": "·", "times": "×", "pm": "±", "mp": "∓", "infty": "∞", "approx": "≈", "sim": "~",
+    "leq": "≤", "le": "≤", "geq": "≥", "ge": "≥", "neq": "≠", "ne": "≠", "propto": "∝",
+    "partial": "∂", "nabla": "∇", "circ": "°", "degree": "°", "prime": "′", "ell": "ℓ",
+    "hbar": "ħ", "sqrt": "√", "perp": "⊥", "parallel": "∥", "langle": "⟨", "rangle": "⟩",
+    "rightarrow": "→", "to": "→", "leftarrow": "←", "leftrightarrow": "↔", "AA": "Å",
+    "vert": "|", "lvert": "|", "rvert": "|", "%": "%", "_": "_", "&": "&amp;", "#": "#",
+    "{": "{", "}": "}", "$": "$",
+}
+#: Font commands: their argument is kept, the font is not.
+_MATH_FONTS = {"mathrm", "text", "textrm", "mathbf", "mathit", "mathsf", "rm", "operatorname", "boldsymbol", "mathcal"}
+_MATH_SPACES = {",": " ", ";": " ", ":": " ", " ": " ", "!": "", "quad": " ", "qquad": "  "}
+#: Sizing commands before a delimiter: dropped, the delimiter kept.
+_MATH_SIZES = {"left", "right", "big", "Big", "bigl", "bigr", "Bigl", "Bigr"}
+
+
+def _math_command(s: str, i: int) -> Tuple[str, int]:
+    """The command name after the backslash at ``s[i - 1]``, and the index after it."""
+    if i < len(s) and s[i].isalpha():
+        j = i
+        while j < len(s) and s[j].isalpha():
+            j += 1
+        name, i = s[i:j], j
+        if i < len(s) and s[i] == " ":  # TeX swallows the space that ends a command name
+            i += 1
+        return name, i
+    return (s[i], i + 1) if i < len(s) else ("", i)
+
+
+def _math_argument(s: str, i: int) -> Tuple[str, int]:
+    """One argument of ``^``, ``_`` or a font command: a ``{group}``, a command or one character."""
+    while i < len(s) and s[i] == " ":
+        i += 1
+    if i >= len(s):
+        return "", i
+    if s[i] == "{":
+        return _math(s, i + 1, closing=True)
+    if s[i] == "\\":
+        return _math_token(s, i)
+    return html.escape(s[i], quote=False), i + 1
+
+
+def _math_token(s: str, i: int) -> Tuple[str, int]:
+    """The HTML of the backslash command at ``s[i]``."""
+    name, i = _math_command(s, i + 1)
+    if name in _MATH_FONTS:
+        return _math_argument(s, i)
+    if name in _MATH_SPACES:
+        return _MATH_SPACES[name], i
+    if name in _MATH_SIZES:
+        return "", i
+    if name in _MATH_SYMBOLS:
+        return _MATH_SYMBOLS[name], i
+    return html.escape(name, quote=False), i
+
+
+def _math(s: str, i: int = 0, closing: bool = False) -> Tuple[str, int]:
+    """The HTML of math from ``s[i]`` to the end, or to the ``}`` closing a group."""
+    out: List[str] = []
+    while i < len(s):
+        c = s[i]
+        if c == "}" and closing:
+            return "".join(out), i + 1
+        if c == "{":
+            part, i = _math(s, i + 1, closing=True)
+            out.append(part)
+        elif c in "^_":
+            part, i = _math_argument(s, i + 1)
+            tag = "sup" if c == "^" else "sub"
+            out.append(f"<{tag}>{part}</{tag}>")
+        elif c == "\\":
+            part, i = _math_token(s, i)
+            out.append(part)
+        else:
+            out.append(html.escape(c, quote=False))
+            i += 1
+    return "".join(out), i
+
+
+def math_html(text: Optional[str]) -> Optional[str]:
+    """`text` for plotly: its ``$...$`` math as HTML, the rest escaped, and ``\\$`` a dollar sign.
+
+    Covers what labels write: subscripts and superscripts, Greek letters and
+    common symbols, ``\\mathrm`` and the other font commands (the font is
+    dropped). Anything else in the math shows as its command's name, never as
+    a dollar sign. Line breaks are left for the caller.
+    """
+    if not text or ("$" not in text and "\\" not in text and "<" not in text and "&" not in text and ">" not in text):
+        return text
+    out: List[str] = []
+    plain: List[str] = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and text[i + 1 : i + 2] == "$":
+            plain.append("$")
+            i += 2
+            continue
+        if c == "$":
+            end = i + 1
+            while end < len(text) and not (text[end] == "$" and text[end - 1] != "\\"):
+                end += 1
+            if end < len(text):
+                out.append(html.escape("".join(plain), quote=False))
+                plain = []
+                out.append(_math(text[i + 1 : end])[0])
+                i = end + 1
+                continue
+        plain.append(c)
+        i += 1
+    out.append(html.escape("".join(plain), quote=False))
+    return "".join(out)
 
 
 def typed_array(values: Any, dtype: str = "f4") -> Dict[str, Any]:
@@ -95,7 +220,7 @@ def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
         if cb.tick_labels is not None:
             out["ticktext"] = list(cb.tick_labels)
     if cb.label:
-        out["title"] = {"text": cb.label, "side": "right"}
+        out["title"] = {"text": math_html(cb.label), "side": "right"}
     return out
 
 
@@ -154,7 +279,7 @@ def _layer_trace(layer: LayerSpec) -> Dict[str, Any]:
         "connectgaps": False,
         "hoverinfo": "name",
         "hoveron": "fills",
-        "name": layer.label,
+        "name": math_html(layer.label),
         "meta": f"layer:{layer.key}",
         "showlegend": layer.legend,
         **layer_style(layer),
@@ -223,7 +348,7 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             "opacity": line.alpha,
             "hoverinfo": "skip",
             "showlegend": line.label is not None,
-            "name": line.label if line.label is not None else line.kind,
+            "name": math_html(line.label) if line.label is not None else line.kind,
             "meta": line.kind,
         }
         if line.label is not None:
@@ -264,7 +389,7 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
                 "mode": "markers",
                 "x": [None],
                 "y": [None],
-                "name": entry.label,
+                "name": math_html(entry.label),
                 "marker": {"symbol": "square", "size": 10, "color": entry.color or "#ffffff", "line": {"width": 0.5, "color": "#000000"}},
                 "showlegend": True,
             }
@@ -278,7 +403,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3}
     yrange = [a.yrange[1], a.yrange[0]] if a.invert_y else list(a.yrange)
     xaxis: Dict[str, Any] = {
-        "title": {"text": a.xlabel},
+        "title": {"text": math_html(a.xlabel)},
         "range": list(a.xrange),
         "ticks": "inside",
         "mirror": "ticks",
@@ -289,7 +414,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "visible": a.visible,
     }
     yaxis: Dict[str, Any] = {
-        "title": {"text": a.ylabel},
+        "title": {"text": math_html(a.ylabel)},
         "range": yrange,
         "ticks": "inside",
         "mirror": "ticks",
@@ -304,7 +429,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         # the panel's twin: its own range and label on the right, the left axis's ticks only on the left
         yaxis["mirror"] = False
         yaxis2 = {
-            "title": {"text": a.y2label or ""},
+            "title": {"text": math_html(a.y2label) or ""},
             "range": list(a.y2range),
             "overlaying": "y",
             "side": "right",
@@ -334,7 +459,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         ref = {"xref": "x domain", "yref": "y domain"} if t.frame == "axes" else {"xref": "x", "yref": "y"}
         annotations.append(
             {
-                "text": t.text.replace("\n", "<br>"),
+                "text": (math_html(t.text) or "").replace("\n", "<br>"),
                 "x": t.x,
                 "y": t.y,
                 **ref,
@@ -381,7 +506,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         layout["yaxis2"] = yaxis2
         layout["margin"]["r"] = 60
     if spec.title:
-        layout["title"] = {"text": spec.title}
+        layout["title"] = {"text": math_html(spec.title)}
     return layout
 
 
@@ -431,7 +556,7 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
             annotations.append(note)
         if panel.title:
             annotations.append(
-                {"text": panel.title, "x": (xd[0] + xd[1]) / 2, "y": yd[1], "xref": "paper", "yref": "paper",
+                {"text": math_html(panel.title), "x": (xd[0] + xd[1]) / 2, "y": yd[1], "xref": "paper", "yref": "paper",
                  "xanchor": "center", "yanchor": "bottom", "showarrow": False, "name": "panel_title",
                  "font": {"size": spec.font_size + 4}}
             )
@@ -449,5 +574,5 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         }
     )
     if spec.title:
-        layout["title"] = {"text": spec.title}
+        layout["title"] = {"text": math_html(spec.title)}
     return {"data": data, "layout": layout}
