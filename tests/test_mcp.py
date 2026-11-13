@@ -286,9 +286,7 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(
 
     monkeypatch.setattr(builtins, "__import__", refuse)
     for mod in [
-        m
-        for m in list(__import__("sys").modules)
-        if m.startswith("emode.mcp.")
+        m for m in list(__import__("sys").modules) if m.startswith("emode.mcp.")
     ]:
         monkeypatch.delitem(__import__("sys").modules, mod)
     err = io.StringIO()

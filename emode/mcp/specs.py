@@ -8,6 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Bound = tuple[float | None, float | None]
 
+# Every boundary condition EMode takes: a pair of wall conditions, 0 (none), A
+# (antisymmetric), S (symmetric) or P (periodic), the TE and TM folds, or 'auto'.
+BoundaryCondition = Literal[
+    "00", "0A", "0S", "0P", "A0", "AA", "AS", "AP",
+    "S0", "SA", "SS", "SP", "P0", "PA", "PS", "PP",
+    "TE", "TE-h", "TE-v", "TM", "TM-h", "TM-v", "auto",
+]  # fmt: skip
+
 
 class SettingsSpec(BaseModel):
     """Solver settings, passed to ``EMode.settings``. Unset fields keep EMode's defaults."""
@@ -28,8 +36,14 @@ class SettingsSpec(BaseModel):
     window_height: float | None = Field(
         None, description="Simulation window height in nm."
     )
-    boundary_condition: str | None = Field(
-        None, description="'0' for none, or 'S'/'A' symmetry pairs, or 'TE'/'TM'."
+    boundary_condition: BoundaryCondition | None = Field(
+        None,
+        description=(
+            "Two characters, one per wall pair, each 0 (none), A (antisymmetric), "
+            "S (symmetric) or P (periodic): '00' for no symmetry, or e.g. 'A0' or 'SA'. "
+            "Or a polarization fold, 'TE', 'TE-h', 'TE-v', 'TM', 'TM-h' or 'TM-v', "
+            "or 'auto' to let EMode choose the walls."
+        ),
     )
     field_to_solve: Literal["Et", "Ht"] | None = Field(
         None, description="Field to solve for."
