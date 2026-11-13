@@ -30,6 +30,7 @@ The tab is told what happens over server-sent events (``/api/events``):
 session ends. It posts ``/api/ping`` every two seconds, which is how the
 client knows the tab is alive.
 """
+
 from __future__ import annotations
 
 import json
@@ -96,7 +97,9 @@ class UIServer:
         self.session_info = session_info
         self.clock = clock
         self.token = secrets.token_urlsafe(32)
-        self._requested_port = port if port is not None else int(os.environ.get("EMODE_UI_PORT") or 0)
+        self._requested_port = (
+            port if port is not None else int(os.environ.get("EMODE_UI_PORT") or 0)
+        )
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
         self._subscribers: List["queue.Queue[Optional[Tuple[str, Any]]]"] = []
@@ -126,7 +129,10 @@ class UIServer:
         httpd.ui = self  # type: ignore[attr-defined]
         self._httpd = httpd
         self._thread = threading.Thread(
-            target=httpd.serve_forever, kwargs={"poll_interval": 0.05}, name="emode-ui", daemon=True
+            target=httpd.serve_forever,
+            kwargs={"poll_interval": 0.05},
+            name="emode-ui",
+            daemon=True,
         )
         self._thread.start()
         return self
@@ -229,7 +235,9 @@ class UIServer:
 
     # ---------------------------------------------------------------- a view's data
 
-    def view_reply(self, view: View, controls: Dict[str, Any], pixels: Optional[Tuple[int, int]]) -> Dict[str, Any]:
+    def view_reply(
+        self, view: View, controls: Dict[str, Any], pixels: Optional[Tuple[int, int]]
+    ) -> Dict[str, Any]:
         """Apply the tab's `controls` to `view`, fetching new data only when they need it."""
         from .views import _select
 
@@ -241,11 +249,15 @@ class UIServer:
         resize = pixels is not None and _needs_refetch(view, pixels)
         if changed or resize:
             if self.session_ended:
-                raise EModeError("This plot's EMode session has ended, so its data cannot change.")
+                raise EModeError(
+                    "This plot's EMode session has ended, so its data cannot change."
+                )
             arguments = {**view.arguments, **data_args}
             sent = {k: v for k, v in arguments.items() if k not in kind.local_arguments}
             data = self.fetch(view, sent, pixels or view.pixels)
-            local = {k: v for k, v in view.arguments.items() if k in kind.local_arguments}
+            local = {
+                k: v for k, v in view.arguments.items() if k in kind.local_arguments
+            }
             view.data = _select(data, local) if local else data
             view.arguments = arguments
             view.pixels = tuple(pixels or view.pixels)
@@ -275,7 +287,9 @@ class UIServer:
         rows (for a change it cannot make alone, such as a ``.lyp`` file), not a figure.
         """
         if not isinstance(view.data, GDSPanel):
-            raise EModeError(f"view {view.id} is not a GDS layer view, so it has no layers")
+            raise EModeError(
+                f"view {view.id} is not a GDS layer view, so it has no layers"
+            )
         local = {k: changes[k] for k in GDS_ARGUMENTS if changes.get(k) is not None}
         view.data = view.data.with_changes(local)
         view.arguments = state_arguments(view.arguments, view.data)
@@ -299,12 +313,22 @@ class UIServer:
 
         file_type = str(request.get("file_type") or "png").lower().lstrip(".")
         if file_type not in EXPORT_TYPES:
-            raise EModeError(f"file_type must be one of {EXPORT_TYPES}, got {file_type!r}")
-        figure_args = {k: request[k] for k in FIGURE_OPTIONS if request.get(k) is not None}
-        options = replace(view.options, **_clean_options(figure_args)) if figure_args else view.options
+            raise EModeError(
+                f"file_type must be one of {EXPORT_TYPES}, got {file_type!r}"
+            )
+        figure_args = {
+            k: request[k] for k in FIGURE_OPTIONS if request.get(k) is not None
+        }
+        options = (
+            replace(view.options, **_clean_options(figure_args))
+            if figure_args
+            else view.options
+        )
         PlotOptions.from_arguments(_options_dict(options))
         spec = compose(view.data, options)
-        name = compose_file_name(str(request.get("file_name") or f"EM_{view.id}"), file_type)
+        name = compose_file_name(
+            str(request.get("file_name") or f"EM_{view.id}"), file_type
+        )
         return mpl.render(spec, file_type), file_type, name
 
     def save(self, view: View, request: Dict[str, Any]) -> Path:
@@ -450,7 +474,13 @@ class _Handler(BaseHTTPRequestHandler):
 
     # ---------------------------------------------------------------- replies
 
-    def _send(self, status: int, body: bytes, content_type: str, extra: Optional[Dict[str, str]] = None) -> None:
+    def _send(
+        self,
+        status: int,
+        body: bytes,
+        content_type: str,
+        extra: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -466,12 +496,26 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.dumps(payload, default=_json_default).encode()
         self._send(status, body, "application/json", {"Cache-Control": "no-store"})
 
+    def _drain(self) -> None:
+        """Read the request's body off the connection, once, before any reply.
+
+        The server keeps connections alive (HTTP/1.1), so a body left unread
+        would be read as the start of the next request (emodeconnection#156).
+        """
+        if getattr(self, "_raw_body", None) is not None:
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = 0
+        self._raw_body = self.rfile.read(length) if length > 0 else b""
+
     def _body(self) -> Dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
-        if length <= 0:
+        self._drain()
+        if not self._raw_body:
             return {}
         try:
-            data = json.loads(self.rfile.read(length))
+            data = json.loads(self._raw_body)
         except ValueError:
             return {}
         return data if isinstance(data, dict) else {}
@@ -479,26 +523,36 @@ class _Handler(BaseHTTPRequestHandler):
     # ---------------------------------------------------------------- methods
 
     def do_OPTIONS(self) -> None:  # noqa: N802
+        self._raw_body = None
+        self._drain()
         self._forbid()
 
     def do_PUT(self) -> None:  # noqa: N802
+        self._raw_body = None
+        self._drain()
         self._forbid()
 
     def do_DELETE(self) -> None:  # noqa: N802
+        self._raw_body = None
+        self._drain()
         self._forbid()
 
     def do_GET(self) -> None:  # noqa: N802
+        self._raw_body = None
+        self._drain()
         if not self._origin_ok():
             return self._forbid()
         path = urlsplit(self.path).path
         if path.startswith("/static/"):
-            return self._static(path[len("/static/"):])
+            return self._static(path[len("/static/") :])
         if path in ("/", "/index.html"):
             if not self._token_ok(from_query=True):
                 return self._forbid()
             body = (PAGES / "app.html").read_bytes()
             return self._send(
-                200, body, "text/html; charset=utf-8",
+                200,
+                body,
+                "text/html; charset=utf-8",
                 {"Content-Security-Policy": CSP, "Cache-Control": "no-store"},
             )
         if not path.startswith("/api/") or not self._token_ok():
@@ -510,12 +564,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/colormaps":
             return self._json(200, colormaps.all_stops())
         if path == "/api/status":
-            return self._json(200, {"session_ended": self.ui.session_ended, "views": len(self.ui.registry)})
+            return self._json(
+                200,
+                {
+                    "session_ended": self.ui.session_ended,
+                    "views": len(self.ui.registry),
+                },
+            )
         if path == "/api/session":
             return self._json(200, self.ui.session_page())
         return self._json(404, {"error": "no such route"})
 
     def do_POST(self) -> None:  # noqa: N802
+        self._raw_body = None
+        self._drain()
         if not self._origin_ok() or not self._token_ok():
             return self._forbid()
         path = urlsplit(self.path).path
@@ -564,10 +626,18 @@ class _Handler(BaseHTTPRequestHandler):
             body, file_type, name = self.ui.export(view, request)
         except EModeError as exc:
             return self._json(200, {"id": view.id, "error": str(exc)})
-        safe = "".join(c for c in Path(name).name if c.isalnum() or c in "._- ") or f"EM_{view.id}.{file_type}"
+        safe = (
+            "".join(c for c in Path(name).name if c.isalnum() or c in "._- ")
+            or f"EM_{view.id}.{file_type}"
+        )
         self._send(
-            200, body, CONTENT_TYPES[file_type],
-            {"Cache-Control": "no-store", "Content-Disposition": f'attachment; filename="{safe}"'},
+            200,
+            body,
+            CONTENT_TYPES[file_type],
+            {
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'attachment; filename="{safe}"',
+            },
         )
 
     def _static(self, name: str) -> None:
@@ -575,12 +645,16 @@ class _Handler(BaseHTTPRequestHandler):
         target = (STATIC / name).resolve()
         if root not in target.parents or not target.is_file():
             return self._forbid()
-        content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        content_type = (
+            mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        )
         if target.suffix == ".js":
             content_type = "text/javascript; charset=utf-8"
         elif target.suffix == ".css":
             content_type = "text/css; charset=utf-8"
-        self._send(200, target.read_bytes(), content_type, {"Cache-Control": "no-cache"})
+        self._send(
+            200, target.read_bytes(), content_type, {"Cache-Control": "no-cache"}
+        )
 
     def _events(self) -> None:
         """Stream server-sent events until the tab goes or the session stops."""
