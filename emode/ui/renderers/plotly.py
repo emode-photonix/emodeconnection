@@ -270,6 +270,12 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             }
         )
 
+    if spec.axes.x2label is not None:
+        # an axis nothing is drawn against is not drawn, so a hidden trace sits on the top one
+        data.append(
+            {"type": "scatter", "mode": "markers", "x": [None], "y": [None], "xaxis": "x2", "yaxis": "y",
+             "hoverinfo": "skip", "showlegend": False, "name": "secondary_x"}
+        )
     return {"data": data, "layout": _layout(spec)}
 
 
@@ -299,13 +305,39 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "zeroline": False,
         "visible": a.visible,
     }
+    for axis, scale, rng in ((xaxis, a.xscale, a.xrange), (yaxis, a.yscale, yrange)):
+        if scale == "log":
+            # Plotly gives a log axis's range in decades
+            axis["type"] = "log"
+            axis["range"] = [float(np.log10(v)) for v in rng]
+    xaxis2: Optional[Dict[str, Any]] = None
+    if a.x2label is not None:
+        xaxis2 = {
+            "title": {"text": a.x2label},
+            "range": list(xaxis["range"]),
+            "type": xaxis.get("type", "linear"),
+            "overlaying": "x",
+            "side": "top",
+            "anchor": "y",
+            "tickmode": "array",
+            "tickvals": [x for x, _ in a.x2ticks],
+            "ticktext": [t for _, t in a.x2ticks],
+            "ticks": "inside",
+            "showline": True,
+            "linewidth": 0.5,
+            "showgrid": False,
+            "zeroline": False,
+            "visible": a.visible,
+        }
+        xaxis["mirror"] = False
     yaxis2: Optional[Dict[str, Any]] = None
     if a.y2range is not None:
         # the panel's twin: its own range and label on the right, the left axis's ticks only on the left
         yaxis["mirror"] = False
         yaxis2 = {
             "title": {"text": a.y2label or ""},
-            "range": list(a.y2range),
+            "range": [float(np.log10(v)) for v in a.y2range] if a.y2scale == "log" else list(a.y2range),
+            "type": "log" if a.y2scale == "log" else "linear",
             "overlaying": "y",
             "side": "right",
             "anchor": "x",
@@ -377,6 +409,9 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "plot_bgcolor": a.background or "#ffffff",
         "dragmode": "zoom",
     }
+    if xaxis2 is not None:
+        layout["xaxis2"] = xaxis2
+        layout["margin"]["t"] = 70
     if yaxis2 is not None:
         layout["yaxis2"] = yaxis2
         layout["margin"]["r"] = 60
@@ -407,9 +442,11 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         suffix = "" if k == 1 else str(k)
         # a panel's twin takes an axis numbered past every panel's own
         twin = str(len(spec.panels) + k)
+        xtop = twin  # and its top x axis, numbered the same way among the x axes
         for trace in sub["data"]:
             on_twin = trace.get("yaxis") == "y2"
-            trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
+            on_top = trace.get("xaxis") == "x2"
+            trace["xaxis"], trace["yaxis"] = f"x{xtop if on_top else suffix}", f"y{twin if on_twin else suffix}"
             if "colorbar" in trace:
                 trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
             data.append(trace)
@@ -419,6 +456,10 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         if "scaleanchor" in yaxis:
             yaxis["scaleanchor"] = f"x{suffix}"
         layout[f"xaxis{suffix}"], layout[f"yaxis{suffix}"] = xaxis, yaxis
+        if "xaxis2" in sub["layout"]:
+            top = dict(sub["layout"]["xaxis2"])
+            top.update({"domain": xd, "anchor": f"y{suffix}", "overlaying": f"x{suffix}"})
+            layout[f"xaxis{xtop}"] = top
         if "yaxis2" in sub["layout"]:
             right = dict(sub["layout"]["yaxis2"])
             right.update({"domain": yd, "anchor": f"x{suffix}", "overlaying": f"y{suffix}"})
