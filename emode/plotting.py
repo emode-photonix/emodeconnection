@@ -224,6 +224,12 @@ class MenuState(TaggedModel):
     sent is echoed back as EMode resolved it. ``settings`` holds the eight
     settings as resolved, and ``active_settings`` those the panel lets the user
     change.
+
+    ``views`` lists the views of an EME device's plot (``'layout'``,
+    ``'simulation'``, ``'schematic'``, and ``'gds'`` with GDS sections), empty
+    for a mode solve's, with the shown one in ``selected['view']``. ``position``
+    is, on a z panel, the z of the x-y cut (``plot(z_position=...)``), which the
+    panel marks with ``PlotView.slice_marker``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -239,6 +245,8 @@ class MenuState(TaggedModel):
     wavelengths: List[float] = []
     z_resolutions: List[str] = []
     slider: Optional[Slider] = None
+    views: List[str] = []
+    position: Optional[Slider] = None
     settings: Dict[str, bool] = {}
     active_settings: List[str] = []
     selected: Dict[str, str] = {}
@@ -275,6 +283,7 @@ class PlotView(_Arrays):
     - ``sections``: the circuit's section names, ``selected_section`` the one
       the panel is zoomed to, ``arrows`` the way to its neighbors.
     - ``wavelength`` in nm, ``z_resolution_nm`` the z sampling used.
+    - ``slice_marker``: on a z panel, the line at the z of the x-y cut.
     """
 
     plane: Literal["x-y", "z-x", "z-y"]
@@ -299,6 +308,7 @@ class PlotView(_Arrays):
     arrows: List[Arrow] = []
     wavelength: Optional[float] = None
     z_resolution_nm: Optional[float] = None
+    slice_marker: Optional[Polyline] = None
 
 
 @register_type
