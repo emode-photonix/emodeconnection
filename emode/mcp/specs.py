@@ -112,7 +112,8 @@ class ParameterSpec(BaseModel):
         None,
         description=(
             "Starting value, by default the current one. A list only for a key that "
-            "takes a list of values, 'poling, <section>, domain_lengths'."
+            "takes a list of values, 'poling, <section>, domain_lengths' or a mask "
+            "with several openings, one value per opening."
         ),
     )
 
