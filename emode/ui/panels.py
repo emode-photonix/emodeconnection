@@ -53,13 +53,18 @@ def _tint(color: str, white: float = 0.75) -> str:
     return to_hex(tuple(c + (1 - c) * white for c in (r, g, b)))
 
 
-def _span(values: List[np.ndarray], pad: float = 0.05) -> Optional[Tuple[float, float]]:
-    finite = [v[np.isfinite(v)] for v in values if v.size]
+def _span(values: List[np.ndarray], pad: float = 0.05, log: bool = False) -> Optional[Tuple[float, float]]:
+    """The padded range of `values`. On a log axis only the positive values count and the pad is in decades."""
+    finite = [v[np.isfinite(v) & (v > 0 if log else True)] for v in values if v.size]
     finite = [v for v in finite if v.size]
     if not finite:
         return None
     lo = min(float(v.min()) for v in finite)
     hi = max(float(v.max()) for v in finite)
+    if log:
+        lo, hi = float(np.log10(lo)), float(np.log10(hi))
+        width = hi - lo if hi > lo else 1.0
+        return 10 ** (lo - pad * width), 10 ** (hi + pad * width)
     width = hi - lo if hi > lo else (abs(hi) or 1.0)
     return lo - pad * width, hi + pad * width
 
@@ -85,13 +90,15 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         _curves(twin.items, count, "right", right_lines, xs, y2s)
 
     settings = panel.settings
-    xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0))
-    yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys))
+    xscale, yscale = settings.get("xscale", "linear"), settings.get("yscale", "linear")
+    y2scale = twin.settings.get("yscale", "linear") if twin is not None else "linear"
+    xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0, xscale == "log"))
+    yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys, 0.05, yscale == "log"))
     xrange = tuple(float(v) for v in (xrange or (0.0, 1.0)))
     yrange = tuple(float(v) for v in (yrange or (0.0, 1.0)))
     y2range: Optional[Tuple[float, float]] = None
     if twin is not None:
-        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s) or (0.0, 1.0)))
+        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s, 0.05, y2scale == "log") or (0.0, 1.0)))
         for kind, item in twin.items:
             if kind == "hline":
                 _marker, dash, _ = parse_style(item["style"])
@@ -118,7 +125,16 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
                 # the band's legend entry, a wide line of its color
                 lines.append(LineSpec(np.array([np.nan]), np.array([np.nan]), "vspan", color, 6.0, label=item["label"]))
     lines.extend(right_lines)
+    x2label, x2ticks = None, ()
+    if panel.secondary is not None:
+        x2label = panel.secondary["label"] or ""
+        x2ticks = _secondary_ticks(panel.secondary, xrange, xscale == "log")
     axes = AxesSpec(
+        xscale=xscale,
+        yscale=yscale,
+        y2scale=y2scale,
+        x2label=x2label,
+        x2ticks=x2ticks,
         xlabel=settings.get("xlabel") or (base.axes.xlabel if base else ""),
         ylabel=settings.get("ylabel") or (base.axes.ylabel if base else ""),
         xrange=xrange,
@@ -142,6 +158,40 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         font_size=options.font_size,
         dpi=options.dpi,
     )
+
+
+def _nice_ticks(lo: float, hi: float, count: int = 5) -> List[float]:
+    """Round tick values (1, 2 or 5 times a power of ten) across [lo, hi], about `count` of them."""
+    if hi < lo:
+        lo, hi = hi, lo
+    raw = (hi - lo) / max(count, 1)
+    if raw <= 0 or not np.isfinite(raw):
+        return [lo]
+    magnitude = 10.0 ** np.floor(np.log10(raw))
+    step = next(m * magnitude for m in (1, 2, 5, 10) if m * magnitude >= raw)
+    first = np.ceil(lo / step - 1e-9) * step
+    return [float(v) for v in np.arange(first, hi + step * 1e-9, step)]
+
+
+def _secondary_ticks(
+    secondary: dict, xrange: Tuple[float, float], log: bool
+) -> Tuple[Tuple[float, str], ...]:
+    """The top axis's ticks as ``(position on x, text)``, round values of ``function(x)``."""
+    function, inverse = secondary["function"], secondary["inverse"]
+    x = np.geomspace(*xrange, 512) if log and min(xrange) > 0 else np.linspace(*xrange, 512)
+    s = np.asarray(function(x), float)
+    values = secondary["ticks"]
+    if values is None:
+        values = _nice_ticks(float(np.nanmin(s)), float(np.nanmax(s)))
+    values = np.asarray(values, float)
+    if inverse is not None:
+        positions = np.asarray(inverse(values), float)
+    else:
+        order = np.argsort(s)
+        positions = np.interp(values, s[order], x[order], left=np.nan, right=np.nan)
+    lo, hi = min(xrange), max(xrange)
+    keep = np.isfinite(positions) & (positions >= lo * (1 - 1e-9)) & (positions <= hi * (1 + 1e-9))
+    return tuple((float(p), f"{v:g}") for p, v in zip(positions[keep], values[keep]))
 
 
 def _curves(

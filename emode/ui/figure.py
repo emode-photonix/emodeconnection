@@ -208,6 +208,14 @@ class AxesSpec:
     #: Each y axis's label and tick color, None for the default black.
     ylabel_color: Optional[str] = None
     y2label_color: Optional[str] = None
+    #: Each axis's scale, ``'linear'`` or ``'log'`` (the ranges are then positive, in data units).
+    xscale: str = "linear"
+    yscale: str = "linear"
+    y2scale: str = "linear"
+    #: A second x axis on top (``Panel.secondary_x()``): its label and its ticks as
+    #: ``(position on x, text)``, None and empty without one.
+    x2label: Optional[str] = None
+    x2ticks: Tuple[Tuple[float, str], ...] = ()
 
 
 @dataclass(frozen=True)
