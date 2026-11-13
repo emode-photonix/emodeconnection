@@ -48,6 +48,61 @@ function showMessage(text) {
   el.textContent = text || "";
 }
 
+// ------------------------------------------------------------ the collapsible sidebar
+
+const SIDEBAR_KEY = "emode.sidebar";
+const narrowQuery = window.matchMedia("(max-width: 800px)");
+
+function storedSidebar() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY);
+  } catch (err) {
+    return null;
+  }
+}
+
+function setSidebar(open, remember) {
+  const app = document.getElementById("app");
+  app.classList.toggle("sidebar-collapsed", !open);
+  document.getElementById("sidebar-toggle").setAttribute("aria-expanded", String(open));
+  // a wide screen remembers the choice, a narrow one always starts with the drawer shut
+  if (remember && !narrowQuery.matches) {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, open ? "open" : "closed");
+    } catch (err) {
+      // the choice is only a convenience
+    }
+  }
+  // the plot takes the freed width once the transition is over
+  setTimeout(() => {
+    if (state.reply) Plotly.Plots.resize(document.getElementById("figure"));
+  }, 250);
+}
+
+function sidebarOpen() {
+  return !document.getElementById("app").classList.contains("sidebar-collapsed");
+}
+
+function closeDrawer() {
+  if (narrowQuery.matches && sidebarOpen()) {
+    setSidebar(false, false);
+    document.getElementById("sidebar-toggle").focus();
+  }
+}
+
+function startSidebar() {
+  setSidebar(narrowQuery.matches ? false : storedSidebar() !== "closed", false);
+}
+
+document.getElementById("sidebar-toggle").addEventListener("click", () => setSidebar(!sidebarOpen(), true));
+narrowQuery.addEventListener("change", startSidebar);
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && narrowQuery.matches && sidebarOpen()) {
+    ev.stopImmediatePropagation();
+    closeDrawer();
+  }
+});
+
 // ------------------------------------------------------------ the plots list
 
 function routeId() {
@@ -67,7 +122,7 @@ async function loadList() {
     when.className = "when";
     when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
     li.appendChild(when);
-    li.addEventListener("click", () => { location.hash = "#/plots/" + v.id; });
+    li.addEventListener("click", () => { closeDrawer(); location.hash = "#/plots/" + v.id; });
     ol.appendChild(li);
   }
   markSelected();
@@ -684,6 +739,13 @@ function buildPlotControls(box, reply) {
   if (m.normalizations && m.normalizations.length) {
     box.append(select("Norm", m.normalizations, sel.normalization, (v) => change({ normalization: v })));
   }
+  if (m.views && m.views.length) {
+    // layout and simulation change this plot, the schematic and the GDS view open beside it (#146)
+    box.append(select("View", m.views, sel.view || c.view || "layout", (v) => {
+      if (v === "layout" || v === "simulation") return change({ view: v });
+      openView(v);
+    }));
+  }
   if (m.planes && m.planes.length) box.append(select("Slice", m.planes, sel.plane, (v) => change({ plane: v })));
   if (m.ports && m.ports.length) box.append(select("Port", m.ports, sel.port, (v) => change({ port: v })));
   if (m.sections && m.sections.length) {
@@ -694,8 +756,19 @@ function buildPlotControls(box, reply) {
   }
   if (m.modes && m.modes.length) box.append(select("Mode", m.modes, sel.mode, (v) => change({ mode: v })));
   if (m.slider) {
-    box.append(textbox(m.slider.label.replace(":", ""), m.slider.options, m.slider.value,
-      (v) => change({ slice_position: v })));
+    box.append(textbox(m.slider.label.replace(":", ""), m.slider.options, m.slider.value, (v) => {
+      // on the x-y plane the slider is the z of the cut, which a z panel then marks
+      const z = m.slider.label.startsWith("z") ? parseFloat(v) : NaN;
+      change(Number.isFinite(z) ? { slice_position: v, z_position: z } : { slice_position: v });
+    }));
+  }
+  if (m.position) {
+    // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
+    const label = "Cut " + m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    box.append(textbox(label, m.position.options, parseFloat(m.position.value), (v) => {
+      const z = parseFloat(v);
+      if (Number.isFinite(z)) change({ z_position: z });
+    }));
   }
   if (m.z_resolutions && m.z_resolutions.length) {
     box.append(textbox("Z-res (nm)", m.z_resolutions, sel.z_resolution || "Auto",
@@ -725,6 +798,19 @@ function buildPlotControls(box, reply) {
     details.append(summary, list);
     box.append(details);
   }
+}
+
+async function openView(name) {
+  const id = state.current;
+  let reply;
+  try {
+    reply = await api("views/" + id + "/open", { view: name });
+  } catch (err) {
+    return showMessage(String(err));
+  }
+  if (reply.error) return showMessage(reply.error);
+  await loadList();
+  location.hash = "#/plots/" + reply.id;
 }
 
 // ------------------------------------------------------------ keys: the section zoom
@@ -795,6 +881,7 @@ function route() {
   const onSession = location.hash.startsWith("#/session");
   document.getElementById("app").hidden = onSession;
   document.getElementById("session").hidden = !onSession;
+  document.getElementById("nav").classList.toggle("on-session", onSession);
   for (const a of document.querySelectorAll("#nav .tab[data-route]")) {
     a.classList.toggle("active", a.dataset.route === (onSession ? "session" : "plots"));
   }
@@ -819,6 +906,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  startSidebar();
   await loadList().catch((err) => showMessage(String(err)));
   route();
   // the docs link names the running EMode's version
