@@ -5,6 +5,7 @@ showed its dollar signs. The plotly renderer turns the simple math EMode and
 the examples write (subscripts, superscripts, Greek letters, ``\\mathrm``)
 into plotly's HTML subset. The matplotlib renderer keeps its mathtext.
 """
+
 from __future__ import annotations
 
 import json
