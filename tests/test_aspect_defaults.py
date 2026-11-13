@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from pathlib import Path
 
 import pytest
 
@@ -39,10 +41,9 @@ def test_the_smatrix_is_square():
     assert compose(smatrix_view()).axes.box_aspect == pytest.approx(1.0)
 
 
-def test_an_xy_cross_section_has_the_windows_true_ratio():
-    view = xy_view()
-    (x0, x1), (y0, y1) = view.axes.xlim, view.axes.ylim
-    assert compose(view).axes.box_aspect == pytest.approx((y1 - y0) / (x1 - x0))
+def test_an_xy_cross_section_is_golden_too():
+    """Eric, 2026-11-13 on his phone: every field plot is golden, x-y included."""
+    assert compose(xy_view()).axes.box_aspect == pytest.approx(1 / GOLDEN)
 
 
 @pytest.mark.parametrize(
@@ -87,16 +88,12 @@ def test_matplotlib_draws_the_same_box(make, ratio):
     assert (box.height * h) / (box.width * w) == pytest.approx(ratio, rel=0.02)
 
 
-def test_the_xy_box_in_matplotlib_is_the_windows_ratio():
-    view = xy_view()
-    (x0, x1), (y0, y1) = view.axes.xlim, view.axes.ylim
-    fig = mpl.to_figure(compose(view))
+def test_the_xy_box_in_matplotlib_is_golden():
+    fig = mpl.to_figure(compose(xy_view()))
     fig.canvas.draw()
     box = fig.axes[0].get_position()
     w, h = fig.get_size_inches()
-    assert (box.height * h) / (box.width * w) == pytest.approx(
-        (y1 - y0) / (x1 - x0), rel=0.02
-    )
+    assert (box.height * h) / (box.width * w) == pytest.approx(1 / GOLDEN, rel=0.02)
 
 
 def test_figure_aspect_reads_the_box():
@@ -133,3 +130,62 @@ return {height: layouts[0].height, style: fig.style.height};
     # the plot box is 400 - 60 - 20 = 320 wide, so 160 tall, plus 40 + 50 of margins
     assert got["height"] == 250
     assert got["style"] == "250px"
+
+
+PHONE = """
+var stage = document.getElementById("stage");
+stage.clientWidth = 375;
+var fig = document.getElementById("figure");
+fig.clientWidth = 700;  // a figure that has grown to Plotly's default width
+var drawn = [];
+Plotly.react = function (el, data, layout, config) { drawn.push({layout: layout, config: config}); };
+Plotly.relayout = function (el, update) { drawn.push({layout: update}); };
+buildControls = function () {};
+"""
+
+
+@needs_jsc
+def test_the_plot_is_never_wider_than_a_375_px_container():
+    got = run_app(
+        PHONE
+        + """
+var reply = {id: "p1", aspect: 0.618, figure: {data: [], layout: {margin: {l: 60, r: 20, t: 40, b: 50}}}};
+draw(reply);
+state.reply = reply;
+fitFigure();
+return drawn;
+"""
+    )
+    assert got[0]["config"]["responsive"] is True
+    for call in got:
+        assert call["layout"]["width"] <= 375
+    # the height follows the width: a 295 px box, golden, plus the margins
+    assert got[0]["layout"]["height"] == round(295 * 0.618 + 90)
+
+
+@needs_jsc
+def test_a_desktop_plot_takes_the_figures_own_width():
+    got = run_app(
+        """
+document.getElementById("stage").clientWidth = 1400;
+var fig = document.getElementById("figure");
+fig.clientWidth = 1000;
+var drawn = [];
+Plotly.react = function (el, data, layout) { drawn.push(layout); };
+buildControls = function () {};
+draw({id: "p1", aspect: 0.5, figure: {data: [], layout: {}}});
+return drawn[0].width;
+"""
+    )
+    assert got == 1000
+
+
+def test_no_rule_lets_the_figure_outgrow_its_container():
+    css = (
+        Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "emode.css"
+    ).read_text()
+    stage = re.search(r"#stage\s*\{([^}]*)\}", css).group(1)
+    assert "align-items: flex-start" not in stage
+    figure = re.search(r"#figure\s*\{([^}]*)\}", css).group(1)
+    assert "max-width: 100%" in figure
+    assert not re.search(r"min-width:\s*[1-9]\d*px", css)
