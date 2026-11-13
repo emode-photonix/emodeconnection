@@ -32,6 +32,9 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
+#: The opacity of a window region that carries a color (the PML frame of a z panel).
+WINDOW_FILL_ALPHA = 0.5
+
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
 
@@ -395,10 +398,11 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                     x=np.asarray(p.x) / sx,
                     y=np.asarray(p.y) / sy,
                     kind=p.kind,
-                    color=None,
+                    color=_color(None, p.color, options),
                     holes=tuple(np.asarray(h) / np.array([sx, sy]) for h in p.holes),
                     edgecolor="#000000" if p.kind == "window" else "#808080",
                     hatch=p.hatch,
+                    alpha=WINDOW_FILL_ALPHA if p.color else 1.0,
                     width=LW,
                 )
             )
