@@ -296,3 +296,28 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(
         main([])
     assert exit_info.value.code != 0
     assert "emode[mcp]" in err.getvalue()
+
+
+def test_the_boundary_condition_spec_names_00_for_no_symmetry() -> None:
+    """The description an agent reads names '00', not '0' (emodeconnection#108)."""
+    from emode.mcp.specs import SettingsSpec
+
+    description = SettingsSpec.model_fields["boundary_condition"].description or ""
+    assert "'00'" in description
+    assert "'0' for none" not in description
+    for value in ("TE-h", "TM-v", "P", "auto"):
+        assert value in description
+
+
+@pytest.mark.parametrize("bc", ["00", "A0", "SA", "PP", "TE", "TE-h", "TM-v", "auto"])
+def test_open_accepts_every_boundary_condition_emode_takes(bc: str) -> None:
+    (result,) = session(("emode_open", {"settings": {"boundary_condition": bc}}))
+    assert not result.is_error
+    assert FakeEMode.instances[0].calls[0][1] == {"boundary_condition": bc}
+
+
+@pytest.mark.parametrize("bc", ["0", "S", "TE-x", "000"])
+def test_open_refuses_a_boundary_condition_emode_refuses(bc: str) -> None:
+    (result,) = session(("emode_open", {"settings": {"boundary_condition": bc}}))
+    assert result.is_error
+    assert FakeEMode.instances == []
