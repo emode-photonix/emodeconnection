@@ -189,3 +189,78 @@ def test_save_of_a_pdf_posts_no_image():
     assert (
         path == "views/p1/save" and body["file_type"] == "pdf" and "image" not in body
     )
+
+
+NO_PDF = "Saving as PDF needs matplotlib. Install it with: pip install matplotlib. PNG and SVG work without it."
+
+
+@pytest.fixture
+def no_matplotlib(monkeypatch):
+    import builtins
+    import sys
+
+    real = builtins.__import__
+
+    def refuse(name, *args, **kwargs):
+        if name == "matplotlib" or name.startswith("matplotlib."):
+            raise ImportError(f"No module named {name!r}")
+        return real(name, *args, **kwargs)
+
+    for name in [
+        m for m in sys.modules if m == "matplotlib" or m.startswith("matplotlib.")
+    ]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setattr(builtins, "__import__", refuse)
+
+
+@pytest.mark.parametrize("action", ["export", "save"])
+def test_a_pdf_without_matplotlib_answers_the_warning(server, no_matplotlib, action):
+    status, headers, body = request(
+        server,
+        "POST",
+        f"/api/views/p1/{action}",
+        body={"file_name": "f", "file_type": "pdf"},
+    )
+    assert status == 200
+    assert headers["content-type"] == "application/json"
+    assert json.loads(body)["error"] == NO_PDF
+
+
+@pytest.mark.parametrize(
+    "file_type, url",
+    [
+        ("png", "data:image/png;base64," + base64.b64encode(PNG).decode()),
+        ("svg", "data:image/svg+xml;base64," + base64.b64encode(SVG).decode()),
+    ],
+)
+def test_png_and_svg_save_without_matplotlib(
+    server, tmp_path, no_matplotlib, file_type, url
+):
+    _, _, body = request(
+        server,
+        "POST",
+        "/api/views/p1/save",
+        body={"file_name": "ok", "file_type": file_type, "image": url},
+    )
+    assert Path(json.loads(body)["path"]).is_file()
+
+
+@needs_jsc
+def test_the_pdf_option_is_labeled_pdf():
+    got = run_app(
+        EXPORT + "return format.children.map(function (o) { return o.textContent; });"
+    )
+    assert got == ["PNG", "SVG", "PDF"]
+
+
+@needs_jsc
+def test_the_tab_shows_the_routes_error():
+    got = run_app(
+        """
+var shown = [];
+showMessage = function (t) { shown.push(t); };
+saved({error: "Saving as PDF needs matplotlib."});
+return shown;
+"""
+    )
+    assert got == ["Saving as PDF needs matplotlib."]
