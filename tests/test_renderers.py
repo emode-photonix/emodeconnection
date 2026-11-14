@@ -210,3 +210,31 @@ def test_without_matplotlib_a_save_names_the_install_command_and_plotly_still_wo
     assert to_plotly(spec)["data"]
     with pytest.raises(EModeError, match="pip install matplotlib"):
         mpl_renderer.render(spec)
+
+
+# ------------------------------------------------------------------ contour levels on the colorbar
+
+
+def test_the_colorbar_carries_the_contour_levels_when_contours_are_drawn():
+    levels = xy_view().rasters[0].contour_levels
+    assert compose(xy_view()).colorbar.lines == tuple(float(v) for v in levels)
+    assert compose(xy_view(), PlotOptions(contours=False)).colorbar.lines == ()
+    assert compose(zx_view()).colorbar.lines == ()
+
+
+def test_plotly_draws_a_line_across_the_colorbar_at_each_level():
+    spec = compose(xy_view())
+    cb = spec.colorbar
+    shapes = [s for s in to_plotly(spec)["layout"]["shapes"] if s.get("name") == "colorbar_level"]
+    expected = [(v - cb.vmin) / (cb.vmax - cb.vmin) for v in cb.lines]
+    assert [s["y0"] for s in shapes] == pytest.approx(expected)
+    assert all(s["y0"] == s["y1"] and s["yref"] == "paper" for s in shapes)
+    assert all(s["xsizemode"] == "pixel" for s in shapes)
+    assert not to_plotly(compose(xy_view(), PlotOptions(contours=False)))["layout"].get("shapes")
+
+
+def test_matplotlib_draws_the_levels_on_the_colorbar():
+    levels = xy_view().rasters[0].contour_levels
+    cbar_ax = mpl_renderer.to_figure(compose(xy_view())).axes[-1]
+    segments = [s for c in cbar_ax.collections if hasattr(c, "get_segments") for s in c.get_segments()]
+    assert len(segments) == len(levels)

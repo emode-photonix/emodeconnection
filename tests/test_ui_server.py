@@ -430,3 +430,31 @@ def test_each_request_on_a_kept_alive_connection_reads_its_own_body(server):
     conn.close()
     assert response.status == 200
     assert server.fetched[-1][0].get("component") == "Ey"
+
+
+def _contour_traces(reply: Dict[str, Any]) -> list:
+    return [t for t in reply["figure"]["data"] if t["type"] == "contour"]
+
+
+def test_the_contours_control_reports_what_is_drawn_and_toggles_it():
+    registry = ViewRegistry()
+    registry.add(xy_view(), {"plane": "x-y", "component": "Ex"}, PlotOptions(), (1200, 750))
+    server = UIServer(registry, lambda *a: xy_view()).start()
+    try:
+        post = lambda controls: json.loads(  # noqa: E731
+            request(server, "POST", "/api/views/p1/data", body={"controls": controls})[2]
+        )
+        first = post({})
+        assert _contour_traces(first), "an x-y plot draws its contours by default"
+        assert first["controls"]["contours"] is True
+        off = post({"contours": False})
+        assert off["controls"]["contours"] is False and not _contour_traces(off)
+        on = post({"contours": True})
+        assert on["controls"]["contours"] is True and _contour_traces(on)
+    finally:
+        server.stop()
+
+
+def test_a_z_panel_reports_contours_off_by_default(server):
+    reply = json.loads(request(server, "POST", "/api/views/p1/data", body={"controls": {}})[2])
+    assert reply["controls"]["contours"] is False and not _contour_traces(reply)

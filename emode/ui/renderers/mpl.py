@@ -236,6 +236,9 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             bar.set_ticks(list(cb.ticks))
             if cb.tick_labels is not None:
                 bar.set_ticklabels(list(cb.tick_labels))
+        if cb.lines:
+            # a line across the bar at each contour level drawn on the panel
+            bar.add_lines(list(cb.lines), ["k"] * len(cb.lines), [0.5] * len(cb.lines))
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
