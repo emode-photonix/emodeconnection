@@ -195,6 +195,18 @@ def test_a_png_render_has_the_requested_resolution():
     assert width <= spec.width_mm / 25.4 * 150 * 1.5 and height > 50
 
 
+@pytest.mark.parametrize("file_type", ["png", "pdf", "svg"])
+def test_a_saved_figure_of_each_file_type_raises_no_warning(file_type):
+    """The PDF backend warned 'Unknown infodict keyword' about a metadata key it does not take (#1115)."""
+    import warnings
+
+    spec = compose(xy_view())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data = mpl_renderer.render(spec, file_type, dpi=50)
+    assert data[:4] == {"png": b"\x89PNG", "pdf": b"%PDF", "svg": data[:4]}[file_type]
+
+
 def test_without_matplotlib_a_save_names_the_install_command_and_plotly_still_works(monkeypatch):
     real_import = builtins.__import__
 
