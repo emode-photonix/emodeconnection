@@ -8,6 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Bound = tuple[float | None, float | None]
 
+# Every boundary condition EMode takes: a pair of wall conditions, 0 (none), A
+# (antisymmetric), S (symmetric) or P (periodic), the TE and TM folds, or 'auto'.
+BoundaryCondition = Literal[
+    "00", "0A", "0S", "0P", "A0", "AA", "AS", "AP",
+    "S0", "SA", "SS", "SP", "P0", "PA", "PS", "PP",
+    "TE", "TE-h", "TE-v", "TM", "TM-h", "TM-v", "auto",
+]  # fmt: skip
+
 
 class SettingsSpec(BaseModel):
     """Solver settings, passed to ``EMode.settings``. Unset fields keep EMode's defaults."""
@@ -28,13 +36,15 @@ class SettingsSpec(BaseModel):
     window_height: float | None = Field(
         None, description="Simulation window height in nm."
     )
-    boundary_condition: str | None = Field(
+    boundary_condition: BoundaryCondition | None = Field(
         None,
         description=(
-            "'auto' (the default) lets the solver choose the walls. '0' is a metal wall, "
-            "'S'/'A' a symmetry wall, as two letters (south, west). 'TE'/'TM' fold about "
-            "the window's center lines (y = window_height / 2, x = 0) where the structure "
-            "is mirror symmetric about them, not about the window's edges."
+            "Two characters, one per wall pair, each 0 (none), A (antisymmetric), "
+            "S (symmetric) or P (periodic): '00' for no symmetry, or e.g. 'A0' or 'SA'. "
+            "Or a polarization fold, 'TE', 'TE-h', 'TE-v', 'TM', 'TM-h' or 'TM-v', "
+            "or 'auto' to let EMode choose the walls. 'TE'/'TM' fold about the window's "
+            "center lines (y = window_height / 2, x = 0) where the structure is mirror "
+            "symmetric about them, not about the window's edges."
         ),
     )
     field_to_solve: Literal["Et", "Ht"] | None = Field(
