@@ -699,8 +699,8 @@ function exportPanel(reply) {
   summary.textContent = "Export";
   const panel = document.createElement("div");
   const format = document.createElement("select");
-  for (const [value, text] of [["png-browser", "PNG (browser)"], ["svg-browser", "SVG (browser)"],
-    ["png", "PNG at the dpi"], ["pdf", "PDF"], ["svg", "SVG (matplotlib)"]]) {
+  // PNG and SVG are drawn here by Plotly, PDF by matplotlib in the client (#164)
+  for (const [value, text] of [["png", "PNG"], ["svg", "SVG"], ["pdf", "PDF"]]) {
     const o = document.createElement("option");
     o.value = value;
     o.textContent = text;
@@ -776,18 +776,26 @@ function labelControls(entries) {
   return out;
 }
 
-async function downloadFigure(id, format, options) {
-  if (format.endsWith("-browser")) {
-    const px = 96 / 25.4;
-    const scale = format.startsWith("png") ? (options.dpi || 96) / 96 : 1;
-    return Plotly.downloadImage(document.getElementById("figure"), {
-      format: format.split("-")[0],
-      width: Math.round(options.figure_size[0] * px),
-      height: Math.round(options.figure_size[1] * px),
-      scale: scale,
-      filename: options.file_name,
-    });
-  }
+// The figure as Plotly draws it: the export panel's size in mm at 96 px per inch,
+// a PNG scaled up to the dpi.
+function imageOptions(format, options) {
+  const px = 96 / 25.4;
+  return {
+    format: format,
+    width: Math.round(options.figure_size[0] * px),
+    height: Math.round(options.figure_size[1] * px),
+    scale: format === "png" ? (options.dpi || 96) / 96 : 1,
+    filename: options.file_name,
+  };
+}
+
+function downloadFigure(id, format, options) {
+  if (format === "pdf") return downloadServer(id, format, options);
+  return Plotly.downloadImage(document.getElementById("figure"), imageOptions(format, options));
+}
+
+// A PDF: matplotlib draws it in the client, which sends it back as a file.
+async function downloadServer(id, format, options) {
   const r = await fetch("api/views/" + id + "/export", {
     method: "POST", headers: HEADERS, body: JSON.stringify({ ...options, file_type: format }),
   });
@@ -805,14 +813,23 @@ async function downloadFigure(id, format, options) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-async function saveFigure(id, format, options) {
-  const fileType = format.split("-")[0];
-  const reply = await api("views/" + id + "/save", { ...options, file_type: fileType });
+function saved(reply) {
   if (reply.error) showMessage(reply.error);
   else {
     showMessage("");
     setStatus("saved " + reply.path);
   }
+}
+
+// Save under the script's working directory: a PNG or an SVG as Plotly drew it
+// here, a PDF drawn by matplotlib in the client.
+function saveFigure(id, format, options) {
+  const post = (extra) => api("views/" + id + "/save", { ...options, file_type: format, ...extra })
+    .then(saved).catch((err) => showMessage(String(err)));
+  if (format === "pdf") return post({});
+  return Plotly.toImage(document.getElementById("figure"), imageOptions(format, options))
+    .then((image) => post({ image: image }))
+    .catch((err) => showMessage(String(err)));
 }
 
 // ------------------------------------------------------------ the session page

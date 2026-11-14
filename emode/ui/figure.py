@@ -140,6 +140,10 @@ class RasterSpec:
     mask: Optional[np.ndarray] = None
     interpolation: str = "nearest"
     contour_levels: Tuple[float, ...] = ()
+    #: The columns' edges, ``x.size + 1`` of them, when the image joins slices of
+    #: different spacings (a z panel), so each keeps its own boundaries. None:
+    #: the edges are halfway between the centers.
+    x_edges: Optional[np.ndarray] = None
 
 
 @dataclass(frozen=True)
@@ -371,6 +375,71 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
     return _compose_view(view, options)
 
 
+def column_edges(centers: np.ndarray) -> np.ndarray:
+    """Cell edges around monotonic centers: halfway between them, the outer ones half a cell out."""
+    c = np.asarray(centers, float)
+    if c.size == 1:
+        return np.array([c[0] - 0.5, c[0] + 0.5])
+    mid = (c[1:] + c[:-1]) / 2
+    return np.concatenate([[c[0] - (mid[0] - c[0])], mid, [c[-1] + (c[-1] - mid[-1])]])
+
+
+def _joinable(a: RasterSpec, b: RasterSpec, a_edges: np.ndarray, b_edges: np.ndarray) -> bool:
+    """Whether slice `b` continues slice `a`: the same rows and look, and b starting where a ends."""
+    same_rows = np.asarray(a.y).shape == np.asarray(b.y).shape and np.allclose(a.y, b.y)
+    same_look = (a.colormap, a.vmin, a.vmax, a.interpolation, a.contour_levels) == (
+        b.colormap, b.vmin, b.vmax, b.interpolation, b.contour_levels
+    )
+    if not (same_rows and same_look) or (a.mask is None) != (b.mask is None):
+        return False
+    widths = np.concatenate([np.diff(a_edges), np.diff(b_edges)])
+    return bool(abs(b_edges[0] - a_edges[-1]) <= 1e-3 * float(np.min(np.abs(widths))))
+
+
+def join_slices(rasters: List[RasterSpec]) -> List[RasterSpec]:
+    """A z panel's slices as few images as possible: each run of slices that meet on one grid, joined.
+
+    Each slice was drawn as its own image, antialiased on its own, which left
+    a hairline seam at every slice boundary. A joined image keeps every
+    slice's own cell edges (``x_edges``) and values, so only the drawing
+    changes. Slices on different transverse grids, or with a gap between them,
+    stay apart.
+    """
+    out: List[RasterSpec] = []
+    run: List[Tuple[RasterSpec, np.ndarray]] = []
+
+    def flush() -> None:
+        if not run:
+            return
+        if len(run) == 1:
+            out.append(run[0][0])
+        else:
+            first = run[0][0]
+            edges = np.concatenate([run[0][1]] + [e[1:] for _, e in run[1:]])
+            mask = None if first.mask is None else np.concatenate([np.asarray(r.mask) for r, _ in run], axis=1)
+            out.append(
+                replace(
+                    first,
+                    x=np.concatenate([np.asarray(r.x) for r, _ in run]),
+                    z=np.concatenate([np.asarray(r.z) for r, _ in run], axis=1),
+                    mask=mask,
+                    x_edges=edges,
+                )
+            )
+        run.clear()
+
+    for r in rasters:
+        edges = np.asarray(r.x_edges) if r.x_edges is not None else column_edges(r.x)
+        if run and not _joinable(run[-1][0], r, run[-1][1], edges):
+            flush()
+        if run:
+            # the joined edge is the previous slice's own end
+            edges = np.concatenate([[run[-1][1][-1]], edges[1:]])
+        run.append((r, edges))
+    flush()
+    return out
+
+
 def _cmap(kind: str, options: PlotOptions) -> str:
     """The colormap a raster of `kind` is drawn with: the option's name, else the family's."""
     return colormaps.resolve(kind, options.colormap)
@@ -423,6 +492,9 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                 contour_levels=levels,
             )
         )
+
+    if view.plane in ("z-x", "z-y"):
+        rasters = join_slices(rasters)
 
     fills = [
         FillSpec(

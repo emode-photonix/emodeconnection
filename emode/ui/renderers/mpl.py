@@ -124,7 +124,16 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             # off the panel: NaN, which the colormap leaves transparent
             z = np.where(np.asarray(r.mask, bool), np.nan, z)
         x, y = np.asarray(r.x, float), np.asarray(r.y, float)
-        x0, x1 = _edges(x)[[0, -1]]
+        if r.x_edges is not None and r.interpolation != "bilinear":
+            # joined slices: one mesh on every column's own edges, no seams between them
+            ax.pcolormesh(
+                np.asarray(r.x_edges, float), _edges(y), np.ma.masked_invalid(z),
+                cmap=cmap_of(r.colormap), norm=Normalize(vmin=r.vmin, vmax=r.vmax),
+                shading="flat", antialiased=False, linewidth=0, rasterized=True,
+            )
+            _draw_contours(ax, r, x, y, z)
+            continue
+        x0, x1 = _edges(x)[[0, -1]] if r.x_edges is None else np.asarray(r.x_edges, float)[[0, -1]]
         y0, y1 = _edges(y)[[0, -1]]
         im = NonUniformImage(
             ax,
@@ -139,12 +148,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         # clip the last slice drawn covered every other one.
         im.set_clip_path(Rectangle((x0, y0), x1 - x0, y1 - y0, transform=ax.transData))
         ax.add_image(im)
-        if r.contour_levels and min(z.shape) >= 2:
-            for level in r.contour_levels:
-                ax.contour(
-                    x, y, z, levels=[level], colors="k" if level >= 0 else "w",
-                    linewidths=0.2, alpha=0.7, linestyles="solid",
-                )
+        _draw_contours(ax, r, x, y, z)
 
     for s in spec.segments:
         ax.add_collection(
@@ -260,6 +264,15 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
     return fig
+
+
+def _draw_contours(ax: Any, r: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
+    if r.contour_levels and min(z.shape) >= 2:
+        for level in r.contour_levels:
+            ax.contour(
+                x, y, z, levels=[level], colors="k" if level >= 0 else "w",
+                linewidths=0.2, alpha=0.7, linestyles="solid",
+            )
 
 
 def _draw_line(ax: Any, line: Any) -> None:
