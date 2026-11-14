@@ -289,9 +289,25 @@ async def _blocking(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
 
 
 def _takes_a_list(key: str) -> bool:
-    """Whether ``optimize`` varies the key as a list: 'poling, <section>, domain_lengths'."""
+    """Whether ``optimize`` can vary the key as a list.
+
+    'poling, <section>, domain_lengths' always takes one, and a shape's
+    'mask' or 'mask_offset' takes one value per opening of its layer.
+    """
     parts = [p.strip() for p in key.split(",")]
-    return len(parts) == 3 and parts[0] == "poling" and parts[2] == "domain_lengths"
+    if len(parts) == 3 and parts[0] == "poling" and parts[2] == "domain_lengths":
+        return True
+    return _per_opening(key)
+
+
+def _per_opening(key: str) -> bool:
+    """Whether the key is a shape's 'mask' or 'mask_offset', one value per opening."""
+    parts = [p.strip() for p in key.split(",")]
+    return parts[0] == "shape" and len(parts) in (3, 4) and parts[-1] in _OPENING_KEYS
+
+
+# A shape's properties with one value per opening of an etched layer.
+_OPENING_KEYS = ("mask", "mask_offset")
 
 
 def _parameter(spec: ParameterSpec) -> Parameter:
@@ -301,7 +317,8 @@ def _parameter(spec: ParameterSpec) -> Parameter:
     A one-entry list for a key that takes one value is that value.
     """
     key, x0, bounds = spec.key, spec.x0, spec.bounds
-    if not _takes_a_list(key):
+    if not _takes_a_list(key) or _per_opening(key):
+        # a one-opening mask is one value, as on a key that takes one
         if isinstance(x0, list) and len(x0) == 1:
             x0 = x0[0]
         if isinstance(bounds, list) and len(bounds) == 1:
@@ -315,10 +332,8 @@ def _parameter(spec: ParameterSpec) -> Parameter:
     if not _takes_a_list(key):
         raise ToolError(
             f"'{key}' takes one value, so its x0 and bounds cannot be lists. "
-            "optimize varies a list only for 'poling, <section>, domain_lengths'. "
-            "To vary each entry of a mask on its own, such as the two output arms of "
-            "an MMI, draw each arm as its own shape and vary its scalar keys, such as "
-            "'shape, <profile>, <arm>, width' and 'shape, <profile>, <arm>, position'."
+            "optimize varies a list only for 'poling, <section>, domain_lengths' and "
+            "for a shape's 'mask' or 'mask_offset', one entry per opening of its layer."
         )
     if isinstance(bounds, list) and len(bounds) != size:
         raise ToolError(
@@ -794,11 +809,12 @@ def create_server(
         form a weighted sum. The session is left solved at the best point.
 
         Each parameter takes one value, except 'poling, <section>,
-        domain_lengths', which takes a list x0 with one [min, max] pair per
-        entry in bounds (or one [min, max] for every entry). A mask with several
-        openings cannot be varied entry by entry: to vary the two output arms
-        of an MMI, draw each arm as its own shape and vary its width and
-        position keys.
+        domain_lengths' and a mask with several openings ('shape, <name>,
+        mask' or 'mask_offset' on a layer with two or more openings), which
+        take a list x0 with one entry per domain or opening and one [min, max]
+        pair per entry in bounds (or one [min, max] for every entry). A single
+        value for a mask with several openings is refused. Needs EMode 1.0.9
+        for a mask.
         """
         em = session.require()
         budget = max_evaluations if max_evaluations is not None else 100
