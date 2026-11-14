@@ -39,7 +39,8 @@ def _traces(figure: dict, kind: str) -> list:
 def test_a_raster_is_a_heatmap_with_its_values_as_typed_arrays():
     spec = compose(xy_view())
     (heatmap,) = _traces(to_plotly(spec), "heatmap")
-    np.testing.assert_array_equal(_decode(heatmap["z"]), spec.rasters[0].z)
+    # the values go rounded to 4 significant digits (a relative step under 1e-4)
+    np.testing.assert_allclose(_decode(heatmap["z"]), spec.rasters[0].z, rtol=1e-4)
     np.testing.assert_array_equal(_decode(heatmap["x"]), spec.rasters[0].x)
     assert (heatmap["zmin"], heatmap["zmax"]) == (-1.0, 1.0)
     assert heatmap["zsmooth"] == "best"
@@ -54,11 +55,30 @@ def test_the_colorscale_is_the_rasters_kind():
     assert first["colorscale"] == plotly_colorscale("sequential")
 
 
+def _contour_lines(figure):
+    return [t for t in figure["data"] if t.get("meta") == "contour"]
+
+
 def test_contours_are_drawn_when_on_and_not_when_off():
+    on = _contour_lines(to_plotly(compose(xy_view())))
+    assert on and all(t["type"] == "scatter" for t in on)
+    assert not _contour_lines(to_plotly(compose(xy_view(), PlotOptions(contours=False))))
+
+
+def test_without_contourpy_the_contours_are_plotly_contours_one_per_level(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_contourpy(name, *args, **kwargs):
+        if name == "contourpy":
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_contourpy)
     levels = xy_view().rasters[0].contour_levels
     on = _traces(to_plotly(compose(xy_view())), "contour")
     assert [t["contours"]["start"] for t in on] == pytest.approx(list(levels))
-    assert not _traces(to_plotly(compose(xy_view(), PlotOptions(contours=False))), "contour")
 
 
 def test_one_scatter_per_overlay_styled_by_its_kind():
@@ -170,8 +190,9 @@ def test_the_two_renderers_agree_on_one_spec(make):
     heatmaps = _traces(figure, "heatmap")
     assert len(heatmaps) == len(ax.images) == len(spec.rasters)
     for heatmap, image in zip(heatmaps, ax.images):
-        np.testing.assert_array_equal(
-            np.ma.filled(np.asarray(image.get_array(), float), np.nan), _decode(heatmap["z"]).astype(float)
+        # the tab's values are rounded to 4 significant digits, a saved file's are not
+        np.testing.assert_allclose(
+            np.ma.filled(np.asarray(image.get_array(), float), np.nan), _decode(heatmap["z"]).astype(float), rtol=1e-4
         )
     plotted = [t for t in _traces(figure, "scatter") if t.get("name") in {line.kind for line in spec.lines}]
     assert len(plotted) == len(ax.lines) == len(spec.lines)
