@@ -93,8 +93,13 @@ class UIServer:
         clock: Callable[[], float] = time.monotonic,
         session_info: Optional[Callable[[], Dict[str, Any]]] = None,
         details: Optional[Callable[[str], Dict[str, Any]]] = None,
+        login: Optional[Callable[..., Any]] = None,
+        emode_version: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self.registry = registry
+        #: ``login(function, **kwargs)``: one of EMode's login calls, for the account page
+        self.login = login
+        self.emode_version = emode_version
         self.fetch = fetch
         self.session_info = session_info
         self.details = details
@@ -111,6 +116,7 @@ class UIServer:
         self.opened_at: Optional[float] = None
         self.tab_closed = False
         self.session_ended = False
+        self._login_state: Optional[str] = None
 
     # ---------------------------------------------------------------- lifecycle
 
@@ -160,10 +166,15 @@ class UIServer:
     def base_url(self) -> str:
         return _ui_url() or f"http://127.0.0.1:{self.port}"
 
-    def url(self, view_id: Optional[str] = None, embed: bool = False) -> str:
-        """The app's address with this session's token, opened on `view_id` when given."""
+    def url(
+        self, view_id: Optional[str] = None, embed: bool = False, page: Optional[str] = None
+    ) -> str:
+        """The app's address with this session's token, opened on `view_id`, or on `page` (``'account'``)."""
         query = f"?token={self.token}" + ("&embed=1" if embed else "")
-        fragment = f"#/plots/{view_id}" if view_id else "#/plots"
+        if page is not None:
+            fragment = f"#/{page}"
+        else:
+            fragment = f"#/plots/{view_id}" if view_id else "#/plots"
         return f"{self.base_url()}/{query}{fragment}"
 
     def allowed_hosts(self) -> set:
@@ -209,6 +220,31 @@ class UIServer:
         with self._lock:
             if q in self._subscribers:
                 self._subscribers.remove(q)
+
+    # ---------------------------------------------------------------- the account page
+
+    def account(self, method: str, action: str, body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Answer the account page's `action` through EMode's login calls, None for no such route.
+
+        A change of the sign-in state is told to the tab as ``login-changed``.
+        """
+        from .account import device_signin_offered, route
+
+        if self.login is None:
+            return None
+        reply = route(self.login, method, action, body)
+        if reply is not None and action == "status":
+            reply.setdefault("device", device_signin_offered())
+            if self.emode_version is not None and "version" not in reply:
+                try:
+                    reply["version"] = self.emode_version()
+                except EModeError:
+                    pass
+        state = (reply or {}).get("state")
+        if state is not None and state != self._login_state:
+            self._login_state = state
+            self.publish("login-changed", {"state": state})
+        return reply
 
     # ---------------------------------------------------------------- the session page
 
@@ -680,6 +716,8 @@ class _Handler(BaseHTTPRequestHandler):
             )
         if path == "/api/session":
             return self._json(200, self.ui.session_page())
+        if path.startswith("/api/login/"):
+            return self._login("GET", path)
         return self._json(404, {"error": "no such route"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -694,6 +732,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/closed":
             self.ui.tab_closed = True
             return self._json(200, {"ok": True})
+        if path.startswith("/api/login/"):
+            return self._login("POST", path)
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[:2] == ["api", "views"]:
             view = self.ui.registry.get(parts[2])
@@ -734,6 +774,17 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "no such route"})
 
     # ---------------------------------------------------------------- routes
+
+    def _login(self, method: str, path: str) -> None:
+        """The account page's routes: a read is a GET, a change a POST whose body may hold a password."""
+        action = path[len("/api/login/") :]
+        body = self._body() if method == "POST" else {}
+        reply = self.ui.account(method, action, body)
+        body.clear()
+        self._raw_body = b""
+        if reply is None:
+            return self._json(404, {"error": "no such route"})
+        return self._json(200, reply)
 
     def _export(self, view: View, action: str) -> None:
         """Save `view` under the working directory, or send it back as a file to download."""

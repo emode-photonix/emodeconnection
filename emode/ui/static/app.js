@@ -1,5 +1,6 @@
 // The EMode app tab: the session's plots, each with its controls and the export
-// panel, the session page, and a link to the documentation.
+// panel, the session page, the account page (signing in, the licenses and the
+// sessions), and a link to the documentation.
 //
 // The page draws what the client sends and decides nothing: every figure
 // arrives as Plotly JSON from the client, which made it from EMode's data.
@@ -1012,6 +1013,237 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 
+// ------------------------------------------------------------ the account page
+//
+// The login window's every function. The page shows what EMode answers and
+// holds no secret: the password goes once, in a POST body, and the field is the
+// only place it lives. A sign-in through the browser shows the code EMode got
+// from the license manager and polls the status at the interval it gives.
+
+const account = { timer: null, pollTimer: null, lastRefresh: 0, lastUse: Date.now(), state: null };
+// the window's refresh rule: every 30 s while the page is in view and used in
+// the last 15 minutes, on focus when the data is older than 5 s, and at once on Refresh
+const ACCOUNT_POLL_MS = 30000;
+const ACCOUNT_IDLE_MS = 900000;
+const ACCOUNT_STALE_MS = 5000;
+
+function onAccount() {
+  return location.hash.startsWith("#/account");
+}
+
+function setText(id, text) {
+  document.getElementById(id).textContent = text == null ? "" : String(text);
+}
+
+function showAccountMessage(text) {
+  const el = document.getElementById("account-message");
+  el.hidden = !text;
+  el.textContent = text || "";
+}
+
+function showLoginError(text) {
+  const el = document.getElementById("login-error");
+  el.hidden = !text;
+  el.textContent = text || "";
+}
+
+function togglePassword() {
+  const input = document.getElementById("login-password");
+  const button = document.getElementById("password-toggle");
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  button.textContent = show ? "Hide" : "Show";
+  button.setAttribute("aria-pressed", show ? "true" : "false");
+}
+
+// the sign-in state: the form, the browser sign-in's code while it is pending,
+// and the account panel once signed in
+function showLogin(status) {
+  account.state = status.state;
+  if (status.version) setText("account-version", "Version " + status.version);
+  if (status.state === "logged_in") {
+    clearTimeout(account.pollTimer);
+    return loadAccountInfo();
+  }
+  document.getElementById("account").classList.add("form-view");
+  document.getElementById("signed-out").hidden = false;
+  document.getElementById("signed-in").hidden = true;
+  if (status.device !== undefined) document.getElementById("device-signin").hidden = !status.device;
+  const pending = status.state === "pending";
+  const ended = status.state === "denied" || status.state === "expired";
+  if (pending || ended) document.getElementById("device-signin").hidden = false;
+  document.getElementById("device-panel").hidden = !(pending || ended);
+  document.getElementById("device-wait").hidden = !pending;
+  document.getElementById("device-retry").hidden = !ended;
+  if (pending) {
+    setText("device-code", status.user_code);
+    const link = document.getElementById("device-link");
+    link.setAttribute("href", status.verification_url_complete || status.verification_url || "#");
+    clearTimeout(account.pollTimer);
+    account.pollTimer = setTimeout(pollLogin, Math.max(1, status.interval || 5) * 1000);
+  }
+  showLoginError(status.error || "");
+}
+
+function pollLogin() {
+  if (!onAccount() && account.state !== "pending") return;
+  api("login/status").then(showLogin).catch((err) => showAccountMessage(String(err)));
+}
+
+function signInWithPassword() {
+  const email = document.getElementById("login-email").value.trim();
+  const input = document.getElementById("login-password");
+  if (!email || !input.value) return showLoginError("Enter your email and password.");
+  showLoginError("");
+  setText("login-submit", "Signing in…");
+  return api("login/password", { email: email, password: input.value }).then((status) => {
+    setText("login-submit", "Log In");
+    if (status.state === "logged_in") input.value = "";
+    showLogin(status);
+  }).catch((err) => {
+    setText("login-submit", "Log In");
+    showLoginError(String(err));
+  });
+}
+
+function startDeviceSignIn() {
+  showLoginError("");
+  return api("login/start", {}).then((status) => {
+    showLogin(status);
+    const url = status.verification_url_complete || status.verification_url;
+    // the website's sign-in, in the same browser, where the user is likely signed in already
+    if (status.state === "pending" && url && window.open) window.open(url, "_blank", "noopener");
+  }).catch((err) => showLoginError(String(err)));
+}
+
+// a table cell, labeled with its column for the phone layout, where each row is a card
+function cell(text, label) {
+  const td = document.createElement("td");
+  td.textContent = text == null ? "" : String(text);
+  if (label) td.setAttribute("data-label", label);
+  return td;
+}
+
+function showAccount(view) {
+  if (view.state === "signed_out") return loadLogin();
+  if (view.error) return showAccountMessage(view.error);
+  showAccountMessage("");
+  account.lastRefresh = Date.now();
+  document.getElementById("account").classList.remove("form-view");
+  document.getElementById("signed-out").hidden = true;
+  document.getElementById("signed-in").hidden = false;
+  setText("account-email", view.email);
+  if (view.version) setText("account-version", "Version " + view.version);
+  setText("count-2d", view.counts["2D"]);
+  setText("count-3d", view.counts["3D"]);
+  document.getElementById("sharing-link").hidden = !view.sharing.link;
+  setText("sharing-line", view.sharing.line || "");
+  const notice = document.getElementById("update-notice");
+  notice.hidden = !view.update_notice;
+  notice.textContent = view.update_notice || "";
+  document.getElementById("error-reporting").checked = !!view.error_reporting;
+
+  const licenses = document.getElementById("license-rows");
+  licenses.replaceChildren();
+  for (const row of view.licenses) {
+    const tr = document.createElement("tr");
+    if (row.shared) tr.className = "shared";
+    tr.append(cell(row.subscription, "Subscription"), cell(row.status, "Status"),
+      cell(row.expiration, "Expiration"), cell(row.owner, "Owner"));
+    licenses.appendChild(tr);
+  }
+  const sessions = document.getElementById("session-rows");
+  sessions.replaceChildren();
+  for (const row of view.sessions) {
+    const tr = document.createElement("tr");
+    if (row.shared) tr.className = "shared";
+    tr.append(cell(row.type, "Type"), cell(row.user, "User"), cell(row.computer, "Computer"),
+      cell(row.started, "Started"), cell(row.owner, "Owner"));
+    const last = document.createElement("td");
+    last.className = "clear-cell";
+    if (row.clearable) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "clear-row";
+      button.textContent = "✕";
+      button.title = "Clear this session";
+      button.setAttribute("aria-label", "Clear the " + row.type + " session of " + row.user + " on " + (row.computer || "an unknown computer"));
+      button.addEventListener("click", () => clearSession(row));
+      last.appendChild(button);
+    }
+    tr.appendChild(last);
+    sessions.appendChild(tr);
+  }
+}
+
+function clearSession(row) {
+  if (!row.clearable || !window.confirm(row.confirm)) return;
+  return api("login/clear", { mode: "session", session_handle: row.handle })
+    .then(showAccount).catch((err) => showAccountMessage(String(err)));
+}
+
+function clearByMode() {
+  const select = document.getElementById("clear-mode");
+  const mode = select.value;
+  select.value = "none";
+  if (mode === "none") return;
+  if (!window.confirm("Clear " + mode + " sessions? A simulation still running in a cleared session loses its license.")) return;
+  return api("login/clear", { mode: mode }).then(showAccount).catch((err) => showAccountMessage(String(err)));
+}
+
+function setErrorReporting() {
+  const box = document.getElementById("error-reporting");
+  return api("login/settings", { error_reporting: box.checked })
+    .then((reply) => { if (reply.error) showAccountMessage(reply.error); else box.checked = !!reply.error_reporting; })
+    .catch((err) => showAccountMessage(String(err)));
+}
+
+function logOut() {
+  return api("login/logout", {}).then(showLogin).catch((err) => showAccountMessage(String(err)));
+}
+
+function loadAccountInfo() {
+  return api("login/info").then(showAccount).catch((err) => showAccountMessage(String(err)));
+}
+
+function loadLogin() {
+  return api("login/status").then(showLogin).catch((err) => showAccountMessage(String(err)));
+}
+
+function loadAccount() {
+  account.lastUse = Date.now();
+  return loadLogin();
+}
+
+function startAccount() {
+  setText("error-reporting-explanation",
+    "When a session closes, EMode can send EMode Photonix a short report of each internal error: " +
+    "the error type, the EMode function, the EMode version and the platform. It never includes " +
+    "your script, geometry or files. The setting applies to every session on this computer, and " +
+    "'emode settings --error-reporting on|off' changes it too.");
+  document.getElementById("login-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    signInWithPassword();
+  });
+  document.getElementById("password-toggle").addEventListener("click", togglePassword);
+  document.getElementById("device-start").addEventListener("click", startDeviceSignIn);
+  document.getElementById("device-retry").addEventListener("click", startDeviceSignIn);
+  document.getElementById("logout").addEventListener("click", logOut);
+  document.getElementById("refresh-sessions").addEventListener("click", () => { account.lastUse = Date.now(); loadAccountInfo(); });
+  document.getElementById("clear-sessions").addEventListener("click", clearByMode);
+  document.getElementById("error-reporting").addEventListener("change", setErrorReporting);
+  const used = () => { account.lastUse = Date.now(); };
+  document.addEventListener("keydown", used);
+  document.addEventListener("pointerdown", used);
+  window.addEventListener("focus", () => {
+    if (onAccount() && account.state === "logged_in" && Date.now() - account.lastRefresh >= ACCOUNT_STALE_MS) loadAccountInfo();
+  });
+  account.timer = setInterval(() => {
+    const active = onAccount() && document.visibilityState === "visible" && account.state === "logged_in";
+    if (active && Date.now() - account.lastUse < ACCOUNT_IDLE_MS) loadAccountInfo();
+  }, ACCOUNT_POLL_MS);
+}
+
 // ------------------------------------------------------------ the session's events
 
 async function listen() {
@@ -1046,7 +1278,9 @@ async function listen() {
 async function onEvent(event, data) {
   if (event === "view-added") {
     await loadList();
-    if (!EMBED && !location.hash.startsWith("#/session")) location.hash = "#/plots/" + data.id;
+    if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) location.hash = "#/plots/" + data.id;
+  } else if (event === "login-changed") {
+    if (onAccount()) loadAccount();
   } else if (event === "session-closed") {
     sessionEnded();
   }
@@ -1064,13 +1298,20 @@ let sessionTimer = null;
 
 function route() {
   const onSession = location.hash.startsWith("#/session");
-  document.getElementById("app").hidden = onSession;
+  const onAccountPage = onAccount();
+  const page = onSession ? "session" : (onAccountPage ? "account" : "plots");
+  document.getElementById("app").hidden = page !== "plots";
   document.getElementById("session").hidden = !onSession;
-  document.getElementById("nav").classList.toggle("on-session", onSession);
+  document.getElementById("account").hidden = !onAccountPage;
+  document.getElementById("nav").classList.toggle("on-session", page !== "plots");
   for (const a of document.querySelectorAll("#nav .tab[data-route]")) {
-    a.classList.toggle("active", a.dataset.route === (onSession ? "session" : "plots"));
+    a.classList.toggle("active", a.dataset.route === page);
   }
   clearInterval(sessionTimer);
+  if (onAccountPage) {
+    loadAccount();
+    return;
+  }
   if (onSession) {
     loadSession();
     // refreshed every five seconds while the page is in view
@@ -1092,6 +1333,7 @@ window.addEventListener("pagehide", () => {
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
   startSidebar();
+  startAccount();
   await loadList().catch((err) => showMessage(String(err)));
   route();
   // the docs link names the running EMode's version
