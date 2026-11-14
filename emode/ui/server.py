@@ -50,7 +50,7 @@ import numpy as np
 
 from .. import colormaps
 from ..types import EModeError
-from .figure import PlotOptions, compose, figure_aspect
+from .figure import PlotOptions, compose, effective_contours, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
@@ -281,7 +281,11 @@ class UIServer:
             # the plot box's height over its width: the tab sizes the plot to its width (#160)
             "aspect": figure_aspect(spec),
             "menu": menu_of(view.data).model_dump(mode="json"),
-            "controls": {**view.arguments, **_options_dict(view.options)},
+            "controls": {
+                **view.arguments,
+                **_options_dict(view.options),
+                **_drawn_contours(view),
+            },
             "extra": _extra(view.data),
         }
 
@@ -530,6 +534,12 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
     if out.get("dpi") is not None:
         out["dpi"] = int(out["dpi"])
     return out
+
+
+def _drawn_contours(view: View) -> Dict[str, Any]:
+    """The Contours control as drawn: the default None resolved, so the checkbox shows the truth."""
+    drawn = effective_contours(view.data, view.options)
+    return {} if drawn is None else {"contours": drawn}
 
 
 def _options_dict(options: PlotOptions) -> Dict[str, Any]:

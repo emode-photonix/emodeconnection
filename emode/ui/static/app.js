@@ -966,6 +966,8 @@ function buildPlotControls(box, reply) {
     const list = document.createElement("div");
     const active = new Set(m.active_settings || []);
     for (const [name, arg] of SETTINGS) {
+      // a setting EMode does not offer for this plot (Forward only and Blend slices outside an EME result) is not shown
+      if (!(name in m.settings)) continue;
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";

@@ -221,8 +221,9 @@ class MenuState(TaggedModel):
     ``selected`` holds the resolved selection by control name (``'data'``,
     ``'component'``, ``'normalization'``, ``'mode'``, ``'plane'``, ``'port'``,
     ``'section'``, ``'profile'``, ``'z_resolution'``), so a label the client
-    sent is echoed back as EMode resolved it. ``settings`` holds the eight
-    settings as resolved, and ``active_settings`` those the panel lets the user
+    sent is echoed back as EMode resolved it. ``settings`` holds the
+    settings as resolved (Forward only and Blend slices only for an EME
+    result's plots), and ``active_settings`` those the panel lets the user
     change.
 
     ``views`` lists the views of an EME device's plot (``'layout'``,
