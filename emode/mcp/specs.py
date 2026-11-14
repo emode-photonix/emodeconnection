@@ -42,7 +42,9 @@ class SettingsSpec(BaseModel):
             "Two characters, one per wall pair, each 0 (none), A (antisymmetric), "
             "S (symmetric) or P (periodic): '00' for no symmetry, or e.g. 'A0' or 'SA'. "
             "Or a polarization fold, 'TE', 'TE-h', 'TE-v', 'TM', 'TM-h' or 'TM-v', "
-            "or 'auto' to let EMode choose the walls."
+            "or 'auto' to let EMode choose the walls. 'TE'/'TM' fold about the window's "
+            "center lines (y = window_height / 2, x = 0) where the structure is mirror "
+            "symmetric about them, not about the window's edges."
         ),
     )
     field_to_solve: Literal["Et", "Ht"] | None = Field(
@@ -83,7 +85,11 @@ class ShapeSpec(BaseModel):
     height: float = Field(description="Height (thickness) in nm.")
     position: float | list[float | Literal["auto"]] | None = Field(
         None,
-        description="Horizontal position, or [x, y] with 'auto' stacking on the layer below.",
+        description=(
+            "Horizontal position, or [x, y] with 'auto' stacking on the layer below. The "
+            "first shape stacks on the window's floor, and a shape on the window's edge "
+            "continues past it, so give a core with no layer under it a y position."
+        ),
     )
     etch_depth: float | None = Field(
         None,
@@ -126,7 +132,8 @@ class ParameterSpec(BaseModel):
         None,
         description=(
             "Starting value, by default the current one. A list only for a key that "
-            "takes a list of values, 'poling, <section>, domain_lengths'."
+            "takes a list of values, 'poling, <section>, domain_lengths' or a mask "
+            "with several openings, one value per opening."
         ),
     )
 
