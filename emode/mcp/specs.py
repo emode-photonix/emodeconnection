@@ -29,7 +29,13 @@ class SettingsSpec(BaseModel):
         None, description="Simulation window height in nm."
     )
     boundary_condition: str | None = Field(
-        None, description="'0' for none, or 'S'/'A' symmetry pairs, or 'TE'/'TM'."
+        None,
+        description=(
+            "'auto' (the default) lets the solver choose the walls. '0' is a metal wall, "
+            "'S'/'A' a symmetry wall, as two letters (south, west). 'TE'/'TM' fold about "
+            "the window's center lines (y = window_height / 2, x = 0) where the structure "
+            "is mirror symmetric about them, not about the window's edges."
+        ),
     )
     field_to_solve: Literal["Et", "Ht"] | None = Field(
         None, description="Field to solve for."
@@ -69,7 +75,11 @@ class ShapeSpec(BaseModel):
     height: float = Field(description="Height (thickness) in nm.")
     position: float | list[float | Literal["auto"]] | None = Field(
         None,
-        description="Horizontal position, or [x, y] with 'auto' stacking on the layer below.",
+        description=(
+            "Horizontal position, or [x, y] with 'auto' stacking on the layer below. The "
+            "first shape stacks on the window's floor, and a shape on the window's edge "
+            "continues past it, so give a core with no layer under it a y position."
+        ),
     )
     etch_depth: float | None = Field(
         None,
