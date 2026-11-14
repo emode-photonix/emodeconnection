@@ -263,9 +263,33 @@ def plot(
         # the GDS layer view: its layer panel's arguments stay in this client
         data_args, figure_args = _split(arguments, DATA_ARGUMENTS + GDS_ARGUMENTS, "plot")
         return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type)
+    arguments = _physical_space(arguments)
     check_figure_arguments(arguments)
     data_args, figure_args = split_arguments(arguments)
     return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type)
+
+
+def _physical_space(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """`arguments` with the old ``physical_space`` turned into the view it means (emode#1649).
+
+    The view sets the space: ``view='layout'`` is physical space and
+    ``view='simulation'`` the simulation space. An explicit ``view`` wins.
+    """
+    if "physical_space" not in arguments:
+        return arguments
+    import warnings
+
+    out = dict(arguments)
+    physical = out.pop("physical_space")
+    warnings.warn(
+        "plot(physical_space=...) is deprecated: the view sets the space. "
+        "Use view='layout' for physical space or view='simulation' for the simulation space.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    if out.get("view") is None and physical is not None:
+        out["view"] = "layout" if physical else "simulation"
+    return out
 
 
 def show_call(
