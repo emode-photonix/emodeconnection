@@ -225,6 +225,40 @@ def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
     return out
 
 
+#: The colorbar's thickness in pixels, and where a single panel's sits in paper fractions.
+_BAR_THICKNESS = 12
+_BAR_X = 1.02
+
+
+def _colorbar_lines(
+    cb: Any, x: float = _BAR_X, xanchor: str = "left", y: float = 0.5, length: float = 1.0
+) -> List[Dict[str, Any]]:
+    """A line across the colorbar at each contour level (a Plotly colorbar has no such lines).
+
+    The shapes are anchored at the bar's edge in paper fractions and sized in pixels
+    across its thickness, so they follow the bar when the tab resizes.
+    """
+    span = cb.vmax - cb.vmin
+    if not cb.lines or span <= 0:
+        return []
+    start, end = (0, _BAR_THICKNESS) if xanchor == "left" else (-_BAR_THICKNESS, 0)
+    shapes = []
+    for level in cb.lines:
+        t = (level - cb.vmin) / span
+        if not 0.0 <= t <= 1.0:
+            continue
+        pos = y + (t - 0.5) * length
+        shapes.append(
+            {
+                "type": "line", "name": "colorbar_level", "layer": "above",
+                "xref": "paper", "xsizemode": "pixel", "xanchor": x, "x0": start, "x1": end,
+                "yref": "paper", "y0": pos, "y1": pos,
+                "line": {"color": "#000000", "width": 0.8},
+            }
+        )
+    return shapes
+
+
 def _closed(x: np.ndarray, y: np.ndarray, holes: Any) -> tuple:
     """A polygon and its holes as one path, each ring closed and separated by a gap."""
     xs: List[Optional[float]] = [float(v) for v in x] + [float(x[0])]
@@ -411,7 +445,12 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             }
         )
 
-    return {"data": data, "layout": _layout(spec)}
+    layout = _layout(spec)
+    if spec.colorbar is not None and spec.rasters:
+        shapes = _colorbar_lines(spec.colorbar)
+        if shapes:
+            layout["shapes"] = shapes
+    return {"data": data, "layout": layout}
 
 
 def _layout(spec: FigureSpec) -> Dict[str, Any]:
@@ -539,6 +578,7 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
     data: List[Dict[str, Any]] = []
     layout: Dict[str, Any] = {}
     annotations: List[Dict[str, Any]] = []
+    shapes: List[Dict[str, Any]] = []
     for k, panel in enumerate(spec.panels, start=1):
         row, col = divmod(k - 1, cols)
         x0 = col * (width + gap_x)
@@ -553,6 +593,10 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
             trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
             if "colorbar" in trace:
                 trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
+                if panel.colorbar is not None:
+                    shapes += _colorbar_lines(
+                        panel.colorbar, max(0.0, xd[1] - 0.02), "right", (yd[0] + yd[1]) / 2, height
+                    )
             data.append(trace)
         xaxis, yaxis = dict(sub["layout"]["xaxis"]), dict(sub["layout"]["yaxis"])
         xaxis.update({"domain": xd, "anchor": f"y{suffix}"})
@@ -581,6 +625,7 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         {
             "font": first["font"],
             "annotations": annotations,
+            **({"shapes": shapes} if shapes else {}),
             "showlegend": any(t.get("showlegend") for t in data),
             "legend": first["legend"],
             "margin": {"l": 60, "r": 60 if any(p.axes.y2range is not None for p in spec.panels) else 20, "t": 60, "b": 50},

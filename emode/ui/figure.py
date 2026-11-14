@@ -233,6 +233,8 @@ class ColorbarSpec:
     tick_labels: Optional[Tuple[str, ...]] = None
     label: Optional[str] = None
     tick_format: str = "%3.1f"
+    #: The contour levels drawn on the panel, marked by a line across the colorbar.
+    lines: Tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -468,11 +470,23 @@ def _axis_label(name: str, unit: str) -> str:
     return f"{name} ({UNIT_SYMBOL[unit]})"
 
 
+def effective_contours(data: Any, options: PlotOptions) -> Optional[bool]:
+    """Whether `data`'s contour lines are drawn under `options`, None when `data` has none.
+
+    ``options.contours`` None is the default: on for the x-y plane, off for
+    the z planes. The tab's Contours checkbox shows this, never the raw None.
+    """
+    if not isinstance(data, PlotView):
+        return None
+    if options.contours is not None:
+        return options.contours
+    return data.plane not in ("z-x", "z-y")
+
+
 def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     xu, yu = _units(view, options)
     sx, sy = UNIT_SCALE[xu], UNIT_SCALE[yu]
-    z_plane = view.plane in ("z-x", "z-y")
-    contours = options.contours if options.contours is not None else not z_plane
+    contours = bool(effective_contours(view, options))
     rasters = []
     for r in view.rasters:
         cmap = _cmap(r.kind, options)
@@ -574,6 +588,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
             tick_format=view.scale.tick_format,
+            lines=rasters[0].contour_levels if rasters else (),
         )
 
     legend: Tuple[LegendEntrySpec, ...] = ()
