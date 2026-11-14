@@ -651,3 +651,89 @@ def test_the_lookup_reads_pypi_with_a_short_timeout(monkeypatch: pytest.MonkeyPa
 def test_a_malformed_pypi_reply_is_no_version(monkeypatch: pytest.MonkeyPatch, body: Any) -> None:
     monkeypatch.setattr(installer.http_requests, 'get', lambda url, timeout, **kw: _Reply(body))
     assert _LATEST_CLIENT() is None
+
+
+# ---------------------------------------------------------------
+# The macOS a release needs (emodeconnection#137)
+# ---------------------------------------------------------------
+
+
+@pytest.fixture
+def mac(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """A Mac with a given macOS, 1.0.8 and 1.0.9 listed, and a `.pkg` recorder."""
+
+    def set_macos(release: str) -> None:
+        monkeypatch.setattr(installer.platform, 'system', lambda: 'Darwin')
+        monkeypatch.setattr(installer.platform, 'mac_ver', lambda: (release, ('', '', ''), 'arm64'))
+
+    monkeypatch.setitem(installer.DEFAULT_INSTALL_DIRS, 'Darwin', tmp_path / 'usr-bin')
+    versions = {
+        'latest': '1.0.9',
+        'versions': {'1.0.9': ['Mac', 'Mac-x86'], '1.0.8': ['Mac', 'Mac-x86']},
+    }
+    monkeypatch.setattr(installer, 'get_versions', lambda: versions)
+    monkeypatch.setattr(installer, 'handle_eula', lambda: True)
+    monkeypatch.setattr(installer, 'prompt_credentials', lambda: ('a@b.c', 'pw'))
+    monkeypatch.setattr(installer, 'login', lambda email, password: 'token')
+    monkeypatch.setattr(installer, 'latest_client', lambda: None)
+    asked: list[str] = []
+
+    def download_release(token, platform_key, version, filename, dest_dir):
+        asked.append(version)
+        return dest_dir / filename
+
+    monkeypatch.setattr(installer, 'download_release', download_release)
+    installed: list[Path] = []
+    monkeypatch.setattr(
+        installer, 'install_pkg', lambda pkg, install_dir: installed.append(install_dir) or pkg
+    )
+    monkeypatch.setattr(installer, 'check_path', lambda install_dir: None)
+    monkeypatch.setattr(installer, 'verify_sha256', lambda path, expected: None)
+    set_macos.asked = asked  # type: ignore[attr-defined]
+    set_macos.installed = installed  # type: ignore[attr-defined]
+    return set_macos
+
+
+def test_macos_13_refuses_1_0_9_and_names_1_0_8(mac, capsys: pytest.CaptureFixture[str]) -> None:
+    mac('13.6')
+    with pytest.raises(SystemExit) as exc:
+        installer.install(version=None)
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert 'macOS 14' in out and '13.6' in out
+    assert '1.0.8' in out and 'emode-install --version 1.0.8' in out
+    assert mac.asked == [], 'nothing is downloaded'
+    assert mac.installed == []
+
+
+def test_a_custom_directory_refuses_the_same_way(mac, tmp_path: Path) -> None:
+    mac('13.6')
+    with pytest.raises(SystemExit) as exc:
+        installer.install(version='1.0.9', install_dir=tmp_path / 'bin')
+    assert exc.value.code == 1
+    assert mac.asked == []
+
+
+@pytest.mark.parametrize('release', ['14.0', '14.7.1', '15.1', '26.5'])
+def test_macos_14_and_later_install_1_0_9(mac, release: str) -> None:
+    mac(release)
+    installer.install(version=None)
+    assert mac.asked == ['1.0.9']
+
+
+def test_macos_13_still_installs_1_0_8(mac) -> None:
+    mac('13.6')
+    installer.install(version='1.0.8')
+    assert mac.asked == ['1.0.8']
+
+
+def test_linux_and_windows_are_unaffected(downloads, linux, run) -> None:
+    installer.install(version=None)
+    assert [d['version'] for d in downloads] == [VERSION]
+
+
+def test_the_minimum_macos_of_a_release() -> None:
+    assert installer.min_macos('1.0.8') is None
+    assert installer.min_macos('1.0.9') == (14, 0)
+    assert installer.min_macos('1.1.0') == (14, 0)
+    assert installer.min_macos('1.0.9.dev3') == (14, 0)

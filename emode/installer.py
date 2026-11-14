@@ -76,6 +76,14 @@ VARIANT_PLATFORMS = {
 
 PLATFORM_DISPLAY = {'mac': 'Mac', 'linux': 'Linux', 'windows': 'Windows'}
 
+# The macOS a Mac installer needs, from the first release that needs it. A release takes the
+# newest entry at or below its own version, and a release below every entry runs on any macOS
+# this client installs on. From 1.0.9 the Mac installers need macOS 14 Sonoma, and the .pkg
+# refuses an older macOS.
+MAC_MINIMUMS: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...] = (
+    ((1, 0, 9), (14, 0)),
+)
+
 # File extensions per platform
 # Mac: .pkg (native macOS installer — double-click or headless via `installer`)
 # Linux: .zip (contains emode binary + install.sh)
@@ -124,6 +132,45 @@ def find_installed(install_dir: Path, os_name: str, explicit: bool) -> Path:
         return exe_path
     user_exe = get_executable_path(get_user_install_dir(), os_name)
     return user_exe if user_exe.exists() else exe_path
+
+
+def min_macos(version: str) -> Optional[tuple[int, ...]]:
+    """The macOS a Mac installer of `version` needs, or None when it has no minimum here."""
+    release = parse_version(version)
+    needed = None
+    for first, minimum in MAC_MINIMUMS:
+        if release >= first:
+            needed = minimum
+    return needed
+
+
+def _mac_release() -> tuple[int, ...]:
+    """The macOS this computer runs, as a tuple, or () when it cannot be read."""
+    return parse_version(platform.mac_ver()[0] or '')
+
+
+def check_macos(version: str, available: dict) -> None:
+    """Exit before any download when this Mac is older than `version` needs.
+
+    Names the newest listed release this macOS runs and the command that installs it.
+    """
+    needed = min_macos(version)
+    running = _mac_release()
+    if needed is None or not running or running >= needed:
+        return
+    shown = platform.mac_ver()[0]
+    print(f"Error: EMode {version} needs macOS {'.'.join(map(str, needed[:1]))} "
+          f"or later, and this Mac runs macOS {shown}.")
+    runnable = [v for v in available.get('versions', {})
+                if (min_macos(v) or ()) <= running]
+    if runnable:
+        last = max(runnable, key=parse_version)
+        print(f"The last EMode release that runs on macOS {shown} is {last}. Install it with:")
+        print(f"    emode-install --version {last}")
+    else:
+        print("No listed EMode release runs on this macOS.")
+    print("Nothing was downloaded.")
+    sys.exit(1)
 
 
 def resolve_platform(os_name: str, variant: str = 'default') -> tuple[str, str]:
@@ -240,6 +287,9 @@ def resolve_version(
             print(f"Available versions: {available}")
             sys.exit(1)
         version = requested
+
+    if os_name == 'Darwin':
+        check_macos(version, data)
 
     # Verify the requested platform is available for this version
     available_platforms = data['versions'].get(version, [])
