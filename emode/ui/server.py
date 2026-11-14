@@ -50,7 +50,7 @@ import numpy as np
 
 from .. import colormaps
 from ..types import EModeError
-from .figure import PlotOptions, compose
+from .figure import PlotOptions, compose, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
@@ -275,6 +275,8 @@ class UIServer:
             "kind": view.kind,
             "title": view.title,
             "figure": to_plotly(spec),
+            # the plot box's height over its width: the tab sizes the plot to its width (#160)
+            "aspect": figure_aspect(spec),
             "menu": menu_of(view.data).model_dump(mode="json"),
             "controls": {**view.arguments, **_options_dict(view.options)},
             "extra": _extra(view.data),
