@@ -579,6 +579,23 @@ def test_client_warnings_during_a_call_reach_the_agent() -> None:
     assert "the client says careful" in result.structured_content["warnings"]
 
 
+def test_the_solver_s_warnings_during_a_call_reach_the_agent() -> None:
+    """What EMode logged during the tool's calls, read with warnings() (#95)."""
+    FakeEMode.returns["warnings"] = lambda **kwargs: ["the solver says careful"]
+    result = run("emode_sweep", {"key": "wavelength", "values": [1550]})
+    assert not result.is_error
+    assert "the solver says careful" in result.structured_content["warnings"]
+
+
+def test_a_failed_warnings_read_does_not_fail_the_tool() -> None:
+    def refuse(**kwargs: Any) -> list[str]:
+        raise EModeError("'EM_warnings' is not an EMode function")
+
+    FakeEMode.returns["warnings"] = refuse
+    result = run("emode_sweep", {"key": "wavelength", "values": [1550]})
+    assert not result.is_error
+
+
 # schemas and the public method list
 
 

@@ -9,9 +9,8 @@ solver is always started quiet: anything it printed there would corrupt the
 protocol.
 
 Every tool but ``emode_plot`` returns a ``ToolResult``. Its ``warnings`` hold
-what the client library logged at WARNING level during the call. A warning the
-solver itself writes goes to the solver's own stderr, which the client does not
-return, so it does not reach the agent.
+what the client library logged at WARNING level during the call, then what the
+solver itself logged, read with ``EMode.warnings()`` (EMode 1.0.9 and later).
 """
 
 from __future__ import annotations
@@ -73,6 +72,7 @@ WRAPPED_METHODS = frozenset(
         "inspect",
         "plot",
         "close",
+        "warnings",
     }
 )
 
@@ -214,8 +214,9 @@ class _ListHandler(logging.Handler):
 
 
 @contextmanager
-def _capture_warnings() -> Iterator[list[str]]:
-    """Collect what the client library logs at WARNING level while a tool runs."""
+def _capture_warnings(session: _Session) -> Iterator[list[str]]:
+    """Collect the warnings of a tool's calls: what the client library logs at
+    WARNING level, then what EMode itself logged (`EMode.warnings()`)."""
     messages: list[str] = []
     logger = logging.getLogger("emode")
     handler = _ListHandler(messages)
@@ -224,6 +225,18 @@ def _capture_warnings() -> Iterator[list[str]]:
         yield messages
     finally:
         logger.removeHandler(handler)
+        messages.extend(_solver_warnings(session))
+
+
+def _solver_warnings(session: _Session) -> list[str]:
+    """What EMode logged since it was last asked, nothing when it cannot say."""
+    if session.em is None:
+        return []
+    try:
+        found = session.em.warnings()
+    except EModeError:
+        return []
+    return [str(m) for m in found] if isinstance(found, list) else []
 
 
 class _Session:
@@ -477,7 +490,7 @@ def create_server(
             targets = [None, *session.labels]
         else:
             targets = [profile]
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             for target in targets:
                 await _blocking(em.settings, **applied, **_drop_none(profile=target))
         if profile is None:
@@ -494,7 +507,7 @@ def create_server(
         emode_profile, to change that one instead of the current cross-section.
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(
                 em.shape, **_set_kwargs(shape), **_drop_none(profile=profile)
             )
@@ -512,7 +525,7 @@ def create_server(
         optimization with the key 'shape, <profile>, <name>, <property>'.
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(em.label_profile, name=name)
         if name not in session.labels:
             session.labels.append(name)
@@ -536,7 +549,7 @@ def create_server(
         action 'index' returns the index of the named material at wavelength (nm).
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if action == "add":
                 if not refractive_index_equation:
                     raise ToolError("action 'add' needs refractive_index_equation.")
@@ -569,7 +582,7 @@ def create_server(
         """
         em = session.require()
         overrides = _drop_none(wavelength=wavelength, num_modes=num_modes)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if overrides:
                 await _blocking(em.settings, **overrides)
             await _blocking(getattr(em, solver), verbose=False)
@@ -650,7 +663,7 @@ def create_server(
             raise ToolError(
                 f"A {kind} section ({method}) does not take {', '.join(extra)}."
             )
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(getattr(em, method), **given)
         return done({"section": name, "kind": kind}, warnings, len(store.written))
 
@@ -664,7 +677,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(em.EME, **({"warm_start": True} if warm_start else {}))
             s_matrix = await _blocking(em.get, "S_matrix")
         return done(s_matrix, warnings, before)
@@ -724,7 +737,7 @@ def create_server(
             tolerance=tolerance,
         )
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             data = await _blocking(em.sweep, **kwargs)
         return done(data, warnings, before)
 
@@ -760,7 +773,7 @@ def create_server(
             max_solves=max_solves, max_time=max_time, max_memory=max_memory, mode=mode,
             profile=profile,
         )  # fmt: skip
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             report = await _blocking(em.converge, **kwargs)
         data = report.to_json()
         data["table"] = str(report)
@@ -779,7 +792,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             data = await _blocking(em.evaluate, parameters=parameters, results=results)
         return done(data, warnings, before)
 
@@ -852,7 +865,7 @@ def create_server(
             )
         )
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             report = await _blocking(em.optimize, **kwargs)
         data = report.to_json()
         data["history"] = [
@@ -877,7 +890,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if key is None:
                 data = await _blocking(em.inspect)
             else:
