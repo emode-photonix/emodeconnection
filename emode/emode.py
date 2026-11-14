@@ -12,8 +12,10 @@ from threading import RLock, Thread
 from typing import IO, Optional, Literal, Union
 from .compat import (
     NDARRAY_REQUEST_SINCE,
+    WARNINGS_SINCE,
     array_arguments,
     check_emode_version,
+    parse_version,
     reads_ndarray,
     required_versions,
 )
@@ -540,6 +542,20 @@ class EMode:
         from .ui.session import exit_wait
 
         exit_wait(self)
+
+    def warnings(self) -> list[str]:
+        """The warnings EMode logged since this was last called, oldest first.
+
+        Each is the text EMode also writes to the terminal. Reading them clears
+        them, so calling this after a call returns that call's warnings. A
+        program with no terminal (a notebook kernel, the MCP server, a test
+        harness) reads the solver's warnings this way. An EMode older than
+        1.0.9 keeps none, and this returns an empty list.
+        """
+        version = self._emode_version()
+        if version is None or parse_version(version) < parse_version(WARNINGS_SINCE):
+            return []
+        return list(self.call("EM_warnings") or [])
 
     def __getattr__(self, name):
         def wrapper(*args, **kwargs):

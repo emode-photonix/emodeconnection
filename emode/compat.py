@@ -96,6 +96,9 @@ FIELD_SINCE: dict[tuple[str, str], str] = {
 }
 
 
+# The first EMode release that keeps a call's warnings for `EMode.warnings()`.
+WARNINGS_SINCE = "1.0.9"
+
 # The first EMode release that reads an array argument sent as `__ndarray__`.
 NDARRAY_REQUEST_SINCE = "1.0.8"
 
