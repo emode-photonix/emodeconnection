@@ -12,7 +12,9 @@ const TOKEN = params.get("token") || "";
 const EMBED = params.get("embed") === "1";
 const HEADERS = { "X-EMode-Token": TOKEN, "Content-Type": "application/json" };
 
-// the eight settings of the plot window and the argument of plot() each sets
+// the settings of the plot and the argument of plot() each sets. The view sets
+// the space (layout is physical, simulation the simulation space), so there is
+// no Physical space setting (emode#1649)
 const SETTINGS = [
   ["Index outline", "index_outline"],
   ["Contours", "contours"],
@@ -20,7 +22,6 @@ const SETTINGS = [
   ["Mesh display", "mesh_display"],
   ["Window display", "window_display"],
   ["Forward only", "forward_only"],
-  ["Physical space", "view"],
   ["Blend slices", "blend_slices"],
 ];
 
@@ -731,7 +732,7 @@ const SESSION_ROWS = [
   ["License", (e) => e.license_type],
   ["Account", (e) => e.account],
   ["Started", (e) => e.started && (new Date(e.started).toLocaleString() + ", " + since(e.started))],
-  ["Simulation", (e) => e.simulation_name],
+  ["Simulation name", (e) => e.simulation_name],
   ["File", (e) => e.eph_path],
   ["File size", (e) => bytes(e.eph_bytes)],
   ["EMode process", (e) => "pid " + e.pid + ", " + (e.threads || "?") + " threads"],
@@ -863,12 +864,8 @@ function buildPlotControls(box, reply) {
       cb.type = "checkbox";
       const figureValue = c[arg];
       cb.checked = arg in c && typeof figureValue === "boolean" ? figureValue : !!m.settings[name];
-      if (arg === "view") cb.checked = (c.view || "layout") === "layout" && !!m.settings[name];
       cb.disabled = !active.has(name);
-      cb.addEventListener("change", () => {
-        const value = arg === "view" ? (cb.checked ? "layout" : "simulation") : cb.checked;
-        change({ [arg]: value });
-      });
+      cb.addEventListener("change", () => change({ [arg]: cb.checked }));
       label.append(cb, " " + name);
       list.appendChild(label);
     }
