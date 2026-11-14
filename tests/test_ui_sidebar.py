@@ -84,7 +84,8 @@ def test_the_script_sets_aria_expanded_and_resizes_the_plot_after_the_transition
     assert 'setAttribute("aria-expanded"' in js
     start = js.index("function setSidebar")
     body = js[start : js.index("\n}\n", start)]
-    assert "Plotly.Plots.resize" in body
+    # the plot is refit to its container's width (emodeconnection#160)
+    assert "fitFigure()" in body
     assert "setTimeout" in body
 
 

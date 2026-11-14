@@ -32,6 +32,10 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
+#: The golden ratio: every plot but the S-matrix is this much wider than tall
+#: by default, an x-y cross section included (emodeconnection#160).
+GOLDEN = (1 + math.sqrt(5)) / 2
+
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
 
@@ -290,12 +294,48 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
 
     `view` is a ``PlotView``, a ``Schematic``, an ``SMatrixView``, a
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
+
+    The plot box's height over its width (``AxesSpec.box_aspect``) is 1 for the
+    S-matrix and 1 / ``GOLDEN`` for every other plot, an x-y cross section
+    included, unless ``aspect_ratio`` gives one: a number, or ``'real'``
+    for the limits' own ratio (emodeconnection#160).
     """
+    options = options or PlotOptions()
+    spec = _compose(view, options)
+    if spec.panels:
+        return spec
+    return replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+
+
+def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> float:
+    """The plot box's height over its width for `view` (emodeconnection#160)."""
+    (x0, x1), (y0, y1) = spec.axes.xrange, spec.axes.yrange
+    limits = abs(y1 - y0) / abs(x1 - x0) if x1 != x0 else 1.0
+    chosen = options.aspect_ratio
+    if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+        return float(chosen)
+    if isinstance(chosen, str) and chosen.lower() == "real":
+        return limits
+    if isinstance(view, SMatrixView):
+        return 1.0
+    return 1 / GOLDEN
+
+
+def figure_aspect(spec: FigureSpec) -> float:
+    """The plot box's height over its width, which the tab sizes the plot to."""
+    if spec.panels:
+        rows, cols = spec.panel_grid
+        return rows / cols / GOLDEN
+    if spec.axes.box_aspect is not None:
+        return float(spec.axes.box_aspect)
+    return 1 / GOLDEN
+
+
+def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
     from ..free_space import FarField
     from ..gds import GDSView
     from .gds import GDSPanel, compose_gds
 
-    options = options or PlotOptions()
     if isinstance(view, GDSView):
         view = GDSPanel.from_view(view)
     if isinstance(view, GDSPanel):
@@ -467,8 +507,6 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     background = _color(view.background, None, options)
     width, height = options.figure_size or DEFAULT_SIZE_MM
     box_aspect = view.axes.box_aspect
-    if options.aspect_ratio is not None and not view.axes.equal_aspect:
-        box_aspect = _box_aspect(options.aspect_ratio, view)
     x0, x1 = view.axes.xlim
     y0, y1 = view.axes.ylim
     if options.window_display and view.axes.xlim_window and view.axes.ylim_window:
@@ -508,14 +546,6 @@ def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions
         line.label, x / sx, y / sy, "data", line.align, "bottom", color, options.font_size, kind
     )
 
-
-def _box_aspect(aspect_ratio: Union[str, float], view: PlotView) -> Optional[float]:
-    if isinstance(aspect_ratio, (int, float)):
-        return float(aspect_ratio)
-    if str(aspect_ratio).lower() == "real":
-        (x0, x1), (y0, y1) = view.axes.xlim, view.axes.ylim
-        return abs(y1 - y0) / abs(x1 - x0) if x1 != x0 else None
-    return view.axes.box_aspect
 
 
 # ------------------------------------------------------------------ the schematic
@@ -666,7 +696,6 @@ def _compose_smatrix(view: SMatrixView, options: PlotOptions) -> FigureSpec:
         ylabel=options.ylabel or "Output mode",
         xrange=(-0.5, n_in - 0.5),
         yrange=(-0.5, n_out - 0.5),
-        equal_aspect=True,
         integer_ticks=True,
     )
     return FigureSpec(

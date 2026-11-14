@@ -175,8 +175,9 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if a.invert_y and not ax.yaxis_inverted():
         ax.invert_yaxis()
     if a.equal_aspect:
-        ax.set_aspect("equal")
-    elif a.box_aspect is not None:
+        # one unit as long on both axes, the limits widened to fill the box
+        ax.set_aspect("equal", adjustable="datalim" if a.box_aspect is not None else "box")
+    if a.box_aspect is not None:
         ax.set_box_aspect(a.box_aspect)
     if a.grid:
         ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
