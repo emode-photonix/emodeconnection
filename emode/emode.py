@@ -21,6 +21,7 @@ from .emodeclient import EModeClient
 from .file_utils import Cache
 from .plot import PlotImage
 from .types import ArgumentError, EModeError, LicenseError
+from .ui.account import is_login_required, sign_in
 
 logger = getLogger(__name__)
 
@@ -205,16 +206,21 @@ class EMode:
 
         try:
             if open_existing:
-                RV = self.call(
+                RV = self._first_call(
                     "EM_open", simulation_name=simulation_name, save_path=save_path, new_simulation_name=new_name, force=force_open
                 )
             else:
-                RV = self.call("EM_init", simulation_name=simulation_name, save_path=save_path)
+                RV = self._first_call("EM_init", simulation_name=simulation_name, save_path=save_path)
         except ConnectionError:
             raise EModeError("EMode failed to launch.")
-        except LicenseError:
+        except LicenseError as error:
             # EMode refused the session (no license available, a busy demo, a
-            # demo that has ended) and said why in its answer to the first call.
+            # demo that has ended, or no sign-in) and said why in its answer.
+            if is_login_required(error) and self._client.connected:
+                try:
+                    self.call("EM_close", save=False)
+                except (EModeError, ConnectionError, OSError):
+                    pass
             self._shut_down_refused()
             raise
 
@@ -222,6 +228,22 @@ class EMode:
         from .ui.session import register_session
 
         register_session(self)
+
+    def _first_call(self, function: str, **kwargs):
+        """The call that starts the session, after a sign-in on the account page when EMode asks for one.
+
+        EMode answers it with a ``LicenseError`` of code ``'login_required'``
+        when no login is stored or the stored one is refused, and keeps the
+        connection open. The account page then opens in the browser, and once
+        EMode says the session is signed in the call is made again.
+        """
+        try:
+            return self.call(function, **dict(kwargs))
+        except LicenseError as error:
+            if not is_login_required(error):
+                raise
+            sign_in(self, error)
+        return self.call(function, **dict(kwargs))
 
     def _shut_down_refused(self) -> None:
         """Close the connection to a refused session and wait for EMode to exit."""

@@ -15,6 +15,7 @@
   <span class="brand">EMode</span>
   <a href="#/plots" class="tab" data-route="plots">Plots</a>
   <a href="#/session" class="tab" data-route="session">Session</a>
+  <a href="#/account" class="tab" data-route="account">Account</a>
   <a id="docs" href="https://docs.emodephotonix.com/" target="_blank" rel="noopener noreferrer" class="tab">Docs</a>
   <span id="status" role="status"></span>
 </header>
@@ -40,6 +41,92 @@
   <h2>This session</h2>
   <div id="session-message" role="status" hidden></div>
   <table id="session-table"></table>
+</main>
+<main id="account" hidden>
+  <div class="account-head">
+    <span class="account-brand">EMode</span>
+    <span id="account-version"></span>
+  </div>
+  <div id="account-message" role="alert" hidden></div>
+  <section id="signed-out" class="card login-card" aria-labelledby="signin-title">
+    <h2 id="signin-title">Sign in to EMode</h2>
+    <div id="device-signin" hidden>
+      <button id="device-start" type="button" class="primary wide">Sign in with your browser</button>
+      <p class="note">Accounts with two-factor authentication sign in here: you approve this computer on the website.</p>
+      <div id="device-panel" hidden>
+        <p>Enter this code on the sign-in page, then approve this computer:</p>
+        <p id="device-code" class="device-code" aria-live="polite"></p>
+        <p><a id="device-link" href="#" target="_blank" rel="noopener noreferrer">Open the sign-in page</a></p>
+        <p id="device-wait" class="note">Waiting for the approval&hellip;</p>
+        <button id="device-retry" type="button" hidden>Get a new code</button>
+      </div>
+      <div class="divider"><span>or with your password</span></div>
+    </div>
+    <form id="login-form" method="post" autocomplete="on" novalidate>
+      <label for="login-email">Email</label>
+      <input id="login-email" name="email" type="email" autocomplete="username" required>
+      <label for="login-password">Password</label>
+      <div class="password-row">
+        <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        <button id="password-toggle" type="button" aria-controls="login-password" aria-pressed="false">Show</button>
+      </div>
+      <a id="forgot-password" href="https://emodephotonix.com/my-account/lost-password/" target="_blank" rel="noopener noreferrer">Forgot password?</a>
+      <div id="login-error" role="alert" hidden></div>
+      <button id="login-submit" type="submit" class="primary wide">Log In</button>
+    </form>
+  </section>
+  <section id="signed-in" hidden>
+    <div class="card account-bar">
+      <span>Signed in as <strong id="account-email"></strong></span>
+      <span class="bar-links">
+        <a id="my-account" href="https://emodephotonix.com/my-account/" target="_blank" rel="noopener noreferrer">My Account</a>
+        <button id="logout" type="button">Log Out</button>
+      </span>
+    </div>
+    <div id="update-notice" class="card notice" role="status" hidden></div>
+    <div class="account-grid">
+      <div class="card">
+        <h3>Checked-out / total licenses</h3>
+        <p class="counts"><span><strong>2D</strong> <span id="count-2d"></span></span><span><strong>3D</strong> <span id="count-3d"></span></span></p>
+        <p><a id="sharing-link" href="https://emodephotonix.com/my-account/" target="_blank" rel="noopener noreferrer" hidden>Manage license sharing on My Account</a></p>
+        <p id="sharing-line"></p>
+        <h3>Settings</h3>
+        <label class="check"><input id="error-reporting" type="checkbox"> Send error reports</label>
+        <p id="error-reporting-explanation" class="note"></p>
+      </div>
+      <div class="card">
+        <h3>Licenses</h3>
+        <div class="table-wrap">
+          <table id="license-table">
+            <thead><tr><th>Subscription</th><th>Status</th><th>Expiration</th><th>Owner</th></tr></thead>
+            <tbody id="license-rows"></tbody>
+          </table>
+        </div>
+        <div class="sessions-head">
+          <h3>Active sessions</h3>
+          <span class="session-actions">
+            <button id="refresh-sessions" type="button">Refresh</button>
+            <label for="clear-mode" class="sr-only">Clear sessions</label>
+            <select id="clear-mode">
+              <option value="none">Clear&hellip;</option>
+              <option value="all">all</option>
+              <option value="mine">mine</option>
+              <option value="others">others</option>
+              <option value="latest">latest</option>
+              <option value="oldest">oldest</option>
+            </select>
+            <button id="clear-sessions" type="button">Clear</button>
+          </span>
+        </div>
+        <div class="table-wrap">
+          <table id="session-list">
+            <thead><tr><th>Type</th><th>User</th><th>Computer</th><th>Started</th><th>Owner</th><th><span class="sr-only">Clear</span></th></tr></thead>
+            <tbody id="session-rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 </body>
 </html>

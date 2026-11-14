@@ -217,6 +217,8 @@ def ensure_server(em: "EMode") -> UIServer:
             clock=clock,
             session_info=session_info,
             details=lambda component: fetch_details(em, component),
+            login=lambda function, **kwargs: em.call(function, **kwargs),
+            emode_version=em._emode_version,
         ).start()
         em._ui = server
     return server
