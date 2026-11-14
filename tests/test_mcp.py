@@ -232,8 +232,9 @@ def test_solve_applies_overrides_before_solving() -> None:
     session(("emode_open", WG), ("emode_solve", {"wavelength": 1310, "num_modes": 4}))
     calls = FakeEMode.instances[0].calls
     names = [c[0] for c in calls]
-    assert names[-4:] == ["settings", "FDM", "get", "get"]
-    assert calls[-4][1] == {"wavelength": 1310, "num_modes": 4}
+    # then the solver's warnings for the tool (#95)
+    assert names[-5:] == ["settings", "FDM", "get", "get", "warnings"]
+    assert calls[-5][1] == {"wavelength": 1310, "num_modes": 4}
 
 
 def test_solve_without_a_session_says_to_open_one() -> None:
@@ -286,9 +287,7 @@ def test_main_without_the_mcp_extra_says_how_to_install_it(
 
     monkeypatch.setattr(builtins, "__import__", refuse)
     for mod in [
-        m
-        for m in list(__import__("sys").modules)
-        if m.startswith("emode.mcp.")
+        m for m in list(__import__("sys").modules) if m.startswith("emode.mcp.")
     ]:
         monkeypatch.delitem(__import__("sys").modules, mod)
     err = io.StringIO()
@@ -307,3 +306,28 @@ def test_the_specs_say_where_te_folds_and_where_a_first_shape_sits() -> None:
     assert "center lines" in bc and "window_height / 2" in bc
     position = ShapeSpec.model_fields["position"].description
     assert "floor" in position and "continues past it" in position
+
+
+def test_the_boundary_condition_spec_names_00_for_no_symmetry() -> None:
+    """The description an agent reads names '00', not '0' (emodeconnection#108)."""
+    from emode.mcp.specs import SettingsSpec
+
+    description = SettingsSpec.model_fields["boundary_condition"].description or ""
+    assert "'00'" in description
+    assert "'0' for none" not in description
+    for value in ("TE-h", "TM-v", "P", "auto"):
+        assert value in description
+
+
+@pytest.mark.parametrize("bc", ["00", "A0", "SA", "PP", "TE", "TE-h", "TM-v", "auto"])
+def test_open_accepts_every_boundary_condition_emode_takes(bc: str) -> None:
+    (result,) = session(("emode_open", {"settings": {"boundary_condition": bc}}))
+    assert not result.is_error
+    assert FakeEMode.instances[0].calls[0][1] == {"boundary_condition": bc}
+
+
+@pytest.mark.parametrize("bc", ["0", "S", "TE-x", "000"])
+def test_open_refuses_a_boundary_condition_emode_refuses(bc: str) -> None:
+    (result,) = session(("emode_open", {"settings": {"boundary_condition": bc}}))
+    assert result.is_error
+    assert FakeEMode.instances == []
