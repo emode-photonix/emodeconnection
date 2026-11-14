@@ -9,6 +9,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
 body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
 #nav { display: flex; align-items: center; gap: 16px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
 #nav .brand { font-weight: 700; color: var(--accent); }
@@ -17,7 +18,11 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #status { margin-left: auto; color: var(--muted); }
 #status.busy { color: var(--warn); }
 #app { display: flex; height: calc(100vh - 38px); }
-#list { width: 220px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
+#list { width: 220px; flex: none; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); transition: width 0.2s, visibility 0.2s; }
+#app.sidebar-collapsed #list { width: 0; border-right-width: 0; visibility: hidden; }
+#sidebar-toggle { font: inherit; font-size: 16px; line-height: 1; padding: 3px 8px; background: transparent; border: 1px solid var(--line); border-radius: 3px; color: var(--text); cursor: pointer; }
+#sidebar-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views { list-style: none; margin: 0; padding: 0; }
 #views li { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
 #views li.selected { background: #e8f0fb; }
@@ -52,4 +57,15 @@ body.embed #app { height: 100vh; }
 #session-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
 #session-table td { word-break: break-all; }
 #session-message { color: var(--warn); padding-bottom: 8px; }
+@media (max-width: 800px) {
+  #app { position: relative; }
+  #list { position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: 220px; max-width: 85vw; box-shadow: 2px 0 8px rgba(0, 0, 0, 0.25); transition: transform 0.2s, visibility 0.2s; }
+  #app.sidebar-collapsed #list { width: 220px; border-right-width: 1px; transform: translateX(-105%); box-shadow: none; }
+  #panel { padding: 8px; }
+  #stage { flex-direction: column; }
+  #layer-panel { width: auto; max-width: 100%; max-height: 40vh; border-left: 0; border-top: 1px solid var(--line); }
+  #controls details > div { white-space: normal; max-width: calc(100vw - 16px); }
+  #session { padding: 10px; }
+  #session-table { max-width: 100%; }
+}
 [hidden] { display: none !important; }
