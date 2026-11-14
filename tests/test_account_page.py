@@ -22,7 +22,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
@@ -276,7 +276,8 @@ def test_the_password_is_never_in_a_reply_a_url_or_a_log(signed_out, caplog):
 
 def test_the_password_route_takes_no_get(signed_out):
     server, fake = signed_out
-    status, _ = get(server, f"/api/login/password?email={EMAIL}&password={PASSWORD}")
+    query = urlencode({"email": EMAIL, "password": PASSWORD})
+    status, _ = get(server, f"/api/login/password?{query}")
     assert status == 404
     assert fake.calls == []
 
@@ -351,7 +352,7 @@ def test_a_session_row_clears_by_its_handle(signed_in):
     server, fake = signed_in
     status, reply = post(server, "/api/login/clear", {"mode": "session", "session_handle": "h1"})
     assert status == 200
-    assert fake.calls[-2] == ("EM_clear_session", {"mode": "session", "session_handle": "h1"})
+    assert fake.calls[-1] == ("EM_clear_session", {"mode": "session", "session_handle": "h1"})
     assert [s["handle"] for s in reply["sessions"]] == [None]
     assert reply["counts"]["3D"] == "0 / 1"
 
@@ -361,7 +362,7 @@ def test_each_clear_mode_forwards(signed_in, mode):
     server, fake = signed_in
     status, reply = post(server, "/api/login/clear", {"mode": mode})
     assert status == 200 and "sessions" in reply
-    assert fake.calls[-2] == ("EM_clear_session", {"mode": mode})
+    assert fake.calls[-1] == ("EM_clear_session", {"mode": mode})
 
 
 def test_an_unknown_clear_mode_is_an_error(signed_in):
