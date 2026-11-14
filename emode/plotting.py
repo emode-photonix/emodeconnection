@@ -323,6 +323,8 @@ class Block(TaggedModel):
     y: float
     width: float
     height: float
+    #: The component's id for ``EM_component_details`` (``'section:<name>'``), None from an older EMode.
+    id: Optional[str] = None
 
 
 @register_type
@@ -343,6 +345,9 @@ class Stub(TaggedModel):
     y1: float
     label: Optional[str] = None
     external: bool = False
+    #: ``'port:<name>'`` for a port of the circuit, the connection's junction id
+    #: for one inside it, None from an older EMode.
+    id: Optional[str] = None
 
 
 @register_type
@@ -368,6 +373,36 @@ class Schematic(_Arrays):
     neighbors: Dict[str, Dict[str, str]] = {}
     arrows: List[Arrow] = []
     menu: MenuState = MenuState()
+    #: One junction id per connection, ``'junction:<a>.<port>|<b>.<port>'``, empty from an older EMode.
+    connection_ids: List[Optional[str]] = []
+
+
+@register_type
+class DetailRow(TaggedModel):
+    """One setting or parameter of a component: its group (``'Section'``, ``'Profile wg'``), name and value as text."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group: str
+    name: str
+    value: str
+
+
+@register_type
+class ComponentDetails(TaggedModel):
+    """Every setting and parameter of one schematic component, as EMode holds it (``EM_component_details``).
+
+    ``component`` is the id the schematic gave it, ``kind`` ``'section'``,
+    ``'port'`` or ``'junction'``, ``title`` its heading and ``rows`` its
+    settings in the order shown, grouped by ``DetailRow.group``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    component: str
+    kind: Literal["section", "port", "junction"]
+    title: str
+    rows: List[DetailRow] = []
 
 
 @register_type

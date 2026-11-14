@@ -101,7 +101,12 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
     also need their kind listed under ``'views'``.
     """
     info = em._emode_info()
-    function = {"smatrix": "plot_S_matrix()", "material": "material_explorer()", "session": "The session page"}
+    function = {
+        "smatrix": "plot_S_matrix()",
+        "material": "material_explorer()",
+        "session": "The session page",
+        "details": "A schematic component's details",
+    }
     if isinstance(info, dict) and info.get("plot") == PLOT_VIEW:
         if kind in ("plot", "schematic") or kind in (info.get("views") or ()):
             return
@@ -144,6 +149,19 @@ def fetch_view(
     if isinstance(data, GDSView):
         data = GDSPanel.from_view(data)
     return data
+
+
+def fetch_details(em: "EMode", component: str) -> Dict[str, Any]:
+    """Ask EMode for every setting and parameter of a schematic component (#159), as JSON for the tab."""
+    from ..plotting import ComponentDetails
+
+    if not em.running:
+        raise EModeError("This plot's EMode session has ended, so it cannot be asked for details.")
+    check_plot_support(em, "details")
+    details = em.call("EM_component_details", component=component)
+    if not isinstance(details, ComponentDetails):
+        raise EModeError("EMode answered with something this client cannot read. Update it with pip install -U emode.")
+    return details.model_dump(mode="json")
 
 
 def client_rows(server: Optional[UIServer] = None) -> Dict[str, Any]:
@@ -193,7 +211,13 @@ def ensure_server(em: "EMode") -> UIServer:
                 raise EModeError("EMode answered session_info() with something this client cannot read.")
             return info.model_dump(mode="json")
 
-        server = UIServer(em._views, refetch, clock=clock, session_info=session_info).start()
+        server = UIServer(
+            em._views,
+            refetch,
+            clock=clock,
+            session_info=session_info,
+            details=lambda component: fetch_details(em, component),
+        ).start()
         em._ui = server
     return server
 

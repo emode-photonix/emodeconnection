@@ -286,6 +286,12 @@ def _layer_trace(layer: LayerSpec) -> Dict[str, Any]:
     }
 
 
+def _target_text(target: str) -> str:
+    """The hover text of a schematic component: what a tap shows."""
+    kind, _, name = target.partition(":")
+    return f"{name} ({kind}), tap for details"
+
+
 def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
     """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``."""
     if spec.panels:
@@ -305,6 +311,10 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             "showlegend": False,
             "name": f.kind,
         }
+        if f.target:
+            # a schematic block: a tap on its fill opens its details (#159)
+            trace.update({"hoveron": "fills", "hoverinfo": "text", "text": _target_text(f.target),
+                          "meta": f"component:{f.target}"})
         if f.hatch:
             trace["fillpattern"] = {"shape": _HATCH.get(f.hatch, "/"), "fgcolor": f.edgecolor or "#000000"}
         data.append(trace)
@@ -356,6 +366,11 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
             del trace["hoverinfo"]
         if line.marker:
             trace["marker"] = {"symbol": line.marker, "size": line.marker_size, "color": line.color}
+        if line.target:
+            # a port or a connection of the schematic: its points open its details (#159)
+            trace.update({"mode": "lines+markers", "marker": {"size": 8, "color": line.color},
+                          "hoverinfo": "text", "text": _target_text(line.target),
+                          "meta": f"component:{line.target}"})
         if line.axis == "right" and spec.axes.y2range is not None:
             trace["yaxis"] = "y2"
         data.append(trace)

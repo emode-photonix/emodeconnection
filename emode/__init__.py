@@ -9,7 +9,7 @@ from .sweep import SweepResult
 from .figures import Figure
 from .plot import PlotImage
 from . import colormaps
-from .plotting import MaterialView, PlotView, Schematic, SessionInfo, SMatrixView
+from .plotting import ComponentDetails, MaterialView, PlotView, Schematic, SessionInfo, SMatrixView
 from .free_space import FarField, FreeSpaceProjection, Screen, ScreenField
 from .gds import GDSView, read_lyp
 from .pulse import PulsedSource, PulsedProcess, Poling, PulseResponse, PulseMeasurement, PulseFit, RankReport
