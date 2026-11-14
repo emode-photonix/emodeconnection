@@ -45,6 +45,7 @@ LINE_STYLES: Dict[str, Tuple[float, Optional[str], float]] = {
     "connection": (1.0, None, 1.0),
     "loop": (1.0, None, 1.0),
     "stub": (1.0, None, 1.0),
+    "slice": (LW * 2, "dash", 1.0),
 }
 
 
@@ -66,6 +67,7 @@ DATA_ARGUMENTS = (
     "profile",
     "wavelength",
     "slice_position",
+    "z_position",
     "forward_only",
     "blend_slices",
     "resolution",
@@ -426,6 +428,10 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                 texts.append(_data_label(line, "port", sx, sy, options))
         for line in view.outlines:
             add("outline", line.x, line.y)
+
+    if view.slice_marker is not None:
+        # the z of the x-y cut, on a z panel, whatever the toggles (emode#1625)
+        add("slice", view.slice_marker.x, view.slice_marker.y)
 
     segments = []
     if options.mesh_display:

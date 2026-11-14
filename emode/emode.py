@@ -448,8 +448,11 @@ class EMode:
 
         The arguments that change the data (``plane``, ``view``, ``component``,
         ``plot_function``, ``normalization``, ``mode``, ``port``, ``excitation``,
-        ``profile``, ``wavelength``, ``slice_position``, ``forward_only``,
-        ``blend_slices``, ``resolution``, ``section``) go to EMode. The ones
+        ``profile``, ``wavelength``, ``slice_position``, ``z_position``,
+        ``forward_only``, ``blend_slices``, ``resolution``, ``section``) go to
+        EMode. ``z_position`` (um) is the z of the x-y cut, marked on a z-x or
+        z-y panel of an EME device and taken by the x-y plane when
+        ``slice_position`` is not given. The ones
         that change only the figure (``index_outline``, ``contours``,
         ``text_display``, ``mesh_display``, ``window_display``, ``legend``,
         ``title``, ``xlabel``, ``ylabel``, ``units``, ``font_size``,

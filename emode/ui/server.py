@@ -268,6 +268,26 @@ class UIServer:
             "extra": _extra(view.data),
         }
 
+    def open_view(self, view: View, name: str) -> View:
+        """Open the schematic or the GDS view of `view`'s device as a plot of its own (#146).
+
+        The View menu offers what ``MenuState.views`` lists. Layout and
+        simulation change the plot in place (``view`` is a data argument), the
+        schematic and the GDS view are other kinds of plot, so each opens beside it.
+        """
+        offered = menu_of(view.data).views or []
+        if name not in ("schematic", "gds") or name not in offered:
+            raise EModeError(f"this plot does not offer the {name!r} view")
+        plot_arguments = KINDS["plot"].data_arguments
+        arguments = {k: v for k, v in view.arguments.items() if k in plot_arguments}
+        arguments["view"] = name
+        data = self.fetch(replace(view, kind=name), arguments, view.pixels)
+        if isinstance(data, GDSPanel):
+            arguments = state_arguments(arguments, data)
+        opened = self.registry.add(data, arguments, view.options, view.pixels)
+        self.publish("view-added", opened.summary())
+        return opened
+
     def layers(self, view: View, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Apply the layer panel's `changes` to a GDS layer view and keep them for the session.
 
@@ -535,6 +555,12 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             if parts[3] in ("save", "export"):
                 return self._export(view, parts[3])
+            if parts[3] == "open":
+                try:
+                    opened = self.ui.open_view(view, str(self._body().get("view")))
+                except EModeError as exc:
+                    return self._json(200, {"id": view.id, "error": str(exc)})
+                return self._json(200, {"id": opened.id})
             if parts[3] == "layers":
                 try:
                     return self._json(200, self.ui.layers(view, self._body()))
