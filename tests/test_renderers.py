@@ -236,5 +236,5 @@ def test_plotly_draws_a_line_across_the_colorbar_at_each_level():
 def test_matplotlib_draws_the_levels_on_the_colorbar():
     levels = xy_view().rasters[0].contour_levels
     cbar_ax = mpl_renderer.to_figure(compose(xy_view())).axes[-1]
-    segments = [s for c in cbar_ax.collections for s in c.get_segments()]
+    segments = [s for c in cbar_ax.collections if hasattr(c, "get_segments") for s in c.get_segments()]
     assert len(segments) == len(levels)
