@@ -63,7 +63,7 @@ return {during: during, shown: shown, changes: changes};
     )
     assert got["during"] == 0, "a drag posted before it ended"
     assert got["shown"].startswith("20")
-    assert got["changes"] == [{"slice_position": 20, "z_position": 20}]
+    assert got["changes"] == [{"slice_position": 20, "z_position": 20, "profile": None}]
 
 
 @needs_jsc
@@ -79,8 +79,8 @@ return changes;
 """
     )
     assert got == [
-        {"slice_position": "Exit"},
-        {"slice_position": "3.25", "z_position": 3.25},
+        {"slice_position": None, "profile": "Exit"},
+        {"slice_position": "3.25", "z_position": 3.25, "profile": None},
     ]
 
 
@@ -127,3 +127,37 @@ def test_the_script_draws_a_range_input_and_posts_on_change_only():
     body = js[start : js.index("\n}\n", start)]
     assert re.search(r'type\s*=\s*"range"', body)
     assert '"change"' in body
+
+
+PROFILE = """
+var box = document.createElement("div");
+var changes = [];
+change = function (c) { changes.push(c); };
+buildPlotControls(box, {menu: {slider: {label: "z:", min: 0, max: 0, unit: "μm",
+  value: "b", options: ["EME", "FDM", "a", "b"]}}, controls: {}});
+var range = box.querySelector("input[type=range]");
+var text = box.querySelector("input[type=text]");
+"""
+
+
+@needs_jsc
+def test_a_profile_plots_z_box_has_no_range_and_posts_the_chosen_profile():
+    got = run_app(
+        PROFILE
+        + """
+var shown = text.value, hasRange = !!range;
+text.value = "a";
+text.dispatch("change", {target: text});
+text.value = "EME";
+text.dispatch("change", {target: text});
+return {shown: shown, hasRange: hasRange, changes: changes};
+"""
+    )
+    assert got["shown"] == "b"
+    assert got["hasRange"] is False, (
+        "a range with no span draws a slider that cannot move"
+    )
+    assert got["changes"] == [
+        {"slice_position": None, "profile": "a"},
+        {"slice_position": None, "profile": None},
+    ]

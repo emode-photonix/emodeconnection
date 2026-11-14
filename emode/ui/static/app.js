@@ -314,6 +314,11 @@ function zSlider(label, menu, value, ontext, onslide) {
   range.value = String(Number.isFinite(start) ? start : (lo + hi) / 2);
   range.setAttribute("aria-label", label + " (" + menu.unit + ")");
   const box = textbox(label, menu.options, value, ontext);
+  // a box with no span (a profile plot's z, which only names a profile) is the text box alone
+  if (!(hi > lo)) {
+    wrap.append(box);
+    return wrap;
+  }
   const text = box.querySelector("input");
   const shown = () => Number(Number(range.value).toFixed(digits));
   range.addEventListener("input", () => { text.value = shown() + " " + menu.unit; });
@@ -943,12 +948,18 @@ function buildPlotControls(box, reply) {
   if (m.slider) {
     // on the x-y plane the slider is the z of the cut, which a z panel then marks
     const isZ = m.slider.label.startsWith("z");
+    // On x-y the box also names the profile to plot (a saved profile, the current one) or EME for
+    // the device. A profile is plotted through `profile`, and a position or EME clears it, so a
+    // stale profile never outlives the choice.
     const post = (v) => {
-      const z = isZ ? parseFloat(v) : NaN;
-      change(Number.isFinite(z) ? { slice_position: v, z_position: z } : { slice_position: v });
+      if (!isZ) return change({ slice_position: v });
+      const z = parseFloat(v);
+      if (Number.isFinite(z)) return change({ slice_position: v, z_position: z, profile: null });
+      if (String(v).trim() === "EME") return change({ slice_position: null, profile: null });
+      change({ slice_position: null, profile: String(v).trim() });
     };
     box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
-      (x) => change(isZ ? { slice_position: x, z_position: x } : { slice_position: x })));
+      (x) => change(isZ ? { slice_position: x, z_position: x, profile: null } : { slice_position: x })));
   }
   if (m.position) {
     // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
