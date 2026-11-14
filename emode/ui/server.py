@@ -54,6 +54,7 @@ from .figure import PlotOptions, compose, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
+from ..plotting import Schematic
 from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
 UI_DIR = Path(__file__).parent
@@ -91,10 +92,12 @@ class UIServer:
         port: Optional[int] = None,
         clock: Callable[[], float] = time.monotonic,
         session_info: Optional[Callable[[], Dict[str, Any]]] = None,
+        details: Optional[Callable[[str], Dict[str, Any]]] = None,
     ) -> None:
         self.registry = registry
         self.fetch = fetch
         self.session_info = session_info
+        self.details = details
         self.clock = clock
         self.token = secrets.token_urlsafe(32)
         self._requested_port = (
@@ -302,6 +305,22 @@ class UIServer:
         self.publish("view-added", opened.summary())
         return opened
 
+    def component_details(self, view: View, component: str) -> Dict[str, Any]:
+        """The settings and parameters of a component of `view`'s schematic (#159).
+
+        Only an id the schematic carries is asked for, so the tab cannot ask
+        EMode about anything else.
+        """
+        if not isinstance(view.data, Schematic):
+            raise EModeError(f"view {view.id} is not a schematic, so it has no components")
+        if component not in dict(schematic_components(view.data)):
+            raise EModeError(f"this schematic has no component {component!r}")
+        if self.details is None:
+            raise EModeError("this session cannot ask EMode for a component's details")
+        if self.session_ended:
+            raise EModeError("This plot's EMode session has ended, so it cannot be asked for details.")
+        return self.details(component)
+
     def layers(self, view: View, changes: Dict[str, Any]) -> Dict[str, Any]:
         """Apply the layer panel's `changes` to a GDS layer view and keep them for the session.
 
@@ -393,6 +412,8 @@ def _extra(data: Any) -> Dict[str, Any]:
 
     if isinstance(data, GDSPanel):
         return gds_extra(data)
+    if isinstance(data, Schematic):
+        return {"components": [list(c) for c in schematic_components(data)]}
     if isinstance(data, SweepPanel):
         return {"menus": sweep_menus(data)}
     if isinstance(data, MaterialView):
@@ -404,6 +425,22 @@ def _extra(data: Any) -> Dict[str, Any]:
             "reference": data.reference,
         }
     return {}
+
+
+def schematic_components(view: Schematic) -> List[Tuple[str, str]]:
+    """The schematic's components a click can open (#159): ``(id, label)``, sections, ports, junctions."""
+    out: List[Tuple[str, str]] = []
+    for b in view.blocks:
+        if b.id:
+            out.append((b.id, f"section {b.name}"))
+    for s in view.stubs:
+        if s.id and s.external:
+            out.append((s.id, f"port {s.label}"))
+    for c in view.connection_ids:
+        if c and c not in dict(out):
+            a, _, b = c.partition(":")[2].partition("|")
+            out.append((c, f"junction {a} to {b}"))
+    return out
 
 
 def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:
@@ -625,6 +662,12 @@ class _Handler(BaseHTTPRequestHandler):
                 except EModeError as exc:
                     return self._json(200, {"id": view.id, "error": str(exc)})
                 return self._json(200, {"id": opened.id})
+            if parts[3] == "details":
+                try:
+                    reply = self.ui.component_details(view, str(self._body().get("component")))
+                except EModeError as exc:
+                    return self._json(200, {"id": view.id, "error": str(exc)})
+                return self._json(200, reply)
             if parts[3] == "layers":
                 try:
                     return self._json(200, self.ui.layers(view, self._body()))

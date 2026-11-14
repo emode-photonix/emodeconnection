@@ -157,6 +157,8 @@ class LineSpec:
     label: Optional[str] = None
     #: The y axis the line is read against: the panel's own ('left') or its twin ('right').
     axis: str = "left"
+    #: The schematic component a click on the line opens, None for none (#159).
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +172,8 @@ class FillSpec:
     hatch: Optional[str] = None
     alpha: float = 1.0
     width: float = 0.0
+    #: The schematic component a click on the fill opens, None for none (#159).
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -570,11 +574,16 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 color=face,
                 edgecolor=launch if selected else edge,
                 width=2.4 if selected else 1.2,
+                target=b.id,
             )
         )
         texts.append(TextSpec(b.label, b.x, b.y, "data", "center", "center", text, 6.5, "label"))
     for s in view.stubs:
-        lines.append(LineSpec(np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0))
+        lines.append(
+            LineSpec(
+                np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0, target=s.id
+            )
+        )
         if s.label:
             out = 1.0 if s.side == "right" else -1.0
             launched = view.launch is not None and view.launch.label == s.label
@@ -594,9 +603,10 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                         "right" if s.side == "right" else "left", "bottom", text, 5.5, "port",
                     )
                 )
-    for c in view.connections:
+    ids = list(view.connection_ids) + [None] * (len(view.connections) - len(view.connection_ids))
+    for c, target in zip(view.connections, ids):
         color, width, dash, alpha = line_style(c.kind)
-        lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha))
+        lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha, target=target))
     if view.launch is not None:
         marker = "triangle-right" if view.launch.side == "left" else "triangle-left"
         lines.append(
