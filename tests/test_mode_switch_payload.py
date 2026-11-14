@@ -29,7 +29,18 @@ from plot_fixtures import xy_view, zx_view
 
 #: The levels EMode contours a signed field at (``plots/utils.py`` lpos and lneg).
 LEVELS = np.array(
-    sorted([0.001, 0.01, *np.linspace(0.1, 0.9, 9), 0.99, -0.99, *np.linspace(-0.9, -0.1, 9), -0.01, -0.001])
+    sorted(
+        [
+            0.001,
+            0.01,
+            *np.linspace(0.1, 0.9, 9),
+            0.99,
+            -0.99,
+            *np.linspace(-0.9, -0.1, 9),
+            -0.01,
+            -0.001,
+        ]
+    )
 )
 
 MODES = [f"{k}, TE" for k in range(10)]
@@ -49,10 +60,25 @@ def mode_view(label: str = "0, TE", nx: int = 200, ny: int = 222) -> Any:
     )
     return base.model_copy(
         update={
-            "rasters": [Raster(x=x, y=y, z=z, kind="diverging", contour_levels=LEVELS, interpolation="bilinear")],
+            "rasters": [
+                Raster(
+                    x=x,
+                    y=y,
+                    z=z,
+                    kind="diverging",
+                    contour_levels=LEVELS,
+                    interpolation="bilinear",
+                )
+            ],
             "texts": [
                 Label(text=f"Re(Ex), {k}", x=0.04, y=1.02, kind="title"),
-                Label(text=f"$n_\\mathrm{{eff}} = $2.{400 - k:03d}", x=0.96, y=1.02, ha="right", kind="neff"),
+                Label(
+                    text=f"$n_\\mathrm{{eff}} = $2.{400 - k:03d}",
+                    x=0.96,
+                    y=1.02,
+                    ha="right",
+                    kind="neff",
+                ),
             ],
             "menu": menu,
         }
@@ -75,7 +101,11 @@ def _heatmaps(figure: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _contours(figure: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return [t for t in figure["data"] if t.get("meta") == "contour" or t["type"] == "contour"]
+    return [
+        t
+        for t in figure["data"]
+        if t.get("meta") == "contour" or t["type"] == "contour"
+    ]
 
 
 # ------------------------------------------------------------------ one panel
@@ -160,11 +190,16 @@ def server():
     s.stop()
 
 
-def post(server: UIServer, controls: Dict[str, Any], **extra: Any) -> Tuple[Dict[str, Any], int]:
+def post(
+    server: UIServer, controls: Dict[str, Any], **extra: Any
+) -> Tuple[Dict[str, Any], int]:
     conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
     body = json.dumps({"controls": controls, "pixels": [1170, 720], **extra}).encode()
-    headers = {"Host": f"127.0.0.1:{server.port}", "X-EMode-Token": server.token,
-               "Content-Type": "application/json"}
+    headers = {
+        "Host": f"127.0.0.1:{server.port}",
+        "X-EMode-Token": server.token,
+        "Content-Type": "application/json",
+    }
     conn.request("POST", "/api/views/p1/data", body=body, headers=headers)
     payload = conn.getresponse().read()
     conn.close()
@@ -181,7 +216,9 @@ def test_a_mode_switch_reply_stays_small(server):
 def test_the_mode_menu_offers_all_modes_on_an_x_y_panel_of_several_modes():
     assert menu_of(mode_view()).modes[-1] == ALL_MODES
     assert ALL_MODES not in (menu_of(zx_view()).modes or [])
-    one = mode_view().model_copy(update={"menu": mode_view().menu.model_copy(update={"modes": ["0, TE"]})})
+    one = mode_view().model_copy(
+        update={"menu": mode_view().menu.model_copy(update={"modes": ["0, TE"]})}
+    )
     assert ALL_MODES not in menu_of(one).modes
 
 
@@ -192,14 +229,20 @@ def test_the_grid_has_two_columns_on_a_phone_and_more_on_a_desktop(width, column
 
 
 def _panel_titles(figure: Dict[str, Any]) -> List[str]:
-    return [a["text"] for a in figure["layout"]["annotations"] if a.get("name") == "panel_title"]
+    return [
+        a["text"]
+        for a in figure["layout"]["annotations"]
+        if a.get("name") == "panel_title"
+    ]
 
 
 def test_all_modes_shows_every_mode_in_a_grid_of_titled_clickable_panels(server):
     reply, size = post(server, {"mode": ALL_MODES}, width=390)
     assert "error" not in reply, reply.get("error")
     asked = [a.get("mode") for a, _ in server.fetched]  # type: ignore[attr-defined]
-    assert sorted(asked) == sorted(MODES[1:]), "each mode is fetched once, the shown one is kept"
+    assert sorted(asked) == sorted(MODES[1:]), (
+        "each mode is fetched once, the shown one is kept"
+    )
     figure = reply["figure"]
     heatmaps = _heatmaps(figure)
     assert [t["meta"] for t in heatmaps] == [f"mode:{m}" for m in MODES]
@@ -246,3 +289,11 @@ def test_a_figure_control_on_all_modes_redraws_without_asking_emode(server):
     reply, _ = post(server, {"colormap": "sequential"}, width=1400)
     assert len(server.fetched) == count  # type: ignore[attr-defined]
     assert len(_heatmaps(reply["figure"])) == 10
+
+
+def test_the_tab_sends_its_width_and_opens_a_clicked_panels_mode():
+    from emode.ui.server import STATIC
+
+    app = (STATIC / "app.js").read_text()
+    assert "width: width" in app
+    assert 'meta.startsWith("mode:")' in app and "change({ mode: meta.slice(" in app

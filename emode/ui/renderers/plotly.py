@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import html
+from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -170,6 +171,58 @@ def colorscale(name: str) -> Any:
     return [[i / 16, to_hex(cmap(i / 16))] for i in range(17)]
 
 
+#: The significant digits a field value is sent with: past the fourth, a colormap
+#: shows no difference and the readout needs none.
+DIGITS = 4
+
+#: The float32 mantissa bits that carry more than `DIGITS` significant digits
+#: (14 of its 23 bits hold 4.2 digits), zeroed so the bytes compress.
+_LOW_BITS = np.uint32((1 << (23 - 14)) - 1)
+
+
+def round_digits(values: Any) -> np.ndarray:
+    """`values` as float32 rounded to about `DIGITS` significant digits, NaN kept.
+
+    The mantissa is rounded to its top 14 bits (a relative step of 6e-5), which
+    is faster than a decimal rounding and leaves the low bits zero.
+    """
+    a = np.ascontiguousarray(np.asarray(values, np.float32))
+    bits = a.view(np.uint32)
+    finite = np.isfinite(a)
+    rounded = (bits + (_LOW_BITS >> np.uint32(1)) + np.uint32(1)) & ~_LOW_BITS
+    return np.where(finite, rounded, bits).astype(np.uint32).view(np.float32)
+
+
+def _stride(n: int, room: Optional[int]) -> int:
+    """The step that keeps at most `room` of `n` samples, 1 when they fit."""
+    if not room or room <= 0 or n <= room:
+        return 1
+    return int(np.ceil(n / room))
+
+
+def decimated(r: RasterSpec, pixels: Optional[Tuple[int, int]]) -> RasterSpec:
+    """`r` with no more samples than the panel's `pixels` (width, height), None keeping them all.
+
+    Every k-th row and column is kept, which a colormap at about one sample
+    per pixel shows as the full raster does, and the contours are traced on
+    what is shown. A z panel's joined slices keep their own column edges, so
+    they are not decimated (EMode already samples them at the panel's pixels).
+    """
+    z = np.asarray(r.z)
+    if pixels is None or r.x_edges is not None or z.ndim != 2:
+        return r
+    sx, sy = _stride(z.shape[1], int(pixels[0])), _stride(z.shape[0], int(pixels[1]))
+    if sx == 1 and sy == 1:
+        return r
+    return replace(
+        r,
+        x=np.asarray(r.x)[::sx],
+        y=np.asarray(r.y)[::sy],
+        z=z[::sy, ::sx],
+        mask=None if r.mask is None else np.asarray(r.mask)[::sy, ::sx],
+    )
+
+
 def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]:
     z = np.asarray(r.z, np.float32)
     if r.mask is not None:
@@ -179,7 +232,7 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
         # the columns' own edges when the image joins slices, else their centers
         "x": typed_array(r.x if r.x_edges is None else r.x_edges),
         "y": typed_array(r.y),
-        "z": typed_array(z),
+        "z": typed_array(round_digits(z)),
         "colorscale": colorscale(r.colormap),
         "zmin": r.vmin,
         "zmax": r.vmax,
@@ -189,11 +242,71 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
     }
     if showscale and spec.colorbar is not None:
         trace["colorbar"] = _colorbar(spec)
+    if r.target:
+        trace["meta"] = r.target
     return trace
 
 
+#: A contour line's color on each side of zero, as the window drew them.
+_CONTOUR_COLORS = ("#000000", "#ffffff")
+
+
 def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
-    """One contour trace per level, since a Plotly contour's levels are evenly spaced."""
+    """The raster's contour lines: one trace for the levels at or above zero, one for those below.
+
+    The lines are traced here, on the full-resolution field, and sent as
+    points with a gap (NaN) between lines. Plotly's own contour trace would
+    need the whole field once per level, as its levels are evenly spaced, and
+    the browser would trace each one again (24 copies of the field for a
+    signed mode). Without contourpy (matplotlib's) the levels go as Plotly
+    contours, as before.
+    """
+    if not r.contour_levels:
+        return []
+    try:
+        from contourpy import LineType, contour_generator
+    except ImportError:
+        return _plotly_contours(r)
+    z = np.asarray(r.z, np.float64)
+    if z.ndim != 2 or min(z.shape) < 2:
+        return []
+    bad = ~np.isfinite(z)
+    if r.mask is not None:
+        bad |= np.asarray(r.mask, bool)
+    field = np.ma.array(z, mask=bad) if bad.any() else z
+    gen = contour_generator(
+        x=np.asarray(r.x, np.float64), y=np.asarray(r.y, np.float64), z=field, line_type=LineType.ChunkCombinedNan
+    )
+    out = []
+    for color, levels in zip(_CONTOUR_COLORS, ([v for v in r.contour_levels if v >= 0], [v for v in r.contour_levels if v < 0])):
+        pieces: List[np.ndarray] = []
+        for level in levels:
+            for chunk in gen.lines(level)[0]:
+                if chunk is not None and len(chunk):
+                    pieces += [chunk, np.full((1, 2), np.nan)]
+        if not pieces:
+            continue
+        xy = np.concatenate(pieces)
+        out.append(
+            {
+                "type": "scatter",
+                "mode": "lines",
+                "x": typed_array(round_digits(xy[:, 0])),
+                "y": typed_array(round_digits(xy[:, 1])),
+                "line": {"color": color, "width": 0.5},
+                "opacity": 0.7,
+                "connectgaps": False,
+                "hoverinfo": "skip",
+                "showlegend": False,
+                "name": "contour",
+                "meta": "contour",
+            }
+        )
+    return out
+
+
+def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
+    """One Plotly contour trace per level, since a Plotly contour's levels are evenly spaced."""
     out = []
     for level in r.contour_levels:
         out.append(
@@ -327,10 +440,14 @@ def _target_text(target: str) -> str:
     return f"{name} ({kind}), tap for details"
 
 
-def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
-    """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``."""
+def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
+    """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``.
+
+    `pixels` is the plot's size on screen (width, height): a raster with more
+    samples than that is decimated to it. None sends every sample.
+    """
     if spec.panels:
-        return _panels(spec)
+        return _panels(spec, pixels)
     data: List[Dict[str, Any]] = []
     for f in spec.fills:
         xs, ys = _closed(np.asarray(f.x), np.asarray(f.y), f.holes)
@@ -357,9 +474,10 @@ def to_plotly(spec: FigureSpec) -> Dict[str, Any]:
     for layer in spec.layers:
         data.append(_layer_trace(layer))
 
-    for i, r in enumerate(spec.rasters):
+    rasters = [decimated(r, pixels) for r in spec.rasters]
+    for i, r in enumerate(rasters):
         data.append(_heatmap(r, showscale=(i == 0 and spec.colorbar is not None), spec=spec))
-    for r in spec.rasters:
+    for r in rasters:
         data.extend(_contours(r))
 
     for s in spec.segments:
@@ -565,7 +683,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     return layout
 
 
-def _panels(spec: FigureSpec) -> Dict[str, Any]:
+def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     """A figure of several panels: each panel's traces on its own pair of axes, on one page.
 
     Panel k (from 1) draws on ``x{k}``/``y{k}`` (``x``/``y`` for the first),
@@ -573,7 +691,8 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
     colorbar sits at the right edge of its own domain, and its title above it.
     """
     rows, cols = spec.panel_grid
-    gap_x, gap_y = 0.1, 0.14
+    # the gaps hold a panel's title and tick labels: a tall grid gives each a smaller share
+    gap_x, gap_y = 0.1 if cols <= 2 else 0.2 / cols, 0.14 if rows <= 2 else 0.3 / rows
     width, height = (1 - gap_x * (cols - 1)) / cols, (1 - gap_y * (rows - 1)) / rows
     data: List[Dict[str, Any]] = []
     layout: Dict[str, Any] = {}
@@ -584,7 +703,7 @@ def _panels(spec: FigureSpec) -> Dict[str, Any]:
         x0 = col * (width + gap_x)
         y1 = 1 - row * (height + gap_y)
         xd, yd = [x0, x0 + width], [y1 - height, y1]
-        sub = to_plotly(panel)
+        sub = to_plotly(panel, None if pixels is None else (max(1, int(pixels[0] * width)), max(1, int(pixels[1] * height))))
         suffix = "" if k == 1 else str(k)
         # a panel's twin takes an axis numbered past every panel's own
         twin = str(len(spec.panels) + k)
