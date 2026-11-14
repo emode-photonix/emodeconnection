@@ -31,6 +31,8 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-bottom: 6px; }
 #controls label { display: inline-flex; gap: 4px; align-items: center; }
 #controls select, #controls input[type=text] { font: inherit; padding: 1px 3px; }
+#controls .slider { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+#controls .slider input[type=range] { width: 240px; max-width: 70vw; height: 28px; accent-color: var(--accent); }
 #controls details { position: relative; }
 #controls details > div { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; display: grid; gap: 3px; white-space: nowrap; }
 #stage { flex: 1; display: flex; min-height: 0; }

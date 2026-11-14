@@ -236,6 +236,42 @@ function textbox(label, options, value, onchange) {
   return wrap;
 }
 
+// The step of a range slider over `span`: a round number near a 200th of it.
+function sliderStep(span) {
+  if (!(span > 0)) return 1;
+  const raw = span / 200;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / p;
+  return (n < 2 ? 1 : n < 5 ? 2 : 5) * p;
+}
+
+// A position slider (emodeconnection#161): a range from the menu's min to its
+// max, with the text box beside it for an exact value or a named entry.
+// Dragging moves the text box only, and letting go posts the position once,
+// through `onslide` with the number. The text box posts its own text through `ontext`.
+function zSlider(label, menu, value, ontext, onslide) {
+  const wrap = document.createElement("span");
+  wrap.className = "slider";
+  const range = document.createElement("input");
+  range.type = "range";
+  const lo = Number(menu.min), hi = Number(menu.max);
+  const step = sliderStep(hi - lo);
+  const digits = Math.max(0, -Math.floor(Math.log10(step)));
+  range.min = String(lo);
+  range.max = String(hi);
+  range.step = String(step);
+  const start = parseFloat(value);
+  range.value = String(Number.isFinite(start) ? start : (lo + hi) / 2);
+  range.setAttribute("aria-label", label + " (" + menu.unit + ")");
+  const box = textbox(label, menu.options, value, ontext);
+  const text = box.querySelector("input");
+  const shown = () => Number(Number(range.value).toFixed(digits));
+  range.addEventListener("input", () => { text.value = shown() + " " + menu.unit; });
+  range.addEventListener("change", () => onslide(shown()));
+  wrap.append(box, range);
+  return wrap;
+}
+
 function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
@@ -756,19 +792,23 @@ function buildPlotControls(box, reply) {
   }
   if (m.modes && m.modes.length) box.append(select("Mode", m.modes, sel.mode, (v) => change({ mode: v })));
   if (m.slider) {
-    box.append(textbox(m.slider.label.replace(":", ""), m.slider.options, m.slider.value, (v) => {
-      // on the x-y plane the slider is the z of the cut, which a z panel then marks
-      const z = m.slider.label.startsWith("z") ? parseFloat(v) : NaN;
+    // on the x-y plane the slider is the z of the cut, which a z panel then marks
+    const isZ = m.slider.label.startsWith("z");
+    const post = (v) => {
+      const z = isZ ? parseFloat(v) : NaN;
       change(Number.isFinite(z) ? { slice_position: v, z_position: z } : { slice_position: v });
-    }));
+    };
+    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
+      (x) => change(isZ ? { slice_position: x, z_position: x } : { slice_position: x })));
   }
   if (m.position) {
     // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
     const label = "Cut " + m.position.label.replace(":", "") + " (" + m.position.unit + ")";
-    box.append(textbox(label, m.position.options, parseFloat(m.position.value), (v) => {
+    const post = (v) => {
       const z = parseFloat(v);
       if (Number.isFinite(z)) change({ z_position: z });
-    }));
+    };
+    box.append(zSlider(label, m.position, parseFloat(m.position.value), post, (x) => change({ z_position: x })));
   }
   if (m.z_resolutions && m.z_resolutions.length) {
     box.append(textbox("Z-res (nm)", m.z_resolutions, sel.z_resolution || "Auto",
