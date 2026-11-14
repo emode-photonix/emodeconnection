@@ -71,6 +71,12 @@ TYPE_SINCE: dict[str, str] = {
 
 # The first EMode release that reads each field added after EMode 1.0.6.
 FIELD_SINCE: dict[tuple[str, str], str] = {
+    ("Bounds", "boundary_condition"): "1.0.9",
+    ("Bounds", "expansion_resolution"): "1.0.9",
+    ("Bounds", "expansion_size"): "1.0.9",
+    ("Bounds", "num_pml_layers"): "1.0.9",
+    ("Bounds", "pml_NSEW_bool"): "1.0.9",
+    ("Bounds", "pml_thickness"): "1.0.9",
     ("MaterialProperties", "beta_3"): "1.0.8",
     ("MaterialProperties", "beta_4"): "1.0.8",
     ("MaterialSpec", "reference"): "1.0.8",
