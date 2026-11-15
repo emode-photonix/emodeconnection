@@ -62,7 +62,7 @@ def test_plotly_hides_the_inner_tick_labels_and_keeps_the_ticks(count, columns):
     for k in range(count):
         assert xs[k]["showticklabels"] is _bottom(k, count, columns), k
         assert ys[k]["showticklabels"] is (k % columns == 0), k
-        assert xs[k]["ticks"] == ys[k]["ticks"] == "inside"
+        assert xs[k]["ticks"] == ys[k]["ticks"] == "outside"
         assert bool(xs[k]["title"]["text"]) is _bottom(k, count, columns)
         assert bool(ys[k]["title"]["text"]) is (k % columns == 0)
 
