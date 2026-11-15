@@ -87,6 +87,10 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
     settings = panel.settings
     xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0))
     yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys))
+    # a sweep's magnitude keeps its floor at 0 while the script's curves stay above it (#191)
+    floor = bool(base and base.axes.y_nonnegative) and all(bool((y[np.isfinite(y)] >= 0).all()) for y in ys)
+    if floor and yrange is not None and not settings.get("ylim"):
+        yrange = (0.0, yrange[1])
     xrange = tuple(float(v) for v in (xrange or (0.0, 1.0)))
     yrange = tuple(float(v) for v in (yrange or (0.0, 1.0)))
     y2range: Optional[Tuple[float, float]] = None
@@ -128,6 +132,7 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         y2range=y2range,
         ylabel_color=_one_color(lines, "left") if twin is not None else None,
         y2label_color=_one_color(lines, "right") if twin is not None else None,
+        y_nonnegative=floor,
     )
     return FigureSpec(
         axes=axes,

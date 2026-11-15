@@ -62,6 +62,8 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
 #controls button { font: inherit; padding: 1px 8px; }
+#controls .render { display: inline-flex; gap: 6px; align-items: center; }
+#controls #render.pending { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; }
 #controls details.export { margin-left: auto; }
 #controls details.export > div { right: 0; }
 #controls details.export details > div { position: static; border: 0; padding: 4px 0 4px 10px; }
@@ -127,6 +129,8 @@ body.embed #app { height: 100vh; }
   #app.sidebar-collapsed #list { width: 220px; border-right-width: 1px; transform: translateX(-105%); box-shadow: none; }
   #panel { padding: 8px; }
   #stage { flex-direction: column; }
+  /* the column stage must not shrink a tall plot (the All modes grid) to its own height: it scrolls it (#185) */
+  #figure { flex: 0 0 auto; }
   #layer-panel { width: auto; max-width: 100%; max-height: 40vh; border-left: 0; border-top: 1px solid var(--line); }
   #controls details > div { white-space: normal; max-width: calc(100vw - 16px); }
   #details { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 60vh; z-index: 30; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.25); }

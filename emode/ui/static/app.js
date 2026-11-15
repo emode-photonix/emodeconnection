@@ -26,7 +26,7 @@ const SETTINGS = [
   ["Blend slices", "blend_slices"],
 ];
 
-const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, benchTimer: null };
+const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null, benchTimer: null };
 
 function api(path, body) {
   const options = body === undefined
@@ -170,6 +170,7 @@ async function show(id, controls) {
   if (!id) return;
   const first = state.current !== id;
   state.current = id;
+  forgetPending(id);
   markSelected();
   let reply;
   try {
@@ -215,8 +216,16 @@ function figureSize(fig, reply) {
   const legend = layout.showlegend ? 30 : 0;
   const width = figureWidth(fig);
   const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
-  return { width: width, height: Math.round(box * (reply.aspect || Math.SQRT1_2) + (m.t || 0) + (m.b || 0) + legend) };
+  // the legend sits above the box, in the top margin: its room goes there, not to the box (#188)
+  const top = (m.t || 0) + legend;
+  const bottom = m.b || 0;
+  // an extreme aspect ratio (0.001 to 1000, #189) still draws: the box is at least 40 px tall,
+  // and the figure at most 6000 px
+  const tall = Math.min(Math.max(40, box * (reply.aspect || Math.SQRT1_2)), MAX_FIGURE_PX - top - bottom);
+  return { width: width, height: Math.round(tall + top + bottom), margin: { ...m, t: top } };
 }
+
+const MAX_FIGURE_PX = 6000;
 
 function sizeFigure(reply) {
   const fig = document.getElementById("figure");
@@ -236,6 +245,10 @@ window.addEventListener("resize", fitFigure);
 function draw(reply) {
   const fig = document.getElementById("figure");
   const layout = { ...reply.figure.layout, ...sizeFigure(reply), autosize: true };
+  // a plot taller than the stage must scroll: Plotly takes every touch on a plot with a
+  // drag mode for a zoom box, so none would scroll it (#185). A click still opens a panel.
+  const stage = document.getElementById("stage").clientHeight;
+  if (stage > 0 && layout.height > stage) layout.dragmode = false;
   Plotly.react(fig, reply.figure.data, layout, {
     responsive: true,
     displaylogo: false,
@@ -243,23 +256,128 @@ function draw(reply) {
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_click");
   fig.on && fig.on("plotly_click", (ev) => {
+    // a swipe that scrolled the plot ends in a click without a drag mode: it opens nothing
+    if (swiped) return;
     // a schematic's block, port or connection opens its details (#159)
     const point = ev.points && ev.points[0];
     const meta = point && point.data && point.data.meta;
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
-    else if (typeof meta === "string" && meta.startsWith("mode:")) change({ mode: meta.slice("mode:".length) });
+    else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
     const target = ev.annotation && ev.annotation.hovertext;
-    if (target && target.startsWith("go to ")) change({ section: target.slice(6) });
+    if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
 }
 
+// A touch that moved more than a few pixels is a swipe, not a tap (#185).
+let swiped = false;
+let touchAt = null;
+function watchSwipes(el) {
+  el.addEventListener("touchstart", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    touchAt = t ? [t.clientX, t.clientY] : null;
+    swiped = false;
+  }, { passive: true });
+  el.addEventListener("touchmove", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (t && touchAt && Math.hypot(t.clientX - touchAt[0], t.clientY - touchAt[1]) > 10) swiped = true;
+  }, { passive: true });
+}
+
+// ------------------------------------------------------------ auto render (#183)
+//
+// With Auto render on (the default), a control change redraws at once. Off, the
+// changes wait in `pending` and go together when Render is pressed. A click on
+// the plot itself (a grid panel, a section arrow, a key) renders at once, with
+// whatever waits. The choice is remembered per browser, where storage allows.
+
+const AUTO_RENDER_KEY = "emode.autoRender";
+const pending = { id: null, controls: {} };
+
+function autoRender() {
+  if (state.autoRender == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(AUTO_RENDER_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.autoRender = stored !== "off";
+  }
+  return state.autoRender;
+}
+
+function setAutoRender(on) {
+  state.autoRender = !!on;
+  try {
+    localStorage.setItem(AUTO_RENDER_KEY, on ? "on" : "off");
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  if (on && Object.keys(pending.controls).length) renderNow();
+}
+
+function pendingControls() {
+  return pending.id === state.current ? pending.controls : {};
+}
+
+// Drop what waits when another plot is shown: it was meant for the one before.
+function forgetPending(id) {
+  if (pending.id !== id) {
+    pending.id = id;
+    pending.controls = {};
+  }
+  markRender();
+}
+
+function markRender() {
+  const button = state.renderButton;
+  if (!button) return;
+  const waiting = Object.keys(pendingControls()).length > 0;
+  button.disabled = !waiting;
+  button.classList.toggle("pending", waiting);
+}
+
+// A control change: drawn now, or kept for Render.
 function change(controls) {
-  if (state.current) show(state.current, controls);
+  if (!state.current) return;
+  if (autoRender()) return show(state.current, controls);
+  forgetPending(state.current);
+  Object.assign(pending.controls, controls);
+  markRender();
+}
+
+// Draw now, with whatever waits.
+function renderNow(extra) {
+  if (!state.current) return;
+  const controls = { ...pendingControls(), ...(extra || {}) };
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function renderPanel() {
+  const wrap = document.createElement("span");
+  wrap.className = "render";
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = autoRender();
+  box.addEventListener("change", () => setAutoRender(box.checked));
+  label.append(box, " Auto render");
+  const button = document.createElement("button");
+  button.id = "render";
+  button.type = "button";
+  button.textContent = "Render";
+  button.title = "Draw the plot with the controls changed since it was drawn";
+  button.addEventListener("click", () => renderNow());
+  state.renderButton = button;
+  wrap.append(label, button);
+  return wrap;
 }
 
 // ------------------------------------------------------------ the controls
@@ -408,7 +526,70 @@ function buildControls(reply) {
   else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
   if (kind === "schematic") box.append(componentMenu(reply));
+  if (kind !== "gds") box.append(aspectControl(reply));
+  if (kind !== "gds" && kind !== "schematic") box.append(extentsPanel(reply));
+  box.append(renderPanel());
   box.append(exportPanel(reply));
+  markRender();
+}
+
+// ------------------------------------------------------------ the aspect ratio (#189)
+//
+// Width:height of the plot box, posted as `aspect_ratio`, the box's height over its width.
+// sqrt(2) is every plot's default but the S-matrix's, which is 1:1. Custom takes any
+// width:height from 0.001 to 1000: past that a figure degenerates.
+
+const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
+const ASPECT_MIN = 0.001;
+const ASPECT_MAX = 1000;
+
+function aspectControl(reply) {
+  const c = reply.controls || {};
+  const wrap = document.createElement("span");
+  wrap.className = "aspect";
+  const chosen = typeof c.aspect_ratio === "number" && c.aspect_ratio > 0 ? 1 / c.aspect_ratio : null;
+  const named = chosen === null
+    ? (reply.kind === "smatrix" ? "1:1" : "√2")
+    : ((ASPECTS.find(([, r]) => Math.abs(r - chosen) < 1e-6 * r) || ["Custom"])[0]);
+  const custom = numberBox("width:height", named === "Custom" ? String(Number(chosen.toPrecision(6))) : "", (text) => {
+    const v = Number(String(text).trim());
+    if (!(v >= ASPECT_MIN && v <= ASPECT_MAX)) {
+      return showMessage("The aspect ratio is width:height, a number from " + ASPECT_MIN + " to " + ASPECT_MAX +
+        ", and " + JSON.stringify(String(text)) + " is not one.");
+    }
+    showMessage("");
+    change({ aspect_ratio: 1 / v });
+  });
+  custom.hidden = named !== "Custom";
+  const menu = select("Aspect", ASPECTS.map(([n]) => n).concat(["Custom"]), named, (v) => {
+    custom.hidden = v !== "Custom";
+    const hit = ASPECTS.find(([n]) => n === v);
+    if (hit) change({ aspect_ratio: 1 / hit[1] });
+  });
+  wrap.append(menu, custom);
+  return wrap;
+}
+
+// ------------------------------------------------------------ the axis extents (#191)
+
+// Each axis's ends: a number, or blank for automatic. A quantity that cannot be negative
+// starts its automatic range at 0 in the client, which knows the data's kind.
+function extentsPanel(reply) {
+  const c = reply.controls || {};
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Axes";
+  const list = document.createElement("div");
+  for (const [name, key] of [["x min", "xmin"], ["x max", "xmax"], ["y min", "ymin"], ["y max", "ymax"]]) {
+    list.append(numberBox(name, c[key] == null ? "" : String(c[key]), (v) => {
+      const n = numberOrNull(v);
+      if (n !== null && !Number.isFinite(n)) return showMessage(name + " is a number, or blank for automatic.");
+      showMessage("");
+      change({ [key]: n });
+    }));
+  }
+  details.append(summary, list);
+  return details;
 }
 
 // ------------------------------------------------------------ the workbench (emode#1701)
@@ -443,17 +624,26 @@ function datasetText(d) {
   return d.available ? text : text + " (" + (d.reason || "not available") + ")";
 }
 
+// Choosing what the workbench shows draws it at once, even with Auto render off (#183):
+// the changes kept for Render were the old data's, so they are dropped.
+function benchChoose(controls) {
+  if (!state.current) return;
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
 function buildBenchControls(box, bench) {
   const row = document.createElement("span");
   row.className = "bench-menus";
   row.append(optionSelect("Plot",
     (bench.categories || []).map((c) => ({ value: c, text: CATEGORY_NAMES[c] || c })),
-    bench.category, (v) => change({ category: v })));
+    bench.category, (v) => benchChoose({ category: v })));
   const data = (bench.datasets || []).map((d) => ({
     value: d.id, text: datasetText(d), disabled: !d.available, title: d.available ? "" : d.reason,
   }));
   if (!data.length) data.push({ value: "", text: "nothing yet", disabled: true });
-  row.append(optionSelect("Data", data, bench.dataset, (v) => change({ dataset: v })));
+  row.append(optionSelect("Data", data, bench.dataset, (v) => benchChoose({ dataset: v })));
   box.append(row);
 }
 
@@ -589,14 +779,14 @@ function buildMaterialControls(box, reply) {
   const step = textbox("nm, step", [], x.step, () => {});
   const set = document.createElement("button");
   set.textContent = "Set";
-  set.addEventListener("click", () => change({
+  set.addEventListener("click", () => renderNow({
     wavelengths: [numberOrNull(lo.querySelector("input").value), numberOrNull(hi.querySelector("input").value)],
     step: numberOrNull(step.querySelector("input").value),
   }));
   const home = document.createElement("button");
   home.textContent = "Home";
   home.title = "The model's own wavelength range";
-  home.addEventListener("click", () => change({ wavelengths: null, step: null }));
+  home.addEventListener("click", () => renderNow({ wavelengths: null, step: null }));
   box.append(lo, hi, step, set, home);
 }
 
@@ -884,7 +1074,7 @@ function exportPanel(reply) {
   }
   const apply = document.createElement("button");
   apply.textContent = "Apply";
-  apply.addEventListener("click", () => change(labelControls(entries)));
+  apply.addEventListener("click", () => renderNow(labelControls(entries)));
   lbox.append(apply);
   labels.append(ls, lbox);
 
@@ -1069,7 +1259,15 @@ function buildPlotControls(box, reply) {
       openView(v);
     }));
   }
-  if (m.planes && m.planes.length) box.append(select("Slice", m.planes, sel.plane, (v) => change({ plane: v })));
+  // the Slice menu: the planes, never the schematic, which is the View menu's (emode#1728). A
+  // plane change clears the position (a z on x-y, a transverse position on a z panel), and a z
+  // plane chosen from a profile's x-y plot names no profile, so EMode draws the device
+  const planes = (m.planes || []).filter((p) => p !== "schematic");
+  if (planes.length) {
+    box.append(select("Slice", planes, sel.plane, (v) => change(v === "x-y"
+      ? { plane: v, slice_position: null }
+      : { plane: v, profile: null, slice_position: null })));
+  }
   if (m.ports && m.ports.length) box.append(select("Port", m.ports, sel.port, (v) => change({ port: v })));
   if (m.sections && m.sections.length) {
     box.append(select("Section", m.sections, sel.section || "all", (v) => change({ section: v === "all" ? null : v })));
@@ -1153,12 +1351,12 @@ document.addEventListener("keydown", (ev) => {
   }
   if (!state.reply || ev.target.closest("input, select")) return;
   const arrows = (state.reply.figure.layout.annotations || []).filter((a) => a.name === "arrow");
-  if (ev.key === "Escape") return change({ section: null });
+  if (ev.key === "Escape") return renderNow({ section: null });
   const dir = { ArrowLeft: "◀", ArrowRight: "▶", ArrowUp: "▲", ArrowDown: "▼" }[ev.key];
   const hit = dir && arrows.find((a) => a.text === dir);
   if (hit) {
     ev.preventDefault();
-    change({ section: hit.hovertext.slice(6) });
+    renderNow({ section: hit.hovertext.slice(6) });
   }
 });
 
@@ -1483,6 +1681,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  watchSwipes(document.getElementById("figure"));
   startSidebar();
   startAccount();
   await loadList().catch((err) => showMessage(String(err)));

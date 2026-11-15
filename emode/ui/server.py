@@ -490,7 +490,10 @@ class UIServer:
         if isinstance(view.data, GDSPanel):
             view.arguments = state_arguments(view.arguments, view.data)
         if figure_args:
-            view.options = replace(view.options, **_clean_options(figure_args))
+            options = replace(view.options, **_clean_options(figure_args))
+            # a figure option out of its bounds (an aspect ratio past 0.001 to 1000, #189) is refused
+            PlotOptions.from_arguments(_options_dict(options))
+            view.options = options
         if want_grid and offers_all_modes(view.data):
             view.data = self._modes_grid(view, grid, width)
         if offers_cut(view.data):
@@ -874,7 +877,7 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
             out["figure_size"] = None
         else:
             out["figure_size"] = (width, height) if width > 0 and height > 0 else None
-    for name in ("font_size", "dpi", "vmin", "vmax"):
+    for name in ("font_size", "dpi", "vmin", "vmax", "xmin", "xmax", "ymin", "ymax", "aspect_ratio"):
         if isinstance(out.get(name), str):
             try:
                 out[name] = float(out[name])
