@@ -122,7 +122,9 @@ def test_the_views_route_lists_the_session(server):
     status, headers, body = request(server, "GET", "/api/views")
     assert status == 200
     assert headers["cache-control"] == "no-store"
-    (view,) = json.loads(body)
+    # the workbench is pinned first (emode#1701), the session's plots follow
+    bench, view = json.loads(body)
+    assert bench["id"] == "bench" and bench["kind"] == "bench"
     assert view["id"] == "p1" and view["kind"] == "plot"
 
 
