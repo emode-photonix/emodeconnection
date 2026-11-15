@@ -588,16 +588,23 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
     return {"data": data, "layout": _layout(spec)}
 
 
+#: Every axis's tick marks: outside, small but visible (#190).
+_TICKS: Dict[str, Any] = {"ticks": "outside", "ticklen": 4, "tickwidth": 1}
+
+
 def _layout(spec: FigureSpec) -> Dict[str, Any]:
     a = spec.axes
     font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3}
     yrange = [a.yrange[1], a.yrange[0]] if a.invert_y else list(a.yrange)
+    # no top line on any plot, and a right line only where an image fills the box (#187), with
+    # no ticks on it: the ticks go outside the left and bottom axes, 4 by 1 px (#190)
+    image = bool(spec.rasters) or spec.colorbar is not None
     xaxis: Dict[str, Any] = {
         "title": {"text": math_html(a.xlabel)},
         "range": list(a.xrange),
         "showticklabels": a.show_xticklabels,
-        "ticks": "inside",
-        "mirror": "ticks",
+        **_TICKS,
+        "mirror": False,
         "showline": True,
         "linewidth": 0.5,
         "showgrid": False,
@@ -608,8 +615,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "title": {"text": math_html(a.ylabel)},
         "range": yrange,
         "showticklabels": a.show_yticklabels,
-        "ticks": "inside",
-        "mirror": "ticks",
+        **_TICKS,
+        "mirror": image,
         "showline": True,
         "linewidth": 0.5,
         "showgrid": False,
@@ -626,7 +633,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
             "overlaying": "y",
             "side": "right",
             "anchor": "x",
-            "ticks": "inside",
+            **_TICKS,
             "showline": True,
             "linewidth": 0.5,
             "showgrid": False,
