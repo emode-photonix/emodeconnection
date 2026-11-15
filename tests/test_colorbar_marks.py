@@ -198,7 +198,7 @@ def test_each_mark_is_a_tick_of_a_clear_bar_over_the_shown_one():
 
 
 def test_a_positive_field_is_marked_on_its_bar():
-    _check_marks(to_plotly(compose(_view(signed=False))), POSITIVE[:-1])
+    _check_marks(to_plotly(compose(_view(signed=False))), POSITIVE)
 
 
 def test_a_log_field_is_marked_in_db():

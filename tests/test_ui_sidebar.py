@@ -73,7 +73,10 @@ def test_the_script_remembers_the_choice_under_a_named_key_inside_try(js):
             js.rfind("try {", 0, at) > js.rfind("}", 0, at)
             or "try {" in js[at - 120 : at]
         ), call
-    assert js.count("localStorage") == 2
+    # the sidebar's choice and Auto render's (#183): every use inside a try
+    assert js.count("localStorage") == 4
+    for call in ("localStorage.getItem(AUTO_RENDER_KEY)", "localStorage.setItem(AUTO_RENDER_KEY"):
+        assert "try {" in js[js.index(call) - 120 : js.index(call)], call
 
 
 def test_the_script_starts_narrow_screens_collapsed_and_tracks_the_width(js):

@@ -144,10 +144,11 @@ SCENARIOS.forEach(function (figs, k) {{
   gd.data.forEach(function (t) {{
     if (t.meta !== "colorbar_levels") return;
     var cb = t.marker.colorbar, lo = t.marker.cmin, hi = t.marker.cmax;
-    var bottom = cb.y - cb.len / 2;
+    var cy = cb.y == null ? 0.5 : cb.y, clen = cb.len == null ? 1 : cb.len;
+    var bottom = cy - clen / 2;
     var x0 = left + size.l + cb.x * size.w;
     bars.push({{x0: x0, x1: x0 + cb.thickness, rows: cb.tickvals.map(function (v) {{
-      return top + size.t + (1 - (bottom + (v - lo) / (hi - lo) * cb.len)) * size.h; }})}});
+      return top + size.t + (1 - (bottom + (v - lo) / (hi - lo) * clen)) * size.h; }})}});
   }});
   out.push(bars);
 }});
