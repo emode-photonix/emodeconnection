@@ -249,6 +249,8 @@ class AxesSpec:
     show_yticklabels: bool = True
     #: The y values cannot be negative (|S|, a power): the automatic range starts at 0 (#191).
     y_nonnegative: bool = False
+    #: The same for the twin's right axis, marked by the script.
+    y2_nonnegative: bool = False
 
 
 @dataclass(frozen=True)

@@ -15,6 +15,8 @@ import pytest
 
 from emode.figures import Figure
 from emode.ui.figure import PlotOptions, compose
+from emode.types import ArgumentError
+from emode.ui.renderers import mpl
 from emode.ui.renderers.plotly import to_plotly
 from emode.ui.sweep_figure import sweep_panel
 from emode.ui.views import _select
@@ -109,3 +111,56 @@ return {before: before, posted: posted};
 """
     )
     assert got == {"before": 0, "posted": [{"ymin": 0.2, "ymax": 0.9}]}
+
+
+def _plain_figure(**kwargs):
+    fig = Figure()
+    p = fig.panel(0)
+    p.line([1.0, 2.0, 3.0], [0.2, 0.5, 0.9])
+    p.set(**kwargs)
+    return fig
+
+
+def test_a_script_marks_its_y_axis_non_negative():
+    """A plain line carries no kind, so the script says it (#193)."""
+    (panel,) = compose(_plain_figure(ynonnegative=True)).panels
+    assert panel.axes.y_nonnegative is True and panel.axes.yrange[0] == 0.0
+    yaxis = to_plotly(panel)["layout"]["yaxis"]
+    assert yaxis["rangemode"] == "nonnegative" and yaxis["autorangeoptions"]["minallowed"] == 0
+
+
+def test_an_unmarked_plain_line_is_not_floored():
+    (panel,) = compose(_plain_figure()).panels
+    assert panel.axes.y_nonnegative is False and panel.axes.yrange[0] > 0.0 - 1e-9
+    assert "autorangeoptions" not in to_plotly(panel)["layout"]["yaxis"]
+
+
+def test_the_export_gets_the_same_floor():
+    pytest.importorskip("matplotlib")
+    fig = mpl.to_figure(compose(_plain_figure(ynonnegative=True)))
+    (ax,) = [a for a in fig.axes if a.get_label() != "<colorbar>"]
+    assert ax.get_ylim()[0] == 0.0
+
+
+def test_the_twin_axis_can_be_marked_too():
+    fig = Figure()
+    p = fig.panel(0)
+    p.line([1.0, 2.0], [-1.0, 1.0])
+    p.twin().line([1.0, 2.0], [0.3, 0.8]).set(ynonnegative=True)
+    spec = compose(fig)
+    (panel,) = spec.panels
+    (ax, twin) = [a for a in mpl.to_figure(spec).axes if a.get_label() != "<colorbar>"][:2]
+    assert twin.get_ylim()[0] == 0.0 and ax.get_ylim()[0] < 0.0
+    assert panel.axes.y2_nonnegative is True and panel.axes.y2range[0] == 0.0
+    assert panel.axes.y_nonnegative is False
+    layout = to_plotly(panel)["layout"]
+    assert layout["yaxis2"]["rangemode"] == "nonnegative"
+    assert "rangemode" not in layout["yaxis"]
+
+
+@pytest.mark.parametrize("value", ["yes", 2, [True]])
+def test_an_unknown_value_is_an_argument_error(value):
+    with pytest.raises(ArgumentError):
+        Figure().panel(0).set(ynonnegative=value)
+    with pytest.raises(ArgumentError):
+        Figure().panel(0).twin().set(ynonnegative=value)
