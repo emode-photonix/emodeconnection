@@ -298,6 +298,15 @@ def test_the_bench_opens_on_the_first_field_with_both_menus(em):
     assert reply["kind"] == "plot"
 
 
+@pytest.mark.parametrize("pixels", [[374, 0], [374, -5]])
+def test_a_phone_opening_the_bench_never_asks_emode_for_a_zero_height(em, pixels):
+    """A phone's plot has no height before its first reply: EMode sampled the x-y cut one row tall (Eric, 2026-11-15)."""
+    status, reply = _http(_server(em), "POST", "/api/views/bench/data", {"controls": {}, "pixels": pixels, "width": 374})
+    assert status == 200 and "error" not in reply, reply
+    asked = [c["pixels"] for c in _calls(em, "EM_plot") if c.get("pixels") is not None]
+    assert asked and all(int(h) > 0 for _, h in asked), asked
+
+
 def test_field_and_trend_each_list_only_their_kinds(em):
     field = bench(em, {"category": "field"})["bench"]["datasets"]
     trend = bench(em, {"category": "trend"})["bench"]["datasets"]
