@@ -623,6 +623,10 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "zeroline": False,
         "visible": a.visible,
     }
+    if a.y_nonnegative:
+        # never ranged below 0, not even by Plotly's autorange on a double click (#191)
+        yaxis["rangemode"] = "nonnegative"
+        yaxis["autorangeoptions"] = {"minallowed": 0}
     yaxis2: Optional[Dict[str, Any]] = None
     if a.y2range is not None:
         # the panel's twin: its own range and label on the right, the left axis's ticks only on the left

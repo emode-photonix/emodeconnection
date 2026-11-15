@@ -704,7 +704,7 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
             out["figure_size"] = None
         else:
             out["figure_size"] = (width, height) if width > 0 and height > 0 else None
-    for name in ("font_size", "dpi", "vmin", "vmax"):
+    for name in ("font_size", "dpi", "vmin", "vmax", "xmin", "xmax", "ymin", "ymax", "aspect_ratio"):
         if isinstance(out.get(name), str):
             try:
                 out[name] = float(out[name])

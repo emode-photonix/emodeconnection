@@ -514,6 +514,7 @@ function buildControls(reply) {
   else buildPlotControls(box, reply);
   if (kind === "schematic") box.append(componentMenu(reply));
   if (kind !== "gds") box.append(aspectControl(reply));
+  if (kind !== "gds" && kind !== "schematic") box.append(extentsPanel(reply));
   box.append(renderPanel());
   box.append(exportPanel(reply));
   markRender();
@@ -554,6 +555,28 @@ function aspectControl(reply) {
   });
   wrap.append(menu, custom);
   return wrap;
+}
+
+// ------------------------------------------------------------ the axis extents (#191)
+
+// Each axis's ends: a number, or blank for automatic. A quantity that cannot be negative
+// starts its automatic range at 0 in the client, which knows the data's kind.
+function extentsPanel(reply) {
+  const c = reply.controls || {};
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Axes";
+  const list = document.createElement("div");
+  for (const [name, key] of [["x min", "xmin"], ["x max", "xmax"], ["y min", "ymin"], ["y max", "ymax"]]) {
+    list.append(numberBox(name, c[key] == null ? "" : String(c[key]), (v) => {
+      const n = numberOrNull(v);
+      if (n !== null && !Number.isFinite(n)) return showMessage(name + " is a number, or blank for automatic.");
+      showMessage("");
+      change({ [key]: n });
+    }));
+  }
+  details.append(summary, list);
+  return details;
 }
 
 // ------------------------------------------------------------ a component's details (#159)
