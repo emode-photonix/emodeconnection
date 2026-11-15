@@ -144,6 +144,9 @@ class RasterSpec:
     #: different spacings (a z panel), so each keeps its own boundaries. None:
     #: the edges are halfway between the centers.
     x_edges: Optional[np.ndarray] = None
+    #: What a click on the image opens in the tab (``'mode:<label>'`` for a panel of
+    #: the All modes view), None for nothing.
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -365,8 +368,11 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
     if isinstance(view, SweepPanel):
         return compose_sweep(view, options)
     from ..figures import Figure
+    from .modes import ModesPanel, compose_modes
     from .panels import compose_figure
 
+    if isinstance(view, ModesPanel):
+        return compose_modes(view, options)
     if isinstance(view, Figure):
         return compose_figure(view, options)
     if not isinstance(view, PlotView):

@@ -147,7 +147,9 @@ async function request(id, controls) {
   clearTimeout(state.busyTimer);
   state.busyTimer = setTimeout(() => setStatus("EMode is busy", true), 1000);
   try {
-    return await api("views/" + id + "/data", { controls: controls || {}, pixels: pixels() });
+    // the plot's CSS width sets the All modes grid's columns
+    const width = document.getElementById("stage").clientWidth || document.getElementById("figure").clientWidth;
+    return await api("views/" + id + "/data", { controls: controls || {}, pixels: pixels(), width: width });
   } finally {
     clearTimeout(state.busyTimer);
     setStatus(state.ended ? "session ended" : "");
@@ -231,6 +233,8 @@ function draw(reply) {
     const point = ev.points && ev.points[0];
     const meta = point && point.data && point.data.meta;
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
+    // a panel of the All modes grid opens its mode in the single view
+    else if (typeof meta === "string" && meta.startsWith("mode:")) change({ mode: meta.slice("mode:".length) });
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {

@@ -55,6 +55,7 @@ from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
 from ..plotting import Schematic
+from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
 from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
 UI_DIR = Path(__file__).parent
@@ -239,12 +240,22 @@ class UIServer:
     # ---------------------------------------------------------------- a view's data
 
     def view_reply(
-        self, view: View, controls: Dict[str, Any], pixels: Optional[Tuple[int, int]]
+        self,
+        view: View,
+        controls: Dict[str, Any],
+        pixels: Optional[Tuple[int, int]],
+        width: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Apply the tab's `controls` to `view`, fetching new data only when they need it."""
+        """Apply the tab's `controls` to `view`, fetching new data only when they need it.
+
+        `pixels` is the plot's size in device pixels and `width` its width in
+        CSS pixels, which sets the All modes grid's columns. A raster with more
+        samples than the plot has pixels is sent decimated to them.
+        """
         from .views import _select
 
         kind = KINDS[view.kind]
+        controls, grid, want_grid = self._modes_controls(view, controls)
         data_args = {k: controls[k] for k in kind.data_arguments if k in controls}
         local_args = {k: controls[k] for k in kind.local_arguments if k in controls}
         figure_args = {k: controls[k] for k in FIGURE_OPTIONS if k in controls}
@@ -271,23 +282,83 @@ class UIServer:
             view.arguments = state_arguments(view.arguments, view.data)
         if figure_args:
             view.options = replace(view.options, **_clean_options(figure_args))
+        if want_grid and offers_all_modes(view.data):
+            view.data = self._modes_grid(view, grid, width)
         view.title = title_of(view.data, view.arguments)
         spec = compose(view.data, view.options)
+        aspect = figure_aspect(spec)
+        if isinstance(view.data, ModesPanel):
+            # small panels: one sample per CSS pixel is all they show
+            css = float(width or (pixels or view.pixels)[0] / 2)
+            shown: Optional[Tuple[int, int]] = (int(css), int(css * aspect))
+        else:
+            shown = tuple(pixels) if pixels else None
         return {
             "id": view.id,
             "kind": view.kind,
             "title": view.title,
-            "figure": to_plotly(spec),
+            "figure": to_plotly(spec, shown),
             # the plot box's height over its width: the tab sizes the plot to its width (#160)
-            "aspect": figure_aspect(spec),
+            "aspect": aspect,
             "menu": menu_of(view.data).model_dump(mode="json"),
             "controls": {
                 **view.arguments,
                 **_options_dict(view.options),
                 **_drawn_contours(view),
+                **({"all_modes": isinstance(view.data, ModesPanel)} if offers_all_modes(_single(view.data)) else {}),
             },
             "extra": _extra(view.data),
         }
+
+    def _modes_controls(
+        self, view: View, controls: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], Optional[ModesPanel], bool]:
+        """The tab's controls with the All modes choice taken out: (controls, the grid shown, grid wanted).
+
+        ``mode='All modes'`` (or ``all_modes=True``) asks for the grid, and any
+        other mode for the single view. A mode the grid holds is shown from it,
+        with no EMode call, when the plot's other data arguments are the grid's.
+        `view.data` is left as the single view the controls then apply to.
+        """
+        controls = dict(controls)
+        grid = view.data if isinstance(view.data, ModesPanel) else None
+        if grid is not None:
+            view.data = grid.view_of(grid.shown) or grid.views[0]
+        if controls.get("mode") == ALL_MODES:
+            controls.pop("mode")
+            return controls, grid, True
+        if "all_modes" in controls:
+            return controls, grid, bool(controls.pop("all_modes"))
+        if "mode" not in controls:
+            return controls, grid, grid is not None
+        if grid is not None:
+            kind = KINDS[view.kind]
+            asked = {**view.arguments, **{k: controls[k] for k in kind.data_arguments if k in controls}}
+            panel = grid.view_of(str(controls["mode"]))
+            if panel is not None and frozen_arguments(asked) == grid.arguments:
+                view.data = panel
+                view.arguments = {**view.arguments, "mode": controls["mode"]}
+        return controls, grid, False
+
+    def _modes_grid(self, view: View, grid: Optional[ModesPanel], width: Optional[float]) -> ModesPanel:
+        """The All modes grid of `view`'s single view: `grid` again when it is still the plot's, else fetched."""
+        single = view.data
+        labels = mode_labels(single)
+        key = frozen_arguments(view.arguments)
+        shown = str(single.menu.selected.get("mode") or labels[0])
+        columns = columns_for(width, len(labels))
+        if grid is not None and grid.arguments == key and grid.labels == labels:
+            return replace(grid, columns=columns, shown=shown)
+        if self.session_ended:
+            raise EModeError("This plot's EMode session has ended, so its other modes cannot be fetched.")
+        views = []
+        for label in labels:
+            if label == shown:
+                views.append(single)
+                continue
+            arguments = {**view.arguments, "mode": label}
+            views.append(self.fetch(view, arguments, view.pixels))
+        return ModesPanel(tuple(views), labels, columns, key, shown)
 
     def open_view(self, view: View, name: str) -> View:
         """Open the schematic or the GDS view of `view`'s device as a plot of its own (#146).
@@ -536,9 +607,16 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _single(data: Any) -> Any:
+    """The single view of `data`: the shown mode's panel of an All modes grid, else `data`."""
+    if isinstance(data, ModesPanel):
+        return data.view_of(data.shown) or data.views[0]
+    return data
+
+
 def _drawn_contours(view: View) -> Dict[str, Any]:
     """The Contours control as drawn: the default None resolved, so the checkbox shows the truth."""
-    drawn = effective_contours(view.data, view.options)
+    drawn = effective_contours(_single(view.data), view.options)
     return {} if drawn is None else {"contours": drawn}
 
 
@@ -736,8 +814,10 @@ class _Handler(BaseHTTPRequestHandler):
                 controls = body.get("controls") or {}
                 pixels = body.get("pixels")
                 pixels = tuple(int(p) for p in pixels) if pixels else None
+                width = body.get("width")
+                width = float(width) if isinstance(width, (int, float)) and width > 0 else None
                 try:
-                    reply = self.ui.view_reply(view, controls, pixels)
+                    reply = self.ui.view_reply(view, controls, pixels, width)
                 except EModeError as exc:
                     return self._json(200, {"id": view.id, "error": str(exc)})
                 return self._json(200, reply)

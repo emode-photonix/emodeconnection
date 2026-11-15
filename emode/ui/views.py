@@ -110,6 +110,12 @@ def menu_of(data: Any) -> MenuState:
     """The controls a view offers, as ``MenuState``."""
     if isinstance(data, FarFieldPanel):
         return MenuState(data=data.panels, selected={"data": data.panel})
+    from .modes import ModesPanel, offers_all_modes, with_all_modes
+
+    if isinstance(data, ModesPanel):
+        return data.menu
+    if offers_all_modes(data):
+        return with_all_modes(data.menu)
     if isinstance(data, SweepPanel):
         # the menus themselves go in the reply's extra (sweep_menus): their names vary by result
         selected = {k: ", ".join(v) if isinstance(v, list) else str(v) for k, v in data.selected.items()}
@@ -160,10 +166,13 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
 
     if isinstance(data, Figure):
         return data.title or f"figure of {len(data.panels)} panels"
+    from .modes import ModesPanel
+
     selected = data.menu.selected
     what = selected.get("data") or arguments.get("component") or ""
     how = selected.get("component") or ""
-    return " ".join(part for part in (data.plane, what, how) if part)
+    grid = "all modes" if isinstance(data, ModesPanel) else ""
+    return " ".join(part for part in (data.plane, what, how, grid) if part)
 
 
 class ViewRegistry:

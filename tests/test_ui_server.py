@@ -433,7 +433,7 @@ def test_each_request_on_a_kept_alive_connection_reads_its_own_body(server):
 
 
 def _contour_traces(reply: Dict[str, Any]) -> list:
-    return [t for t in reply["figure"]["data"] if t["type"] == "contour"]
+    return [t for t in reply["figure"]["data"] if t["type"] == "contour" or t.get("meta") == "contour"]
 
 
 def test_the_contours_control_reports_what_is_drawn_and_toggles_it():
