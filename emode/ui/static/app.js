@@ -138,10 +138,16 @@ function markSelected() {
 
 // ------------------------------------------------------------ one view
 
+// The plot's size in device pixels. On a phone the stage is a column and the plot has no
+// height until a reply sizes it (#185), so its height is then its width times the plot box's
+// aspect: EMode samples a panel at these pixels, and a panel 0 tall came back one row (emode#1701).
 function pixels() {
   const el = document.getElementById("figure");
   const r = window.devicePixelRatio || 1;
-  return [Math.round(el.clientWidth * r), Math.round(el.clientHeight * r)];
+  const width = el.clientWidth || document.getElementById("stage").clientWidth || 0;
+  const aspect = (state.reply && state.reply.aspect) || Math.SQRT1_2;
+  const height = el.clientHeight > 0 ? el.clientHeight : width * aspect;
+  return [Math.max(1, Math.round(width * r)), Math.max(1, Math.round(height * r))];
 }
 
 async function request(id, controls) {
@@ -237,11 +243,17 @@ function draw(reply) {
   // drag mode for a zoom box, so none would scroll it (#185). A click still opens a panel.
   const stage = document.getElementById("stage").clientHeight;
   if (stage > 0 && layout.height > stage) layout.dragmode = false;
-  Plotly.react(fig, reply.figure.data, layout, {
-    responsive: true,
-    displaylogo: false,
-    toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
-  });
+  // a figure Plotly cannot draw still gets its controls, so another choice can be made (emode#1701)
+  try {
+    const drawn = Plotly.react(fig, reply.figure.data, layout, {
+      responsive: true,
+      displaylogo: false,
+      toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
+    });
+    if (drawn && typeof drawn.catch === "function") drawn.catch((err) => showMessage("The plot could not be drawn: " + err));
+  } catch (err) {
+    showMessage("The plot could not be drawn: " + err);
+  }
   fig.removeAllListeners && fig.removeAllListeners("plotly_click");
   fig.on && fig.on("plotly_click", (ev) => {
     // a swipe that scrolled the plot ends in a click without a drag mode: it opens nothing

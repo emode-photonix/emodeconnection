@@ -236,7 +236,8 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
         "colorscale": colorscale(r.colormap),
         "zmin": r.vmin,
         "zmax": r.vmax,
-        "zsmooth": "best" if r.interpolation == "bilinear" else False,
+        # Plotly cannot smooth a single row or column across a wider range: it throws (emode#1701)
+        "zsmooth": "best" if r.interpolation == "bilinear" and min(z.shape[-2:], default=0) >= 2 else False,
         "showscale": showscale,
         "hovertemplate": "%{x:.4g}, %{y:.4g}: %{z:.4f}<extra></extra>",
     }

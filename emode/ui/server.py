@@ -50,7 +50,7 @@ import numpy as np
 
 from .. import colormaps
 from ..types import EModeError
-from .figure import PlotOptions, compose, effective_contours, figure_aspect
+from .figure import PLOT_RATIO, PlotOptions, compose, effective_contours, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
@@ -674,6 +674,22 @@ def schematic_components(view: Schematic) -> List[Tuple[str, str]]:
 REFRESHED_KINDS = ("plot", "schematic", "gds")
 
 
+def _pixels(value: Any) -> Optional[Tuple[int, int]]:
+    """The tab's plot size in device pixels, a side of 0 or less never passed on to EMode.
+
+    A phone's plot has no height before its first reply sizes it, and EMode
+    samples a panel at the pixels it is given: 0 tall came back one row
+    (emode#1701). A missing height is the width times the plot box's default
+    aspect, and a missing width is no size at all.
+    """
+    if not value:
+        return None
+    width, height = (int(p) for p in value)
+    if width <= 0:
+        return None
+    return width, height if height > 0 else max(1, round(width / PLOT_RATIO))
+
+
 def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:
     """A z panel sampled for a panel more than a quarter wider or narrower than the tab's."""
     data = view.data
@@ -926,8 +942,7 @@ class _Handler(BaseHTTPRequestHandler):
             if parts[3] == "data":
                 body = self._body()
                 controls = body.get("controls") or {}
-                pixels = body.get("pixels")
-                pixels = tuple(int(p) for p in pixels) if pixels else None
+                pixels = _pixels(body.get("pixels"))
                 width = body.get("width")
                 width = float(width) if isinstance(width, (int, float)) and width > 0 else None
                 try:
