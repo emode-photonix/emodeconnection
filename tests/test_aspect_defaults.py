@@ -1,7 +1,8 @@
 """Each plot's default aspect ratio, and the tab sizing the plot to its width (emodeconnection#160).
 
 Eric's defaults: the S-matrix 1:1, an x-y cross section at the window's true
-ratio, every other plot at the golden ratio, wider than tall. ``aspect_ratio``
+ratio, every other plot at sqrt(2), wider than tall (Eric, 2026-11-15, the
+root-2 rectangle of ISO 216 paper, as the old plot window was). ``aspect_ratio``
 still wins. The plot box's height over its width is ``AxesSpec.box_aspect``,
 which both renderers use, and the tab takes the plot's height from its width and
 that ratio rather than filling a tall phone frame.
@@ -16,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from emode.ui.figure import GOLDEN, PlotOptions, compose, figure_aspect
+from emode.ui.figure import PLOT_RATIO, PlotOptions, compose, figure_aspect
 from emode.ui.renderers import mpl
 from emode.ui.server import UIServer
 from emode.ui.views import ViewRegistry
@@ -33,24 +34,24 @@ from plot_fixtures import (
 from test_ui_server import request
 
 
-def test_golden_is_the_golden_ratio():
-    assert GOLDEN == pytest.approx((1 + math.sqrt(5)) / 2)
+def test_the_plot_ratio_is_root_two():
+    assert PLOT_RATIO == pytest.approx(math.sqrt(2))
 
 
 def test_the_smatrix_is_square():
     assert compose(smatrix_view()).axes.box_aspect == pytest.approx(1.0)
 
 
-def test_an_xy_cross_section_is_golden_too():
-    """Eric, 2026-11-13 on his phone: every field plot is golden, x-y included."""
-    assert compose(xy_view()).axes.box_aspect == pytest.approx(1 / GOLDEN)
+def test_an_xy_cross_section_is_root_two_too():
+    """Every field plot is root-2, x-y included (Eric, 2026-11-13 and 15)."""
+    assert compose(xy_view()).axes.box_aspect == pytest.approx(1 / PLOT_RATIO)
 
 
 @pytest.mark.parametrize(
     "make", [zx_view, layout_view, material_view, schematic], ids=lambda f: f.__name__
 )
-def test_every_other_plot_is_golden_and_wider_than_tall(make):
-    assert compose(make()).axes.box_aspect == pytest.approx(1 / GOLDEN)
+def test_every_other_plot_is_root_two_and_wider_than_tall(make):
+    assert compose(make()).axes.box_aspect == pytest.approx(1 / PLOT_RATIO)
 
 
 @pytest.mark.parametrize(
@@ -73,9 +74,9 @@ def test_real_is_the_limits_own_ratio():
     "make, ratio",
     [
         (smatrix_view, 1.0),
-        (zx_view, 1 / GOLDEN),
-        (layout_view, 1 / GOLDEN),
-        (schematic, 1 / GOLDEN),
+        (zx_view, 1 / PLOT_RATIO),
+        (layout_view, 1 / PLOT_RATIO),
+        (schematic, 1 / PLOT_RATIO),
     ],
     ids=["smatrix", "zx", "layout", "schematic"],
 )
@@ -88,17 +89,17 @@ def test_matplotlib_draws_the_same_box(make, ratio):
     assert (box.height * h) / (box.width * w) == pytest.approx(ratio, rel=0.02)
 
 
-def test_the_xy_box_in_matplotlib_is_golden():
+def test_the_xy_box_in_matplotlib_is_root_two():
     fig = mpl.to_figure(compose(xy_view()))
     fig.canvas.draw()
     box = fig.axes[0].get_position()
     w, h = fig.get_size_inches()
-    assert (box.height * h) / (box.width * w) == pytest.approx(1 / GOLDEN, rel=0.02)
+    assert (box.height * h) / (box.width * w) == pytest.approx(1 / PLOT_RATIO, rel=0.02)
 
 
 def test_figure_aspect_reads_the_box():
     assert figure_aspect(compose(smatrix_view())) == pytest.approx(1.0)
-    assert figure_aspect(compose(zx_view())) == pytest.approx(1 / GOLDEN)
+    assert figure_aspect(compose(zx_view())) == pytest.approx(1 / PLOT_RATIO)
 
 
 def test_the_tab_reply_carries_the_aspect():
@@ -109,7 +110,7 @@ def test_the_tab_reply_carries_the_aspect():
         _, _, body = request(
             server, "POST", f"/api/views/{view.id}/data", body={"controls": {}}
         )
-        assert json.loads(body)["aspect"] == pytest.approx(1 / GOLDEN)
+        assert json.loads(body)["aspect"] == pytest.approx(1 / PLOT_RATIO)
     finally:
         server.stop()
 
@@ -149,7 +150,7 @@ def test_the_plot_is_never_wider_than_a_375_px_container():
     got = run_app(
         PHONE
         + """
-var reply = {id: "p1", aspect: 0.618, figure: {data: [], layout: {margin: {l: 60, r: 20, t: 40, b: 50}}}};
+var reply = {id: "p1", aspect: 0.7071, figure: {data: [], layout: {margin: {l: 60, r: 20, t: 40, b: 50}}}};
 draw(reply);
 state.reply = reply;
 fitFigure();
@@ -159,8 +160,8 @@ return drawn;
     assert got[0]["config"]["responsive"] is True
     for call in got:
         assert call["layout"]["width"] <= 375
-    # the height follows the width: a 295 px box, golden, plus the margins
-    assert got[0]["layout"]["height"] == round(295 * 0.618 + 90)
+    # the height follows the width: a 295 px box, root-2, plus the margins
+    assert got[0]["layout"]["height"] == round(295 * 0.7071 + 90)
 
 
 @needs_jsc
