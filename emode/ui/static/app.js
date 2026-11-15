@@ -1104,7 +1104,15 @@ function buildPlotControls(box, reply) {
       openView(v);
     }));
   }
-  if (m.planes && m.planes.length) box.append(select("Slice", m.planes, sel.plane, (v) => change({ plane: v })));
+  // the Slice menu: the planes, never the schematic, which is the View menu's (emode#1728). A
+  // plane change clears the position (a z on x-y, a transverse position on a z panel), and a z
+  // plane chosen from a profile's x-y plot names no profile, so EMode draws the device
+  const planes = (m.planes || []).filter((p) => p !== "schematic");
+  if (planes.length) {
+    box.append(select("Slice", planes, sel.plane, (v) => change(v === "x-y"
+      ? { plane: v, slice_position: null }
+      : { plane: v, profile: null, slice_position: null })));
+  }
   if (m.ports && m.ports.length) box.append(select("Port", m.ports, sel.port, (v) => change({ port: v })));
   if (m.sections && m.sections.length) {
     box.append(select("Section", m.sections, sel.section || "all", (v) => change({ section: v === "all" ? null : v })));
