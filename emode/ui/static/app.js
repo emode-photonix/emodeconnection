@@ -26,7 +26,7 @@ const SETTINGS = [
   ["Blend slices", "blend_slices"],
 ];
 
-const state = { views: [], current: null, reply: null, ended: false, busyTimer: null };
+const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null };
 
 function api(path, body) {
   const options = body === undefined
@@ -161,6 +161,7 @@ async function show(id, controls) {
   if (!id) return;
   const first = state.current !== id;
   state.current = id;
+  forgetPending(id);
   markSelected();
   let reply;
   try {
@@ -242,12 +243,12 @@ function draw(reply) {
     const meta = point && point.data && point.data.meta;
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
-    else if (typeof meta === "string" && meta.startsWith("mode:")) change({ mode: meta.slice("mode:".length) });
+    else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
     const target = ev.annotation && ev.annotation.hovertext;
-    if (target && target.startsWith("go to ")) change({ section: target.slice(6) });
+    if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
 }
@@ -267,8 +268,96 @@ function watchSwipes(el) {
   }, { passive: true });
 }
 
+// ------------------------------------------------------------ auto render (#183)
+//
+// With Auto render on (the default), a control change redraws at once. Off, the
+// changes wait in `pending` and go together when Render is pressed. A click on
+// the plot itself (a grid panel, a section arrow, a key) renders at once, with
+// whatever waits. The choice is remembered per browser, where storage allows.
+
+const AUTO_RENDER_KEY = "emode.autoRender";
+const pending = { id: null, controls: {} };
+
+function autoRender() {
+  if (state.autoRender == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(AUTO_RENDER_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.autoRender = stored !== "off";
+  }
+  return state.autoRender;
+}
+
+function setAutoRender(on) {
+  state.autoRender = !!on;
+  try {
+    localStorage.setItem(AUTO_RENDER_KEY, on ? "on" : "off");
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  if (on && Object.keys(pending.controls).length) renderNow();
+}
+
+function pendingControls() {
+  return pending.id === state.current ? pending.controls : {};
+}
+
+// Drop what waits when another plot is shown: it was meant for the one before.
+function forgetPending(id) {
+  if (pending.id !== id) {
+    pending.id = id;
+    pending.controls = {};
+  }
+  markRender();
+}
+
+function markRender() {
+  const button = state.renderButton;
+  if (!button) return;
+  const waiting = Object.keys(pendingControls()).length > 0;
+  button.disabled = !waiting;
+  button.classList.toggle("pending", waiting);
+}
+
+// A control change: drawn now, or kept for Render.
 function change(controls) {
-  if (state.current) show(state.current, controls);
+  if (!state.current) return;
+  if (autoRender()) return show(state.current, controls);
+  forgetPending(state.current);
+  Object.assign(pending.controls, controls);
+  markRender();
+}
+
+// Draw now, with whatever waits.
+function renderNow(extra) {
+  if (!state.current) return;
+  const controls = { ...pendingControls(), ...(extra || {}) };
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function renderPanel() {
+  const wrap = document.createElement("span");
+  wrap.className = "render";
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = autoRender();
+  box.addEventListener("change", () => setAutoRender(box.checked));
+  label.append(box, " Auto render");
+  const button = document.createElement("button");
+  button.id = "render";
+  button.type = "button";
+  button.textContent = "Render";
+  button.title = "Draw the plot with the controls changed since it was drawn";
+  button.addEventListener("click", () => renderNow());
+  state.renderButton = button;
+  wrap.append(label, button);
+  return wrap;
 }
 
 // ------------------------------------------------------------ the controls
@@ -416,7 +505,9 @@ function buildControls(reply) {
   else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
   if (kind === "schematic") box.append(componentMenu(reply));
+  box.append(renderPanel());
   box.append(exportPanel(reply));
+  markRender();
 }
 
 // ------------------------------------------------------------ a component's details (#159)
@@ -533,14 +624,14 @@ function buildMaterialControls(box, reply) {
   const step = textbox("nm, step", [], x.step, () => {});
   const set = document.createElement("button");
   set.textContent = "Set";
-  set.addEventListener("click", () => change({
+  set.addEventListener("click", () => renderNow({
     wavelengths: [numberOrNull(lo.querySelector("input").value), numberOrNull(hi.querySelector("input").value)],
     step: numberOrNull(step.querySelector("input").value),
   }));
   const home = document.createElement("button");
   home.textContent = "Home";
   home.title = "The model's own wavelength range";
-  home.addEventListener("click", () => change({ wavelengths: null, step: null }));
+  home.addEventListener("click", () => renderNow({ wavelengths: null, step: null }));
   box.append(lo, hi, step, set, home);
 }
 
@@ -828,7 +919,7 @@ function exportPanel(reply) {
   }
   const apply = document.createElement("button");
   apply.textContent = "Apply";
-  apply.addEventListener("click", () => change(labelControls(entries)));
+  apply.addEventListener("click", () => renderNow(labelControls(entries)));
   lbox.append(apply);
   labels.append(ls, lbox);
 
@@ -1095,12 +1186,12 @@ document.addEventListener("keydown", (ev) => {
   }
   if (!state.reply || ev.target.closest("input, select")) return;
   const arrows = (state.reply.figure.layout.annotations || []).filter((a) => a.name === "arrow");
-  if (ev.key === "Escape") return change({ section: null });
+  if (ev.key === "Escape") return renderNow({ section: null });
   const dir = { ArrowLeft: "◀", ArrowRight: "▶", ArrowUp: "▲", ArrowDown: "▼" }[ev.key];
   const hit = dir && arrows.find((a) => a.text === dir);
   if (hit) {
     ev.preventDefault();
-    change({ section: hit.hovertext.slice(6) });
+    renderNow({ section: hit.hovertext.slice(6) });
   }
 });
 

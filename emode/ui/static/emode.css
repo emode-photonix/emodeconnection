@@ -59,6 +59,8 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
 #controls button { font: inherit; padding: 1px 8px; }
+#controls .render { display: inline-flex; gap: 6px; align-items: center; }
+#controls #render.pending { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; }
 #controls details.export { margin-left: auto; }
 #controls details.export > div { right: 0; }
 #controls details.export details > div { position: static; border: 0; padding: 4px 0 4px 10px; }
