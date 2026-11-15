@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from ..plotting import MaterialView, MenuState, PlotView, Schematic, SMatrixView
-from .figure import DATA_ARGUMENTS, FarFieldPanel, PlotOptions
+from .figure import DATA_ARGUMENTS, FarFieldPanel, MonitorPanel, PlotOptions
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel
 from .gds import apply as apply_gds
@@ -41,6 +42,8 @@ def _select(data: Any, controls: Dict[str, Any]) -> Any:
         return data.model_copy(update={"menu": data.menu.model_copy(update={"selected": selected})})
     if isinstance(data, SweepPanel):
         return select_sweep(data, controls)
+    if isinstance(data, MonitorPanel):
+        return data.with_selection(controls.get("component"), controls.get("plot_function"))
     if isinstance(data, FarFieldPanel) and controls.get("data") is not None:
         panel = str(controls["data"])
         return FarFieldPanel(data.farfield, panel if panel in data.panels else "intensity")
@@ -80,6 +83,7 @@ KINDS: Dict[str, Kind] = {
     "smatrix": Kind("smatrix", "x", (), ("input", "output", "plot_function")),
     "material": Kind("material", "m", ("material", "wavelengths", "step", "x"), ("component",)),
     "farfield": Kind("farfield", "f", (), ("data",)),
+    "monitor": Kind("monitor", "n", (), ("component", "plot_function")),
     "gds": Kind("gds", "g", DATA_ARGUMENTS, GDS_ARGUMENTS),
     "sweep": Kind("sweep", "w", (), SWEEP_CONTROLS),
     "figure": Kind("figure", "c", ()),
@@ -95,6 +99,8 @@ def kind_of(data: Any) -> str:
         return "material"
     if isinstance(data, FarFieldPanel):
         return "farfield"
+    if isinstance(data, MonitorPanel):
+        return "monitor"
     if isinstance(data, GDSPanel):
         return "gds"
     if isinstance(data, SweepPanel):
@@ -110,6 +116,10 @@ def menu_of(data: Any) -> MenuState:
     """The controls a view offers, as ``MenuState``."""
     if isinstance(data, FarFieldPanel):
         return MenuState(data=data.panels, selected={"data": data.panel})
+    if isinstance(data, MonitorPanel):
+        return MenuState(
+            data=list(data.DATA), components=list(data.PARTS), selected={"data": data.data, "component": data.part}
+        )
     from .modes import ModesPanel, offers_all_modes, with_all_modes
 
     if isinstance(data, ModesPanel):
@@ -160,6 +170,8 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
         return f"material {data.material} {data.menu.selected.get('component', '')}".strip()
     if isinstance(data, FarFieldPanel):
         return f"far field {data.farfield.wavelength:g} nm {data.panel}"
+    if isinstance(data, MonitorPanel):
+        return f"monitor {data.field.name} {data.data} {data.part}"
     if isinstance(data, GDSPanel):
         return gds_title(data)
     if isinstance(data, SweepPanel):
@@ -177,13 +189,56 @@ def title_of(data: Any, arguments: Dict[str, Any]) -> str:
     return " ".join(part for part in (data.plane, what, how, grid) if part)
 
 
+#: The workbench's id: the tab's default plot, pinned first in the sidebar (emode#1701).
+BENCH = "bench"
+
+#: How many of the workbench's datasets keep their data, the most recently shown.
+CACHE_SIZE = 8
+
+
+@dataclass
+class Workbench:
+    """The tab's default plot (emode#1701): the dataset of the inventory it shows, and what it held of the others.
+
+    Each dataset the workbench has shown keeps its ``View`` here, its recipe
+    (``arguments``, ``options``) and, for the `CACHE_SIZE` shown last, its
+    data, so switching back to one asks EMode for nothing. Mutable: the tab's
+    controls change it.
+    """
+
+    category: str = "field"
+    dataset: Optional[str] = None
+    held: "OrderedDict[str, View]" = field(default_factory=OrderedDict)
+    #: The dataset each category showed last, which choosing the category shows again.
+    last: Dict[str, str] = field(default_factory=dict)
+    created: float = field(default_factory=time.time)
+
+    @property
+    def view(self) -> Optional[View]:
+        return self.held.get(self.dataset) if self.dataset is not None else None
+
+    def show(self, dataset: str, category: str, view: View) -> None:
+        """Show `view` as `dataset`, holding the data of the `CACHE_SIZE` datasets shown last."""
+        self.dataset, self.category = dataset, category
+        self.last[category] = dataset
+        self.held[dataset] = view
+        self.held.move_to_end(dataset)
+        with_data = [k for k, v in self.held.items() if v.data is not None]
+        for key in with_data[: max(0, len(with_data) - CACHE_SIZE)]:
+            self.held[key].data = None
+
+    def summary(self) -> Dict[str, Any]:
+        return {"id": BENCH, "kind": "bench", "title": "Workbench", "created": self.created, "fetched": True}
+
+
 class ViewRegistry:
-    """The session's views, newest last, safe to read from the tab's thread."""
+    """The session's views, newest last, safe to read from the tab's thread, and the workbench."""
 
     def __init__(self) -> None:
         self._views: Dict[str, View] = {}
         self._lock = threading.Lock()
         self._count = 0
+        self.bench = Workbench()
 
     def add(
         self,
@@ -210,8 +265,15 @@ class ViewRegistry:
             return view
 
     def get(self, view_id: str) -> Optional[View]:
+        """The view `view_id`: a plot's, or what the workbench shows for ``'bench'``."""
+        if view_id == BENCH:
+            return self.bench.view
         with self._lock:
             return self._views.get(view_id)
+
+    def summaries(self) -> List[Dict[str, Any]]:
+        """The sidebar's entries: the workbench first, then each plot, oldest first."""
+        return [self.bench.summary(), *(v.summary() for v in self.list())]
 
     def list(self) -> List[View]:
         with self._lock:

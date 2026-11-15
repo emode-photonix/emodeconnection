@@ -23,7 +23,7 @@ shows the same choices for every session.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 from pydantic import ConfigDict, field_validator
@@ -514,6 +514,34 @@ class KindEntry(TaggedModel):
 
 
 @register_type
+class DatasetEntry(TaggedModel):
+    """One piece of data the plot workbench can show, and how the client fetches it.
+
+    ``category`` is ``'field'`` (spatial data: the device's field, a profile's
+    modes, a free-space field, a monitor's plane, the schematic, the GDS
+    layers) or ``'trend'`` (analysis data: the stored sweep, the pulse
+    response, the S-matrix, a profile's mode results, a profile set against
+    wavelength, a material's index). ``kind`` says which call fetches it
+    (``'plot'``, ``'schematic'``, ``'gds'``, ``'monitor'``, ``'sweep'``,
+    ``'pulse'``, ``'smatrix'``, ``'modes'``, ``'dispersion'``, ``'material'``)
+    and ``arguments`` what it is fetched with. ``id`` is unique in the
+    inventory (``'profile:wg'``), ``label`` the menu's text, ``reason`` why it
+    is unavailable, and ``summary`` the text after the label.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    category: Literal["field", "trend"]
+    kind: str
+    label: str
+    arguments: Dict[str, Any] = {}
+    available: bool = True
+    reason: Optional[str] = None
+    summary: str = ""
+
+
+@register_type
 class PlotInventory(TaggedModel):
     """What a session can plot, from names and keys only (no mesh, no basis, no solve).
 
@@ -535,3 +563,5 @@ class PlotInventory(TaggedModel):
     sweep: Optional[str] = None
     pulse_response: bool = False
     materials: List[str] = []
+    #: Every piece of data the plot workbench can show, Field then Trend (GUI-M4b).
+    datasets: List["DatasetEntry"] = []

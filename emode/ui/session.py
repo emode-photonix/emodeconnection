@@ -152,6 +152,94 @@ def fetch_view(
     return data
 
 
+def fetch_dataset(
+    em: "EMode", kind: str, arguments: Dict[str, Any], pixels: Tuple[int, int]
+) -> Any:
+    """Ask EMode for a dataset of the inventory (a ``DatasetEntry``'s `kind` and `arguments`) for the workbench.
+
+    A field, the schematic, the GDS layers, the S-matrix and a material are
+    fetched as ``plot()`` and the others fetch them. The stored sweep and the
+    pulse response come from ``get()``, a profile's mode results and a profile
+    set's results against wavelength from ``get()`` of each result, and a
+    monitor's plane from ``monitor_field()``.
+    """
+    from .figure import MonitorPanel
+    from .sweep_figure import sweep_panel
+
+    if kind in FUNCTIONS:
+        return fetch_view(em, dict(arguments), pixels, kind)
+    if kind == "sweep":
+        return sweep_panel(em.call("EM_get", key="sweep_data"))
+    if kind == "pulse":
+        return sweep_panel(em.call("EM_get", key="pulse_response"))
+    if kind in ("modes", "dispersion"):
+        return sweep_panel(profile_trend(em, kind, arguments))
+    if kind == "monitor":
+        from ..monitor import PlaneField
+
+        value = em.call("EM_monitor_field", **arguments)
+        if not isinstance(value, PlaneField):
+            raise EModeError("EMode answered monitor_field() with something this client cannot draw.")
+        return MonitorPanel(value)
+    raise EModeError(f"This client cannot draw EMode's {kind!r} data. Update it with pip install -U emode.")
+
+
+def _numeric(value: Any) -> Optional[np.ndarray]:
+    try:
+        array = np.asarray(value)
+    except (TypeError, ValueError):
+        return None
+    return array if array.dtype.kind in "biufc" and array.ndim <= 1 else None
+
+
+def profile_trend(em: "EMode", kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """A profile's per-mode results as a sweep over the mode (`kind` ``'modes'``), or a set's over wavelength.
+
+    `arguments` are a ``DatasetEntry``'s: ``profile`` and the ``results`` to
+    ask for. A result that is not a number per mode is left out.
+    """
+    from collections.abc import Mapping
+
+    profile = arguments["profile"]
+    answers = {r: em.call("EM_get", key=r, profile=profile) for r in arguments.get("results") or ["effective_index"]}
+    if kind == "modes":
+        arrays = {r: a for r, a in ((r, _numeric(v)) for r, v in answers.items()) if a is not None and a.ndim == 1}
+        n = max((len(a) for a in arrays.values()), default=0)
+        out: Dict[str, Any] = {"key": "mode", "values": np.arange(n)}
+        out.update({r: a for r, a in arrays.items() if len(a) == n})
+    else:
+        tables = {r: v for r, v in answers.items() if isinstance(v, Mapping) and len(v)}
+        wavelengths = sorted(next(iter(tables.values())).keys()) if tables else []
+        out = {"key": "wavelength", "values": np.asarray(wavelengths, float)}
+        for r, table in tables.items():
+            rows = [_numeric(table[w]) if w in table else None for w in wavelengths]
+            if any(row is None for row in rows):
+                continue
+            rows = [np.atleast_1d(row) for row in rows]
+            width = max(len(row) for row in rows)
+            dtype = complex if any(row.dtype.kind == "c" for row in rows) else float
+            grid = np.full((len(rows), width), np.nan, dtype=dtype)
+            for i, row in enumerate(rows):
+                grid[i, : len(row)] = row
+            out[r] = grid
+    if len(out) == 2 or not len(out["values"]):
+        raise EModeError(f"profile {profile!r} holds no results to plot. Solve it first.")
+    return out
+
+
+def fetch_inventory(em: "EMode") -> Any:
+    """Ask EMode what the session can plot: its ``PlotInventory``."""
+    from ..plotting import PlotInventory
+
+    if not em.running:
+        raise EModeError("This EMode session has ended.")
+    check_plot_support(em, "inventory")
+    value = em.call("EM_plot_inventory")
+    if not isinstance(value, PlotInventory):
+        raise EModeError("EMode answered plot_inventory() with something this client cannot read.")
+    return value
+
+
 def fetch_details(em: "EMode", component: str) -> Dict[str, Any]:
     """Ask EMode for every setting and parameter of a schematic component (#159), as JSON for the tab."""
     from ..plotting import ComponentDetails
@@ -221,6 +309,8 @@ def ensure_server(em: "EMode") -> UIServer:
             login=lambda function, **kwargs: em.call(function, **kwargs),
             emode_version=em._emode_version,
             generation=lambda: em.generation,
+            inventory=lambda: fetch_inventory(em),
+            fetch_dataset=lambda kind, arguments, pixels: fetch_dataset(em, kind, arguments, pixels),
         ).start()
         em._ui = server
     return server
@@ -271,6 +361,16 @@ def open_tab(em: "EMode", server: UIServer, view: View) -> None:
     server.opened_at = clock()
     server.last_ping = None
     webbrowser.open(server.url(view.id))
+
+
+def browse(em: "EMode") -> str:
+    """Open the session's tab on the workbench (emode#1701), with no plot and no EMode call. Returns its address."""
+    server = ensure_server(em)
+    url = _public_url(server, None, embed=False)
+    em._ui_opened = True
+    server.opened_at = clock()
+    webbrowser.open(url)
+    return url
 
 
 def _sent(kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -627,7 +727,7 @@ def _without_cut(data: Any) -> Any:
     return data.zpanel if isinstance(data, CutPanel) else data
 
 
-def _public_url(server: UIServer, view_id: str, embed: bool) -> str:
+def _public_url(server: UIServer, view_id: Optional[str], embed: bool) -> str:
     """The app's address as the browser reaches it: through Colab's proxy on Colab."""
     url = server.url(view_id, embed=embed)
     if "google.colab" in sys.modules and not os.environ.get("EMODE_UI_URL"):

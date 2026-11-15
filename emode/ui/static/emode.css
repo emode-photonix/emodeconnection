@@ -27,6 +27,9 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views li { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
 #views li.selected { background: #e8f0fb; }
 #views li .when { display: block; color: var(--muted); font-size: 11px; }
+#views li.pinned { font-weight: 600; border-bottom: 2px solid var(--line); }
+.bench-menus { display: inline-flex; flex-wrap: wrap; gap: 8px; padding-right: 8px; margin-right: 4px; border-right: 1px solid var(--line); }
+.bench-menus option:disabled { color: var(--muted); }
 #panel { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 8px 12px; }
 #controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-bottom: 6px; }
 #controls label { display: inline-flex; gap: 4px; align-items: center; }

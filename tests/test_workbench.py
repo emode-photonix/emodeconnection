@@ -48,18 +48,35 @@ def desktop(monkeypatch, tmp_path):
 # ------------------------------------------------------------------ the stand-in session
 
 
-def _entry(id: str, category: str, kind: str, label: str, arguments: Optional[Dict[str, Any]] = None,
-           available: bool = True, reason: Optional[str] = None, summary: str = "") -> DatasetEntry:
-    return DatasetEntry(id=id, category=category, kind=kind, label=label, arguments=arguments or {},
-                        available=available, reason=reason, summary=summary)
+def _entry(
+    id: str,
+    category: str,
+    kind: str,
+    label: str,
+    arguments: Optional[Dict[str, Any]] = None,
+    available: bool = True,
+    reason: Optional[str] = None,
+    summary: str = "",
+) -> DatasetEntry:
+    return DatasetEntry(
+        id=id,
+        category=category,
+        kind=kind,
+        label=label,
+        arguments=arguments or {},
+        available=available,
+        reason=reason,
+        summary=summary,
+    )
 
 
 def inventory(profiles: int = 2) -> PlotInventory:
     """A session with a solved device, a sweep, a monitor and a profile set, and no pulse or GDS."""
     names = ["FDM", "wg"] + [f"p{k}" for k in range(profiles - 2)]
     field = [_entry("device", "field", "plot", "EME device", summary="solved")]
-    field += [_entry(f"profile:{n}", "field", "plot", n, {"profile": n, "plane": "x-y"}, summary="2 modes")
-              for n in names]
+    field += [
+        _entry(f"profile:{n}", "field", "plot", n, {"profile": n, "plane": "x-y"}, summary="2 modes") for n in names
+    ]
     field += [
         _entry("monitor:mid", "field", "monitor", "monitor mid", {"name": "mid"}),
         _entry("schematic", "field", "schematic", "Schematic", {"view": "schematic"}, summary="2 sections"),
@@ -71,21 +88,31 @@ def inventory(profiles: int = 2) -> PlotInventory:
         _entry("pulse", "trend", "pulse", "Pulse response", available=False, reason="run a pulsed EME() first"),
         _entry("smatrix", "trend", "smatrix", "S-matrix"),
         _entry("modes:FDM", "trend", "modes", "FDM: mode results", {"profile": "_default", "results": results}),
-        _entry("dispersion:band", "trend", "dispersion", "band: against wavelength",
-               {"profile": "band", "results": results}, summary="2 wavelengths"),
+        _entry(
+            "dispersion:band",
+            "trend",
+            "dispersion",
+            "band: against wavelength",
+            {"profile": "band", "results": results},
+            summary="2 wavelengths",
+        ),
         _entry("material:Si", "trend", "material", "Si index", {"material": "Si"}),
         _entry("material", "trend", "material", "Material database"),
     ]
     kinds = [KindEntry(kind=k, available=True) for k in ("plot", "schematic", "smatrix", "sweep", "material")]
-    return PlotInventory(kinds=kinds, profiles=names, device="solved", sweep=trend[0].summary,
-                         materials=["Si"], datasets=field + trend)
+    return PlotInventory(
+        kinds=kinds, profiles=names, device="solved", sweep=trend[0].summary, materials=["Si"], datasets=field + trend
+    )
 
 
 def _get(request: Dict[str, Any]) -> Any:
     key, profile = request.get("key"), request.get("profile")
     if key == "sweep_data":
-        return {"key": "shape, core, width", "values": np.array([400.0, 500.0, 600.0]),
-                "effective_index": np.array([[2.1, 1.6], [2.3, 1.8], [2.4, 1.9]], complex)}
+        return {
+            "key": "shape, core, width",
+            "values": np.array([400.0, 500.0, 600.0]),
+            "effective_index": np.array([[2.1, 1.6], [2.3, 1.8], [2.4, 1.9]], complex),
+        }
     if profile == "band":
         values = {"effective_index": [2.4, 1.8], "TE_fraction": [0.99, 0.02]}[key]
         return WavelengthDict(data={1500.0: np.array(values), 1600.0: np.array(values) - 0.1})
@@ -104,24 +131,44 @@ def plane_field() -> PlaneField:
     X, S = np.meshgrid(x, s, indexing="ij")
     e = np.exp(-(X**2) / 2e5 - (S**2) / 1e5).astype(complex)
     fields = {k: e * (1 if k == "Ex" else 0.1) for k in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")}
-    return PlaneField(name="mid", wavelength=1550.0, x=x, s=s, w=s + 500.0, y=np.full_like(s, 800.0),
-                      angle=0.0, fields=fields, Sn=np.abs(e) ** 2, power_through_plane=0.9, power_in=1.0)
+    return PlaneField(
+        name="mid",
+        wavelength=1550.0,
+        x=x,
+        s=s,
+        w=s + 500.0,
+        y=np.full_like(s, 800.0),
+        angle=0.0,
+        fields=fields,
+        Sn=np.abs(e) ** 2,
+        power_through_plane=0.9,
+        power_in=1.0,
+    )
 
 
 @pytest.fixture
 def em():
     em, client = session(plot=_plot)
-    client.answers.update({
-        "EM_version": {"emode": "1.0.9", "protocol": 1, "plot": "view",
-                       "views": ["plot", "smatrix", "material", "session", "gds", "details", "inventory"]},
-        "EM_plot_inventory": lambda request: inventory(),
-        "EM_plot_S_matrix": lambda request: smatrix_view(),
-        "EM_material_explorer": lambda request: material_view(),
-        "EM_get": _get,
-        "EM_monitor_field": lambda request: plane_field(),
-        "EM_FDM": None, "EM_EME": None, "EM_label_profile": None, "EM_sweep": None,
-        "EM_session_info": None,
-    })
+    client.answers.update(
+        {
+            "EM_version": {
+                "emode": "1.0.9",
+                "protocol": 1,
+                "plot": "view",
+                "views": ["plot", "smatrix", "material", "session", "gds", "details", "inventory"],
+            },
+            "EM_plot_inventory": lambda request: inventory(),
+            "EM_plot_S_matrix": lambda request: smatrix_view(),
+            "EM_material_explorer": lambda request: material_view(),
+            "EM_get": _get,
+            "EM_monitor_field": lambda request: plane_field(),
+            "EM_FDM": None,
+            "EM_EME": None,
+            "EM_label_profile": None,
+            "EM_sweep": None,
+            "EM_session_info": None,
+        }
+    )
     em.client = client  # type: ignore[attr-defined]
     yield em
     server = em.__dict__.get("_ui")
@@ -133,8 +180,9 @@ def _server(em: Any) -> Any:
     return ui.ensure_server(em)
 
 
-def _http(server: Any, method: str, path: str, body: Optional[Dict[str, Any]] = None,
-          headers: Optional[Dict[str, str]] = None) -> tuple:
+def _http(
+    server: Any, method: str, path: str, body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None
+) -> tuple:
     conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=10)
     sent = {"Host": f"127.0.0.1:{server.port}", "X-EMode-Token": server.token, "Content-Type": "application/json"}
     sent.update(headers or {})
@@ -148,8 +196,9 @@ def _http(server: Any, method: str, path: str, body: Optional[Dict[str, Any]] = 
 
 def bench(em: Any, controls: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """What the tab gets when it posts `controls` to the workbench."""
-    status, reply = _http(_server(em), "POST", "/api/views/bench/data",
-                          {"controls": controls or {}, "pixels": [1170, 720], "width": 585})
+    status, reply = _http(
+        _server(em), "POST", "/api/views/bench/data", {"controls": controls or {}, "pixels": [1170, 720], "width": 585}
+    )
     assert status == 200
     return reply
 
@@ -202,8 +251,12 @@ def test_the_inventory_route_answers_the_session_inventory(em):
 
 @pytest.mark.parametrize(
     "headers",
-    [{"X-EMode-Token": None}, {"X-EMode-Token": "wrong"}, {"Host": "evil.example:80"},
-     {"Origin": "http://evil.example"}],
+    [
+        {"X-EMode-Token": None},
+        {"X-EMode-Token": "wrong"},
+        {"Host": "evil.example:80"},
+        {"Origin": "http://evil.example"},
+    ],
 )
 def test_the_inventory_route_refuses_another_page(em, headers):
     status, _ = _http(_server(em), "GET", "/api/inventory", headers=headers)
@@ -394,8 +447,9 @@ def test_the_all_modes_grid_works_on_the_bench(em):
     def modes(request):
         view = base()
         label = request.get("mode", "0, TE")
-        menu = view.menu.model_copy(update={"modes": ["0, TE", "1, TM"],
-                                            "selected": {**view.menu.selected, "mode": label}})
+        menu = view.menu.model_copy(
+            update={"modes": ["0, TE", "1, TM"], "selected": {**view.menu.selected, "mode": label}}
+        )
         return view.model_copy(update={"menu": menu})
 
     em.client.answers["EM_plot"] = modes
@@ -408,9 +462,7 @@ def test_the_all_modes_grid_works_on_the_bench(em):
 
 
 def test_the_view_menus_schematic_switches_the_bench_and_keeps_the_field(em):
-    em.client.answers["EM_plot"] = lambda request: (
-        schematic() if request.get("view") == "schematic" else _eme_zx()
-    )
+    em.client.answers["EM_plot"] = lambda request: (schematic() if request.get("view") == "schematic" else _eme_zx())
     bench(em, {"dataset": "device"})
     plots = len(_calls(em, "EM_plot"))
     status, reply = _http(_server(em), "POST", "/api/views/bench/open", {"view": "schematic"})
@@ -424,7 +476,9 @@ def test_the_view_menus_schematic_switches_the_bench_and_keeps_the_field(em):
 
 def _eme_zx() -> Any:
     view = zx_view()
-    return view.model_copy(update={"menu": view.menu.model_copy(update={"views": ["layout", "simulation", "schematic"]})})
+    return view.model_copy(
+        update={"menu": view.menu.model_copy(update={"views": ["layout", "simulation", "schematic"]})}
+    )
 
 
 # ------------------------------------------------------------------ the session's changes
@@ -438,7 +492,7 @@ def test_a_call_that_changes_the_session_tells_the_tab(em):
         event, data = q.get(timeout=1)
         assert event == "session-changed", function
     for function in ("EM_plot", "EM_get", "EM_session_info", "EM_plot_inventory", "EM_monitor_field"):
-        em.call(function)
+        em.call(function, **({"key": "sweep_data"} if function == "EM_get" else {}))
         assert q.empty(), function
 
 
@@ -466,7 +520,7 @@ def test_the_tabs_default_route_is_the_bench():
     from pathlib import Path
 
     js = (Path(ui.__file__).parent / "static" / "app.js").read_text()
-    assert 'return m ? m[1] : "bench"' in js or "routeId() || \"bench\"" in js
+    assert 'return m ? m[1] : "bench"' in js or 'routeId() || "bench"' in js
 
 
 @needs_jsc
@@ -522,4 +576,3 @@ def test_the_tab_refreshes_the_bench_on_session_changed_only_while_shown():
       return [first, second];
     """)
     assert out == [1, 1]
-

@@ -84,6 +84,7 @@ READ_ONLY_FUNCTIONS = frozenset(
         "EM_component_details",
         "EM_version",
         "EM_material_explorer",
+        "EM_monitor_field",
         "EM_warnings",
         "EM_logout",
         "EM_clear_session",
@@ -365,6 +366,10 @@ class EMode:
                 if changes_session(function):
                     # a call that failed may have changed the session too
                     self.__dict__["_generation"] = self.generation + 1
+                    server = self.__dict__.get("_ui")
+                    if server is not None and server.running:
+                        # the tab's workbench asks again what the session can plot (emode#1701)
+                        server.publish("session-changed", {"generation": self.generation})
 
     @property
     def generation(self) -> int:
@@ -533,6 +538,21 @@ class EMode:
             return ui.show_data(result, em=self, block=block, inline=inline, file_name=file_name,
                                 file_type=file_type, **kwargs)
         return ui.plot(self, block=block, inline=inline, file_name=file_name, file_type=file_type, **kwargs)
+
+    def browse(self) -> str:
+        """Open this session's browser tab on the plot workbench, with no plot, and return its address.
+
+        The workbench lists every piece of data the session holds, under Field
+        (the device's field, each profile's modes, a free-space field, a
+        monitor's plane, the schematic, the GDS layers) or Trend (the stored
+        sweep, the pulse response, the S-matrix, each profile's mode results, a
+        profile set against wavelength, a material's index), and plots any of
+        them with that data's own controls. It asks EMode for nothing until the
+        tab shows it.
+        """
+        from .ui import session as ui
+
+        return ui.browse(self)
 
     def plot_S_matrix(self, input: "int | str" = 0, output: "int | str" = 1, plot_function: "str | None" = None,
                       block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,

@@ -58,7 +58,7 @@ from ..plotting import PlotView, Schematic
 from .cut import CutPanel, cut_arguments, held_xy, offers_cut
 from .cut import frozen as frozen_cut
 from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
-from .views import KINDS, View, ViewRegistry, menu_of, title_of
+from .views import BENCH, KINDS, View, ViewRegistry, kind_of, menu_of, title_of
 
 UI_DIR = Path(__file__).parent
 PAGES = UI_DIR / "pages"
@@ -99,8 +99,16 @@ class UIServer:
         login: Optional[Callable[..., Any]] = None,
         emode_version: Optional[Callable[[], Optional[str]]] = None,
         generation: Optional[Callable[[], int]] = None,
+        inventory: Optional[Callable[[], Any]] = None,
+        fetch_dataset: Optional[Callable[[str, Dict[str, Any], Tuple[int, int]], Any]] = None,
     ) -> None:
         self.registry = registry
+        #: ``inventory()``: EMode's ``PlotInventory``, what the workbench lists (emode#1701)
+        self.inventory = inventory
+        #: ``fetch_dataset(kind, arguments, pixels)``: one of the inventory's datasets, for the workbench
+        self.fetch_dataset = fetch_dataset
+        self._inventory_cache: Optional[Tuple[float, int, Any]] = None
+        self._bench_lock = threading.RLock()
         #: The session's generation now (``EMode.generation``): a view fetched before it is stale (#182)
         self.generation = generation
         #: ``login(function, **kwargs)``: one of EMode's login calls, for the account page
@@ -276,6 +284,144 @@ class UIServer:
             "error": error,
             "session_ended": self.session_ended,
             "client": client,
+        }
+
+
+    # ---------------------------------------------------------------- the workbench (emode#1701)
+
+    def current_inventory(self) -> Any:
+        """EMode's ``PlotInventory``, asked again after `INVENTORY_SECONDS` or a change of the session."""
+        if self.inventory is None:
+            raise EModeError("this session cannot ask EMode what it can plot")
+        now = self.generation() if self.generation is not None else 0
+        cached = self._inventory_cache
+        if cached is not None and (self.session_ended or (
+            cached[1] == now and self.clock() - cached[0] < INVENTORY_SECONDS
+        )):
+            return cached[2]
+        if self.session_ended:
+            raise EModeError("This EMode session has ended, so it cannot be asked what it can plot.")
+        value = self.inventory()
+        self._inventory_cache = (self.clock(), now, value)
+        return value
+
+    def inventory_reply(self) -> Dict[str, Any]:
+        return self.current_inventory().model_dump(mode="json")
+
+    def bench_reply(
+        self,
+        controls: Dict[str, Any],
+        pixels: Optional[Tuple[int, int]],
+        width: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """The workbench's figure and menus after the tab's `controls`.
+
+        ``category`` (``'field'`` or ``'trend'``) shows the data that category
+        showed last, or its first available. ``dataset`` (a ``DatasetEntry``'s
+        id) shows that data, fetched with its arguments unless the workbench
+        holds it. An unavailable one is refused with the inventory's reason and
+        nothing is asked of EMode. The other controls are the shown data's own
+        and go through ``view_reply`` as a plot's do, except when the data
+        changes: then they were the old data's, and are dropped.
+        """
+        with self._bench_lock:
+            bench = self.registry.bench
+            controls = dict(controls)
+            category = controls.pop("category", None)
+            dataset = controls.pop("dataset", None)
+            inventory = self.current_inventory()
+            entries = {d.id: d for d in inventory.datasets}
+            if category not in (None, "field", "trend"):
+                return self._bench_error(f"the workbench shows field or trend data, not {category!r}", inventory)
+            if dataset is None and category is not None and category != bench.category:
+                remembered = bench.last.get(category)
+                dataset = remembered if remembered in entries else _first(inventory, category)
+            if dataset is None:
+                dataset = bench.dataset if bench.dataset in entries else _first(inventory, None)
+            entry = entries.get(dataset) if dataset is not None else None
+            if entry is None:
+                held = f"no {dataset!r}" if dataset else "nothing it can plot yet"
+                return self._bench_error(f"This session holds {held}.", inventory, category)
+            if not entry.available:
+                return self._bench_error(entry.reason or "not available", inventory, category or entry.category)
+            if dataset != bench.dataset or bench.view is None:
+                self._bench_show(entry, pixels)
+                controls = {}
+            else:
+                view = bench.view
+                if self._bench_stale(entry, view):
+                    bench.show(entry.id, entry.category, self._bench_load(entry, view, pixels))
+            reply = self.view_reply(bench.view, controls, pixels, width)
+            reply["bench"] = _bench_menus(inventory, bench.category, bench.dataset)
+            return reply
+
+    def bench_open(self, name: str) -> Dict[str, Any]:
+        """The View menu's schematic or GDS view on the workbench: it switches the data, keeping the field (#146)."""
+        with self._bench_lock:
+            view = self.registry.bench.view
+            if view is None:
+                raise EModeError("the workbench shows nothing yet")
+            offered = menu_of(view.data).views or []
+            if name not in ("schematic", "gds") or name not in offered:
+                raise EModeError(f"this plot does not offer the {name!r} view")
+            entry = {d.id: d for d in self.current_inventory().datasets}.get(name)
+            if entry is None or not entry.available:
+                raise EModeError(entry.reason if entry is not None and entry.reason else f"no {name} view")
+            self._bench_show(entry, view.pixels)
+            return {"id": BENCH}
+
+    def _bench_show(self, entry: Any, pixels: Optional[Tuple[int, int]]) -> None:
+        bench = self.registry.bench
+        view = bench.held.get(entry.id)
+        if view is None or view.data is None or self._bench_stale(entry, view):
+            view = self._bench_load(entry, view, pixels)
+        bench.show(entry.id, entry.category, view)
+
+    def _bench_stale(self, entry: Any, view: View) -> bool:
+        """Data the workbench holds that EMode may have changed since: ``view_reply`` refreshes a plot's itself."""
+        if view.kind in REFRESHED_KINDS or self.generation is None or self.session_ended:
+            return False
+        return view.generation != self.generation()
+
+    def _bench_load(self, entry: Any, previous: Optional[View], pixels: Optional[Tuple[int, int]]) -> View:
+        """`entry`'s data fetched with its arguments and the recipe `previous` kept, as the workbench's view."""
+        from .views import _select
+
+        if self.fetch_dataset is None:
+            raise EModeError("this session cannot fetch the workbench's data")
+        if self.session_ended:
+            raise EModeError("This plot's EMode session has ended, so its data cannot be fetched.")
+        recipe = previous.arguments if previous is not None else {}
+        kept = KINDS[previous.kind].data_arguments if previous is not None else ()
+        arguments = {**entry.arguments, **{k: v for k, v in recipe.items() if k in kept}}
+        size = tuple(pixels or (previous.pixels if previous is not None else (1200, 750)))
+        data = self.fetch_dataset(entry.kind, arguments, size)
+        kind = KINDS[kind_of(data)]
+        local = {k: v for k, v in recipe.items() if k in kind.local_arguments}
+        if local:
+            data = _select(data, local)
+        if isinstance(data, GDSPanel):
+            arguments = state_arguments(arguments, data)
+        options = previous.options if previous is not None else PlotOptions()
+        own = {k: v for k, v in {**arguments, **local}.items() if k in kind.data_arguments or k in kind.local_arguments}
+        return View(
+            id=BENCH,
+            kind=kind.name,
+            title=title_of(data, own),
+            data=data,
+            arguments=own,
+            options=options,
+            pixels=size,
+            fetched=True,
+            generation=self.generation() if self.generation is not None else 0,
+        )
+
+    def _bench_error(self, message: str, inventory: Any, category: Optional[str] = None) -> Dict[str, Any]:
+        bench = self.registry.bench
+        return {
+            "id": BENCH,
+            "error": message,
+            "bench": _bench_menus(inventory, category or bench.category, bench.dataset),
         }
 
     # ---------------------------------------------------------------- a view's data
@@ -665,6 +811,33 @@ def schematic_components(view: Schematic) -> List[Tuple[str, str]]:
     return out
 
 
+#: Seconds the workbench's inventory is kept before EMode is asked again (a change of the session asks at once).
+INVENTORY_SECONDS = 2.0
+
+
+def _first(inventory: Any, category: Optional[str]) -> Optional[str]:
+    """The first available dataset of `category`, else its first, or with no category the first available field, else trend."""
+    order = [category] if category else ["field", "trend"]
+    for wanted in order:
+        for d in inventory.datasets:
+            if d.category == wanted and d.available:
+                return d.id
+    if category:
+        return next((d.id for d in inventory.datasets if d.category == category), None)
+    return None
+
+
+def _bench_menus(inventory: Any, category: str, dataset: Optional[str]) -> Dict[str, Any]:
+    """The workbench's own menus: Field or Trend, and the data of the category, each with why it is greyed."""
+    fields = {"id", "kind", "label", "available", "reason", "summary"}
+    return {
+        "categories": ["field", "trend"],
+        "category": category,
+        "dataset": dataset,
+        "datasets": [d.model_dump(mode="json", include=fields) for d in inventory.datasets if d.category == category],
+    }
+
+
 #: The kinds of view fetched again when the session has changed since (#182). The others
 #: hold data the client made or was given (a sweep, a far field, a figure, an S-matrix
 #: the script holds), which EMode cannot answer again.
@@ -862,7 +1035,12 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/events":
             return self._events()
         if path == "/api/views":
-            return self._json(200, [v.summary() for v in self.ui.registry.list()])
+            return self._json(200, self.ui.registry.summaries())
+        if path == "/api/inventory":
+            try:
+                return self._json(200, self.ui.inventory_reply())
+            except EModeError as exc:
+                return self._json(200, {"error": str(exc)})
         if path == "/api/colormaps":
             return self._json(200, colormaps.all_stops())
         if path == "/api/status":
@@ -894,6 +1072,8 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/login/"):
             return self._login("POST", path)
         parts = path.strip("/").split("/")
+        if len(parts) == 4 and parts[:3] == ["api", "views", BENCH] and parts[3] in ("data", "open", "fetched"):
+            return self._bench(parts[3])
         if len(parts) == 4 and parts[:2] == ["api", "views"]:
             view = self.ui.registry.get(parts[2])
             if view is None:
@@ -935,6 +1115,22 @@ class _Handler(BaseHTTPRequestHandler):
         return self._json(404, {"error": "no such route"})
 
     # ---------------------------------------------------------------- routes
+
+    def _bench(self, action: str) -> None:
+        """The workbench's routes: its data, the View menu's switch, and the tab's acknowledgment."""
+        body = self._body()
+        if action == "fetched":
+            return self._json(200, {"ok": True})
+        try:
+            if action == "open":
+                return self._json(200, self.ui.bench_open(str(body.get("view"))))
+            pixels = body.get("pixels")
+            pixels = tuple(int(p) for p in pixels) if pixels else None
+            width = body.get("width")
+            width = float(width) if isinstance(width, (int, float)) and width > 0 else None
+            return self._json(200, self.ui.bench_reply(body.get("controls") or {}, pixels, width))
+        except EModeError as exc:
+            return self._json(200, {"id": BENCH, "error": str(exc)})
 
     def _login(self, method: str, path: str) -> None:
         """The account page's routes: a read is a GET, a change a POST whose body may hold a password."""
