@@ -173,7 +173,8 @@ async function show(id, controls) {
     showMessage(reply.error);
     if (!state.reply || state.reply.id !== id) return;
   } else {
-    showMessage("");
+    // a notice: the plot could not be brought up to date with the session (#182)
+    showMessage(reply.notice || "");
     state.reply = reply;
     draw(reply);
   }

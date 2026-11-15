@@ -219,6 +219,7 @@ def ensure_server(em: "EMode") -> UIServer:
             details=lambda component: fetch_details(em, component),
             login=lambda function, **kwargs: em.call(function, **kwargs),
             emode_version=em._emode_version,
+            generation=lambda: em.generation,
         ).start()
         em._ui = server
     return server
@@ -366,7 +367,7 @@ def present(
             return None
         return image
 
-    view = em._views.add(data, arguments, options, DEFAULT_PIXELS)
+    view = em._views.add(data, arguments, options, DEFAULT_PIXELS, em.generation)
     handle = PlotHandle(em, view)
     if noninteractive():
         return handle

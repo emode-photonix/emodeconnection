@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import http.client
 import json
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 import pytest
 

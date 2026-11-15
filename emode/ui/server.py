@@ -98,8 +98,11 @@ class UIServer:
         details: Optional[Callable[[str], Dict[str, Any]]] = None,
         login: Optional[Callable[..., Any]] = None,
         emode_version: Optional[Callable[[], Optional[str]]] = None,
+        generation: Optional[Callable[[], int]] = None,
     ) -> None:
         self.registry = registry
+        #: The session's generation now (``EMode.generation``): a view fetched before it is stale (#182)
+        self.generation = generation
         #: ``login(function, **kwargs)``: one of EMode's login calls, for the account page
         self.login = login
         self.emode_version = emode_version
@@ -293,30 +296,48 @@ class UIServer:
         from .views import _select
 
         kind = KINDS[view.kind]
+        now = self._stale(view)
         # the x-y field at a z panel's cut is drawn below it (#180): the controls apply to the z panel
         cut = view.data if isinstance(view.data, CutPanel) else None
         if cut is not None:
             view.data = cut.zpanel
         controls, grid, want_grid = self._modes_controls(view, controls)
+        notice = None
+        if now is not None:
+            # the session has changed since this view was fetched: its menus are fetched again,
+            # with its own arguments, and the panels held beside it with them
+            cut = grid = None
         data_args = {k: controls[k] for k in kind.data_arguments if k in controls}
         local_args = {k: controls[k] for k in kind.local_arguments if k in controls}
         figure_args = {k: controls[k] for k in FIGURE_OPTIONS if k in controls}
         changed = {k: v for k, v in data_args.items() if view.arguments.get(k) != v}
         resize = pixels is not None and _needs_refetch(view, pixels)
-        if changed or resize:
+        if changed or resize or now is not None:
             if self.session_ended:
                 raise EModeError(
                     "This plot's EMode session has ended, so its data cannot change."
                 )
             arguments = {**view.arguments, **data_args}
             sent = {k: v for k, v in arguments.items() if k not in kind.local_arguments}
-            data = self.fetch(view, sent, pixels or view.pixels)
-            local = {
-                k: v for k, v in view.arguments.items() if k in kind.local_arguments
-            }
-            view.data = _select(data, local) if local else data
-            view.arguments = arguments
-            view.pixels = tuple(pixels or view.pixels)
+            try:
+                data = self.fetch(view, sent, pixels or view.pixels)
+            except EModeError as exc:
+                if changed or resize:
+                    raise
+                # only the refresh failed (a profile it names was deleted, say): show the view as it was
+                data = None
+                notice = (
+                    f"This plot could not be brought up to date with the session, so it shows "
+                    f"the session as it was when plotted: {exc}"
+                )
+            if data is not None:
+                local = {
+                    k: v for k, v in view.arguments.items() if k in kind.local_arguments
+                }
+                view.data = _select(data, local) if local else data
+                view.arguments = arguments
+                view.pixels = tuple(pixels or view.pixels)
+                view.generation = now if now is not None else view.generation
         if local_args:
             view.data = _select(view.data, local_args)
             view.arguments = {**view.arguments, **local_args}
@@ -352,7 +373,19 @@ class UIServer:
                 **({"all_modes": isinstance(view.data, ModesPanel)} if offers_all_modes(_single(view.data)) else {}),
             },
             "extra": _extra(view.data),
+            **({"notice": notice} if notice else {}),
         }
+
+    def _stale(self, view: View) -> Optional[int]:
+        """The session's generation when `view` was fetched before it and can be fetched again, else None.
+
+        Only a view EMode fetched is (a plot, its schematic or GDS view), and only
+        while the session lives: after it ends a view is shown as it was.
+        """
+        if self.generation is None or self.session_ended or view.kind not in REFRESHED_KINDS:
+            return None
+        now = self.generation()
+        return now if now != view.generation else None
 
     def _modes_controls(
         self, view: View, controls: Dict[str, Any]
@@ -441,7 +474,8 @@ class UIServer:
         data = self.fetch(replace(view, kind=name), arguments, view.pixels)
         if isinstance(data, GDSPanel):
             arguments = state_arguments(arguments, data)
-        opened = self.registry.add(data, arguments, view.options, view.pixels)
+        generation = self.generation() if self.generation is not None else 0
+        opened = self.registry.add(data, arguments, view.options, view.pixels, generation)
         self.publish("view-added", opened.summary())
         return opened
 
@@ -629,6 +663,12 @@ def schematic_components(view: Schematic) -> List[Tuple[str, str]]:
             a, _, b = c.partition(":")[2].partition("|")
             out.append((c, f"junction {a} to {b}"))
     return out
+
+
+#: The kinds of view fetched again when the session has changed since (#182). The others
+#: hold data the client made or was given (a sweep, a far field, a figure, an S-matrix
+#: the script holds), which EMode cannot answer again.
+REFRESHED_KINDS = ("plot", "schematic", "gds")
 
 
 def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:

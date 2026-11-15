@@ -136,6 +136,8 @@ class View:
     pixels: tuple
     created: float = field(default_factory=time.time)
     fetched: bool = False
+    #: The session's generation (``EMode.generation``) when `data` was fetched (#182).
+    generation: int = 0
 
     def summary(self) -> Dict[str, Any]:
         return {
@@ -189,6 +191,7 @@ class ViewRegistry:
         arguments: Dict[str, Any],
         options: PlotOptions,
         pixels: tuple,
+        generation: int = 0,
     ) -> View:
         kind = kind_of(data)
         with self._lock:
@@ -201,6 +204,7 @@ class ViewRegistry:
                 arguments=dict(arguments),
                 options=options,
                 pixels=tuple(pixels),
+                generation=generation,
             )
             self._views[view.id] = view
             return view

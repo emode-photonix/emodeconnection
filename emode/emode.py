@@ -75,6 +75,28 @@ def _launch_solver(cmd: list[str], ipython: bool, quiet: bool) -> "Popen[bytes]"
     return Popen(cmd, stdout=None, stderr=None)
 
 
+#: The calls that read the session and change nothing a plot shows (emodeconnection#182):
+#: every other call counts a new generation, and a view fetched before it is fetched
+#: again when the tab shows it. A function not listed counts, which at worst costs a fetch.
+READ_ONLY_FUNCTIONS = frozenset(
+    {
+        "EM_session_info",
+        "EM_component_details",
+        "EM_version",
+        "EM_material_explorer",
+        "EM_warnings",
+        "EM_logout",
+        "EM_clear_session",
+    }
+)
+READ_ONLY_PREFIXES = ("EM_plot", "EM_get", "EM_login")
+
+
+def changes_session(function: str) -> bool:
+    """Whether a call of `function` can change what a plot of the session shows."""
+    return function not in READ_ONLY_FUNCTIONS and not function.startswith(READ_ONLY_PREFIXES)
+
+
 class EMode:
     def __init__(
         self,
@@ -337,7 +359,17 @@ class EMode:
         call made while another is in flight waits for it.
         """
         with self._lock():
-            return self._call(function, **kwargs)
+            try:
+                return self._call(function, **kwargs)
+            finally:
+                if changes_session(function):
+                    # a call that failed may have changed the session too
+                    self.__dict__["_generation"] = self.generation + 1
+
+    @property
+    def generation(self) -> int:
+        """How many calls that can change the session this client has made (emodeconnection#182)."""
+        return self.__dict__.get("_generation", 0)
 
     def _call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list, PlotImage, None]:
         logger.debug(f"calling '{function}' with args: {_redacted(kwargs)}")
