@@ -597,3 +597,14 @@ def test_the_account_panel_fills_its_tables_and_a_row_clears_after_a_yes():
     assert buttons == 1  # only the row with a handle has the clear mark
     assert asked == 2
     assert posts == [["api/login/clear", {"mode": "session", "session_handle": "h1"}]]
+
+
+def test_the_error_reporting_note_is_short_and_the_same_in_python_and_the_page():
+    """Eric, 2026-11-15: the explanation under Send error reports was too verbose."""
+    from emode.ui.account import SETTINGS_EXPLANATION
+
+    js = (Path(__file__).parent.parent / "emode/ui/static/app.js").read_text()
+    m = re.search(r'setText\("error-reporting-explanation",\s*"([^"]*)"\)', js)
+    assert m, "the page sets its note as one string"
+    assert m.group(1) == SETTINGS_EXPLANATION
+    assert len(SETTINGS_EXPLANATION) <= 120
