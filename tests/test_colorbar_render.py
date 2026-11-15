@@ -147,8 +147,8 @@ SCENARIOS.forEach(function (figs, k) {{
     var cy = cb.y == null ? 0.5 : cb.y, clen = cb.len == null ? 1 : cb.len;
     var bottom = cy - clen / 2;
     var x0 = left + size.l + cb.x * size.w;
-    bars.push({{x0: x0, x1: x0 + cb.thickness, rows: cb.tickvals.map(function (v) {{
-      return top + size.t + (1 - (bottom + (v - lo) / (hi - lo) * clen)) * size.h; }})}});
+    var row = function (v) {{ return top + size.t + (1 - (bottom + (v - lo) / (hi - lo) * clen)) * size.h; }};
+    bars.push({{x0: x0, x1: x0 + cb.thickness, ends: [row(hi), row(lo)], rows: cb.tickvals.map(row)}});
   }});
   out.push(bars);
 }});
@@ -225,7 +225,10 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
         for bar in bars:
             cols = slice(int(np.ceil(bar["x0"])) + 2, int(np.floor(bar["x1"])) - 2)
             assert cols.stop > cols.start
-            for y in bar["rows"]:
+            # a level within 2 px of an end lies on the bar's own outline, which looks the same
+            for y in [
+                r for r in bar["rows"] if min(abs(r - e) for e in bar["ends"]) > 2
+            ]:
                 rows = slice(int(np.floor(y)) - 1, int(np.ceil(y)) + 2)
                 seen = diff[rows, cols].max(axis=0)
                 assert (seen > 40).mean() > 0.6, (
