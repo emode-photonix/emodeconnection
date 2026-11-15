@@ -1142,8 +1142,7 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             if action == "open":
                 return self._json(200, self.ui.bench_open(str(body.get("view"))))
-            pixels = body.get("pixels")
-            pixels = tuple(int(p) for p in pixels) if pixels else None
+            pixels = _pixels(body.get("pixels"))
             width = body.get("width")
             width = float(width) if isinstance(width, (int, float)) and width > 0 else None
             return self._json(200, self.ui.bench_reply(body.get("controls") or {}, pixels, width))
