@@ -644,6 +644,9 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
             "zeroline": False,
             "visible": a.visible,
         }
+        if a.y2_nonnegative:
+            yaxis2["rangemode"] = "nonnegative"
+            yaxis2["autorangeoptions"] = {"minallowed": 0}
     for axis, color in ((yaxis, a.ylabel_color), (yaxis2, a.y2label_color)):
         if axis is not None and color:
             axis["title"]["font"] = {"color": color}

@@ -123,7 +123,7 @@ def _plain_figure(**kwargs):
 
 
 def test_a_script_marks_its_y_axis_non_negative():
-    """A plain line carries no kind, so the script says it (#192 follow-up)."""
+    """A plain line carries no kind, so the script says it (#193)."""
     (panel,) = compose(_plain_figure(ynonnegative=True)).panels
     assert panel.axes.y_nonnegative is True and panel.axes.yrange[0] == 0.0
     yaxis = to_plotly(panel)["layout"]["yaxis"]
