@@ -61,16 +61,26 @@ return {options: plot.select.children.map(function (o) { return o.value; }),
 
 
 @needs_jsc
-@pytest.mark.parametrize("name, ratio", [("golden", GOLDEN), ("silver", SILVER), ("1:1", 1.0), ("√2", math.sqrt(2))])
+@pytest.mark.parametrize(
+    "name, ratio",
+    [("golden", GOLDEN), ("silver", SILVER), ("1:1", 1.0), ("√2", math.sqrt(2))],
+)
 def test_a_named_ratio_posts_the_box_height_over_width(name, ratio):
-    got = run_app(BAR + f'var b = bar("plot"); pick(b.select, "{name}"); return posted;')
+    got = run_app(
+        BAR + f'var b = bar("plot"); pick(b.select, "{name}"); return posted;'
+    )
     assert len(got) == 1 and got[0]["aspect_ratio"] == pytest.approx(1 / ratio)
 
 
 @needs_jsc
-@pytest.mark.parametrize("text, ratio", [("2", 2.0), ("0.001", 0.001), ("1000", 1000.0)])
+@pytest.mark.parametrize(
+    "text, ratio", [("2", 2.0), ("0.001", 0.001), ("1000", 1000.0)]
+)
 def test_a_custom_ratio_in_bounds_posts_it(text, ratio):
-    got = run_app(BAR + f'var b = bar("plot"); pick(b.select, "Custom"); type(b.custom, "{text}"); return posted;')
+    got = run_app(
+        BAR
+        + f'var b = bar("plot"); pick(b.select, "Custom"); type(b.custom, "{text}"); return posted;'
+    )
     assert got[-1]["aspect_ratio"] == pytest.approx(1 / ratio)
 
 
@@ -78,7 +88,8 @@ def test_a_custom_ratio_in_bounds_posts_it(text, ratio):
 @pytest.mark.parametrize("text", ["0.0009", "1001", "0", "-1", "wide"])
 def test_a_custom_ratio_out_of_bounds_is_refused_with_a_message(text):
     got = run_app(
-        BAR + f'var b = bar("plot"); pick(b.select, "Custom"); type(b.custom, "{text}"); return {{posted: posted, messages: messages}};'
+        BAR
+        + f'var b = bar("plot"); pick(b.select, "Custom"); type(b.custom, "{text}"); return {{posted: posted, messages: messages}};'
     )
     assert not [p for p in got["posted"] if "aspect_ratio" in p]
     assert any("0.001" in m and "1000" in m for m in got["messages"])
@@ -86,7 +97,10 @@ def test_a_custom_ratio_out_of_bounds_is_refused_with_a_message(text):
 
 @needs_jsc
 def test_the_bar_shows_a_custom_ratio_it_was_given():
-    got = run_app(BAR + 'var b = bar("plot", {aspect_ratio: 0.25}); return {sel: b.select.value, text: b.custom.value};')
+    got = run_app(
+        BAR
+        + 'var b = bar("plot", {aspect_ratio: 0.25}); return {sel: b.select.value, text: b.custom.value};'
+    )
     assert got["sel"] == "Custom" and float(got["text"]) == pytest.approx(4.0)
 
 
@@ -125,4 +139,6 @@ def test_options_past_the_bounds_are_refused(ratio):
 def test_a_figure_of_panels_takes_the_ratio_too():
     fig = Figure()
     fig.panel(0).line([1.0, 2.0], [1.0, 2.0])
-    assert figure_aspect(compose(fig, PlotOptions(aspect_ratio=1 / GOLDEN))) == pytest.approx(1 / GOLDEN)
+    assert figure_aspect(
+        compose(fig, PlotOptions(aspect_ratio=1 / GOLDEN))
+    ) == pytest.approx(1 / GOLDEN)

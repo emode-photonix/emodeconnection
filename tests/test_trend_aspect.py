@@ -41,7 +41,9 @@ function reply(legend) {
 @needs_jsc
 @pytest.mark.parametrize("legend", [True, False])
 def test_the_plot_box_is_sqrt2_wider_than_tall(legend):
-    got = run_app(DRAW + f"draw(reply({'true' if legend else 'false'})); return calls[0];")
+    got = run_app(
+        DRAW + f"draw(reply({'true' if legend else 'false'})); return calls[0];"
+    )
     m = got["margin"]
     box_w = got["width"] - m["l"] - m["r"]
     box_h = got["height"] - m["t"] - m["b"]

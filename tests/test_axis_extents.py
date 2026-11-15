@@ -82,13 +82,18 @@ function type(input, v) { input.value = v; input.dispatch("change", {target: inp
 
 @needs_jsc
 def test_the_bar_has_four_extent_boxes_showing_what_is_set():
-    got = run_app(BAR + 'return ["x min", "x max", "y min", "y max"].map(function (n) { var b = box_(n); return b ? b.value : null; });')
+    got = run_app(
+        BAR
+        + 'return ["x min", "x max", "y min", "y max"].map(function (n) { var b = box_(n); return b ? b.value : null; });'
+    )
     assert got == ["-500", "", "", ""]
 
 
 @needs_jsc
 def test_an_extent_posts_a_number_and_a_blank_posts_automatic():
-    got = run_app(BAR + 'type(box_("y min"), "0.2"); type(box_("x min"), ""); return posted;')
+    got = run_app(
+        BAR + 'type(box_("y min"), "0.2"); type(box_("x min"), ""); return posted;'
+    )
     assert got == [{"ymin": 0.2}, {"xmin": None}]
 
 

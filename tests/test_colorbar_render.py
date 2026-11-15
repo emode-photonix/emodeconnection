@@ -36,7 +36,13 @@ from emode.ui.server import _json_default
 
 from test_colorbar_marks import _log_view, _view
 
-PLOTLY = Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "plotly-cartesian.min.js"
+PLOTLY = (
+    Path(__file__).resolve().parents[1]
+    / "emode"
+    / "ui"
+    / "static"
+    / "plotly-cartesian.min.js"
+)
 
 #: Each plot's size in CSS pixels, and the page's.
 PW, PH = 600, 420
@@ -45,13 +51,46 @@ GAP = 20
 
 def _chrome() -> Optional[str]:
     candidates = [os.environ.get("EMODE_TEST_CHROME") or ""]
-    candidates += [shutil.which(n) or "" for n in ("chrome-headless-shell", "chromium", "chromium-browser", "google-chrome", "chrome")]
+    candidates += [
+        shutil.which(n) or ""
+        for n in (
+            "chrome-headless-shell",
+            "chromium",
+            "chromium-browser",
+            "google-chrome",
+            "chrome",
+        )
+    ]
     candidates += ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
     home = Path.home()
-    for cache in (home / "Library" / "Caches" / "ms-playwright", home / ".cache" / "ms-playwright"):
-        candidates += sorted(glob.glob(str(cache / "chromium_headless_shell-*" / "*" / "chrome-headless-shell")), reverse=True)
-        candidates += sorted(glob.glob(str(cache / "chromium-*" / "*" / "Chromium.app" / "Contents" / "MacOS" / "Chromium")), reverse=True)
-        candidates += sorted(glob.glob(str(cache / "chromium-*" / "chrome-linux" / "chrome")), reverse=True)
+    for cache in (
+        home / "Library" / "Caches" / "ms-playwright",
+        home / ".cache" / "ms-playwright",
+    ):
+        candidates += sorted(
+            glob.glob(
+                str(cache / "chromium_headless_shell-*" / "*" / "chrome-headless-shell")
+            ),
+            reverse=True,
+        )
+        candidates += sorted(
+            glob.glob(
+                str(
+                    cache
+                    / "chromium-*"
+                    / "*"
+                    / "Chromium.app"
+                    / "Contents"
+                    / "MacOS"
+                    / "Chromium"
+                )
+            ),
+            reverse=True,
+        )
+        candidates += sorted(
+            glob.glob(str(cache / "chromium-*" / "chrome-linux" / "chrome")),
+            reverse=True,
+        )
     return next((c for c in candidates if c and os.access(c, os.X_OK)), None)
 
 
@@ -70,7 +109,11 @@ def _scenarios() -> Dict[str, List[Dict[str, Any]]]:
     positive = to_plotly(compose(_view(peak=0.6, signed=False)))
     log = to_plotly(compose(_log_view()))
     one = compose(_view())
-    cut = to_plotly(FigureSpec(axes=one.axes, panels=(one, compose(_view(signed=False))), panel_grid=(2, 1)))
+    cut = to_plotly(
+        FigureSpec(
+            axes=one.axes, panels=(one, compose(_view(signed=False))), panel_grid=(2, 1)
+        )
+    )
     return {
         "first plot": [signed],
         "mode switch": [signed, positive],
@@ -131,9 +174,19 @@ def _page(path: Path, scenarios: List[List[Dict[str, Any]]], bare: bool) -> None
 def _run(*args: str) -> str:
     assert CHROME is not None
     done = subprocess.run(
-        [CHROME, "--headless", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
-         "--allow-file-access-from-files", "--virtual-time-budget=5000", *args],
-        capture_output=True, text=True, timeout=60,
+        [
+            CHROME,
+            "--headless",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            "--force-device-scale-factor=1",
+            "--allow-file-access-from-files",
+            "--virtual-time-budget=5000",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     return done.stdout
 
@@ -146,13 +199,19 @@ def _shot(page: Path, png: Path, height: int) -> np.ndarray:
     return np.asarray(matplotlib.image.imread(str(png)))[..., :3] * 255.0
 
 
-def test_every_level_shows_across_the_bar_and_nothing_else_changes(tmp_path: Path) -> None:
+def test_every_level_shows_across_the_bar_and_nothing_else_changes(
+    tmp_path: Path,
+) -> None:
     named = _scenarios()
     scenarios = list(named.values())
     height = len(scenarios) * (PH + GAP) + 40
     _page(tmp_path / "marked.html", scenarios, bare=False)
     _page(tmp_path / "bare.html", scenarios, bare=True)
-    dom = _run(f"--window-size={PW + 40},{height}", "--dump-dom", (tmp_path / "marked.html").as_uri())
+    dom = _run(
+        f"--window-size={PW + 40},{height}",
+        "--dump-dom",
+        (tmp_path / "marked.html").as_uri(),
+    )
     found = re.search(r"MARKS(.*)MARKS", dom)
     assert found, "the page did not draw: " + dom[-400:]
     marks = json.loads(found.group(1).replace("&quot;", '"'))
@@ -168,8 +227,18 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(tmp_path: Pat
             for y in bar["rows"]:
                 rows = slice(int(np.floor(y)) - 1, int(np.ceil(y)) + 2)
                 seen = diff[rows, cols].max(axis=0)
-                assert (seen > 40).mean() > 0.6, f"{name}: the mark at y = {y:.1f} px is not seen across the bar"
+                assert (seen > 40).mean() > 0.6, (
+                    f"{name}: the mark at y = {y:.1f} px is not seen across the bar"
+                )
                 # a black mark: darker than the bar under it
-                assert marked[rows, cols].sum(axis=2).min() < bare[rows, cols].sum(axis=2).min() + 1
-                expected[rows.start - 1 : rows.stop + 1, int(bar["x0"]) - 2 : int(bar["x1"]) + 3] = True
-    assert not (diff[~expected] > 40).any(), "the clear bar changed pixels off its marks"
+                assert (
+                    marked[rows, cols].sum(axis=2).min()
+                    < bare[rows, cols].sum(axis=2).min() + 1
+                )
+                expected[
+                    rows.start - 1 : rows.stop + 1,
+                    int(bar["x0"]) - 2 : int(bar["x1"]) + 3,
+                ] = True
+    assert not (diff[~expected] > 40).any(), (
+        "the clear bar changed pixels off its marks"
+    )

@@ -33,7 +33,9 @@ def test_the_figure_keeps_its_height_in_the_phones_column_stage():
     css = CSS.read_text()
     phone = css[css.index("@media (max-width: 800px)") :]
     rule = _rule(phone, "#figure")
-    assert re.search(r"flex:\s*0 0 auto", rule) or re.search(r"flex-shrink:\s*0", rule), rule
+    assert re.search(r"flex:\s*0 0 auto", rule) or re.search(
+        r"flex-shrink:\s*0", rule
+    ), rule
     # the stage scrolls what it cannot show
     assert "overflow-y: auto" in _rule(css, "#stage")
 

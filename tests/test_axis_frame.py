@@ -58,7 +58,11 @@ def test_a_twin_axis_trend_keeps_its_right_axis_and_no_top_line():
     layout = _layout(_twin)
     assert layout["xaxis"]["mirror"] is False
     assert layout["yaxis"]["mirror"] is False
-    right = [v for k, v in layout.items() if k.startswith("yaxis") and v.get("side") == "right"]
+    right = [
+        v
+        for k, v in layout.items()
+        if k.startswith("yaxis") and v.get("side") == "right"
+    ]
     assert right and right[0]["showline"]
 
 

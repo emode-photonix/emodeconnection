@@ -39,7 +39,9 @@ PROFILE = _plot(
     ' selected: {profile: "single", plane: "x-y", mode: "0, TE"}}'
 )
 #: The FDM profile's x-y plot with no EME: the x-y plane alone.
-FDM_ONLY = _plot('{profiles: ["FDM"], planes: ["x-y"], selected: {profile: "FDM", plane: "x-y"}}')
+FDM_ONLY = _plot(
+    '{profiles: ["FDM"], planes: ["x-y"], selected: {profile: "FDM", plane: "x-y"}}'
+)
 #: A z-x panel of the device, from an EMode that still lists the schematic among the planes.
 DEVICE_ZX = _plot(
     '{planes: ["x-y", "z-x", "z-y", "schematic"], views: ["layout", "simulation", "schematic"],'
@@ -88,7 +90,9 @@ return {slice: options(), view: view.children.map(function (o) { return o.value;
 
 def test_the_slice_menu_filters_the_schematic_in_the_source():
     # the static form, for the platforms without osascript
-    js = (Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "app.js").read_text()
+    js = (
+        Path(__file__).resolve().parents[1] / "emode" / "ui" / "static" / "app.js"
+    ).read_text()
     start = js.index('select("Slice"')
-    line = js[js.rindex("\n", 0, start) : js.index("\n", start)]
-    assert "schematic" in line
+    # the planes the Slice menu is built from leave the schematic out
+    assert 'p !== "schematic"' in js[start - 600 : start]

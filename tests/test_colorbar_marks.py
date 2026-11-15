@@ -41,12 +41,34 @@ W, H = 600.0, 400.0
 
 #: Plotly's colorbar defaults (colorbar/attributes.js and defaults.js).
 DEFAULTS = {
-    "xpad": 10, "ypad": 10, "len": 1.0, "y": 0.5, "x": 1.02, "xanchor": "left", "yanchor": "middle",
-    "thickness": 30, "lenmode": "fraction", "thicknessmode": "pixels",
+    "xpad": 10,
+    "ypad": 10,
+    "len": 1.0,
+    "y": 0.5,
+    "x": 1.02,
+    "xanchor": "left",
+    "yanchor": "middle",
+    "thickness": 30,
+    "lenmode": "fraction",
+    "thicknessmode": "pixels",
 }
 
 #: What must match between the shown bar and the clear one laid over it.
-GEOMETRY = ("x", "xanchor", "xref", "y", "yanchor", "yref", "len", "lenmode", "thickness", "thicknessmode", "xpad", "ypad", "orientation")
+GEOMETRY = (
+    "x",
+    "xanchor",
+    "xref",
+    "y",
+    "yanchor",
+    "yref",
+    "len",
+    "lenmode",
+    "thickness",
+    "thicknessmode",
+    "xpad",
+    "ypad",
+    "orientation",
+)
 
 
 def _view(peak: float = 1.0, signed: bool = True) -> Any:
@@ -60,8 +82,19 @@ def _view(peak: float = 1.0, signed: bool = True) -> Any:
     z = (peak * z / np.abs(z).max()).astype(np.float32)
     levels = np.array(SIGNED if signed else POSITIVE)
     base = xy_view()
-    raster = Raster(x=x, y=y, z=z, kind="diverging" if signed else "sequential", contour_levels=levels)
-    scale = base.scale.model_copy(update={"kind": "signed" if signed else "positive", "vmin": -1.0 if signed else 0.0})
+    raster = Raster(
+        x=x,
+        y=y,
+        z=z,
+        kind="diverging" if signed else "sequential",
+        contour_levels=levels,
+    )
+    scale = base.scale.model_copy(
+        update={
+            "kind": "signed" if signed else "positive",
+            "vmin": -1.0 if signed else 0.0,
+        }
+    )
     return base.model_copy(update={"rasters": [raster], "scale": scale})
 
 
@@ -70,8 +103,15 @@ def _log_view() -> Any:
     base = _view(signed=False)
     z = np.asarray(base.rasters[0].z, np.float64)
     db = (10 * np.log10(np.maximum(z, 1e-5))).astype(np.float32)
-    raster = base.rasters[0].model_copy(update={"z": db, "contour_levels": np.array(DB)})
-    return base.model_copy(update={"rasters": [raster], "scale": ScaleInfo(kind="db", vmin=-50.0, vmax=0.0)})
+    raster = base.rasters[0].model_copy(
+        update={"z": db, "contour_levels": np.array(DB)}
+    )
+    return base.model_copy(
+        update={
+            "rasters": [raster],
+            "scale": ScaleInfo(kind="db", vmin=-50.0, vmax=0.0),
+        }
+    )
 
 
 def _bar(colorbar: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, float]]:
@@ -86,7 +126,9 @@ def _bar(colorbar: Dict[str, Any]) -> Tuple[Tuple[float, float], Tuple[float, fl
     return (left, left + thick), domain
 
 
-def _shown_bars(figure: Dict[str, Any]) -> List[Tuple[int, Dict[str, Any], Tuple[float, float]]]:
+def _shown_bars(
+    figure: Dict[str, Any],
+) -> List[Tuple[int, Dict[str, Any], Tuple[float, float]]]:
     """Each shown colorbar: (its trace's index, the colorbar, its value range)."""
     out = []
     for i, t in enumerate(figure["data"]):
@@ -101,33 +143,53 @@ def _shown_bars(figure: Dict[str, Any]) -> List[Tuple[int, Dict[str, Any], Tuple
 
 
 def _overlays(figure: Dict[str, Any]) -> List[Tuple[int, Dict[str, Any]]]:
-    return [(i, t) for i, t in enumerate(figure["data"]) if t.get("meta") == "colorbar_levels"]
+    return [
+        (i, t)
+        for i, t in enumerate(figure["data"])
+        if t.get("meta") == "colorbar_levels"
+    ]
 
 
 def _check_marks(figure: Dict[str, Any], levels: List[float]) -> None:
     bars = _shown_bars(figure)
     overlays = _overlays(figure)
-    assert bars and len(overlays) == len(bars), "one clear bar of marks over each shown bar"
+    assert bars and len(overlays) == len(bars), (
+        "one clear bar of marks over each shown bar"
+    )
     # no layout shape marks a level: a shape is drawn under the colorbar, so never seen
-    assert not [s for s in figure["layout"].get("shapes", []) if s.get("name") == "colorbar_level"]
+    assert not [
+        s
+        for s in figure["layout"].get("shapes", [])
+        if s.get("name") == "colorbar_level"
+    ]
     for (i, bar, (lo, hi)), (j, overlay) in zip(bars, overlays):
         assert j > i, "the clear bar is drawn after, so above, the shown one"
         marker = overlay["marker"]
         clear = marker["colorbar"]
         assert marker["showscale"] is True
         assert (marker["cmin"], marker["cmax"]) == (lo, hi)
-        assert all(str(c).replace(" ", "").endswith(",0)") for _, c in marker["colorscale"]), "the clear bar is transparent"
+        assert all(
+            str(c).replace(" ", "").endswith(",0)") for _, c in marker["colorscale"]
+        ), "the clear bar is transparent"
         for key in GEOMETRY:
-            assert clear.get(key, DEFAULTS.get(key)) == bar.get(key, DEFAULTS.get(key)), key
+            assert clear.get(key, DEFAULTS.get(key)) == bar.get(
+                key, DEFAULTS.get(key)
+            ), key
         assert _bar(clear) == _bar(bar)
         assert clear["tickvals"] == pytest.approx(levels)
         assert clear["ticks"] == "inside"
-        assert clear["ticklen"] == bar.get("thickness", DEFAULTS["thickness"]), "each mark spans the bar"
+        assert clear["ticklen"] == bar.get("thickness", DEFAULTS["thickness"]), (
+            "each mark spans the bar"
+        )
         assert clear["showticklabels"] is False
         assert clear["outlinewidth"] == 0
         assert not (clear.get("title") or {}).get("text")
         # nothing of the clear trace is drawn on the axes
-        assert overlay["x"] == [None] and overlay["y"] == [None] and overlay["hoverinfo"] == "skip"
+        assert (
+            overlay["x"] == [None]
+            and overlay["y"] == [None]
+            and overlay["hoverinfo"] == "skip"
+        )
         assert overlay.get("showlegend") is False
 
 
@@ -161,7 +223,9 @@ def test_the_bar_marks_only_the_levels_the_field_reaches():
     spec = compose(view)
     assert spec.colorbar is not None
     reached = [v for v in POSITIVE if v < 0.143]
-    assert len(spec.colorbar.lines) == len(reached) and np.allclose(spec.colorbar.lines, reached)
+    assert len(spec.colorbar.lines) == len(reached) and np.allclose(
+        spec.colorbar.lines, reached
+    )
     _check_marks(to_plotly(spec), reached)
 
 

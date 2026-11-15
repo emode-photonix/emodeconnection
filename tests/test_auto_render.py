@@ -42,7 +42,10 @@ def _app(prelude: str, test_js: str) -> object:
 
 @needs_jsc
 def test_the_bar_has_auto_render_on_by_default_and_a_disabled_render_button():
-    got = _app("", "return {auto: !!auto && auto.checked, render: !!render, disabled: render && render.disabled};")
+    got = _app(
+        "",
+        "return {auto: !!auto && auto.checked, render: !!render, disabled: render && render.disabled};",
+    )
     assert got == {"auto": True, "render": True, "disabled": True}
 
 

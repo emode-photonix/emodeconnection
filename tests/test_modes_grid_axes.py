@@ -33,7 +33,12 @@ def _grid(count: int, columns: int) -> ModesPanel:
 
 def _axes(figure: Dict[str, Any], letter: str) -> List[Dict[str, Any]]:
     keys = sorted(
-        (k for k in figure["layout"] if k.startswith(f"{letter}axis") and figure["layout"][k].get("overlaying") is None),
+        (
+            k
+            for k in figure["layout"]
+            if k.startswith(f"{letter}axis")
+            and figure["layout"][k].get("overlaying") is None
+        ),
         key=lambda k: int(k[5:] or 1),
     )
     return [figure["layout"][k] for k in keys]
@@ -44,7 +49,9 @@ def _bottom(k: int, count: int, columns: int) -> bool:
 
 
 @pytest.mark.parametrize("count, columns", [(20, 2), (20, 4), (6, 3), (5, 2), (4, 4)])
-def test_tick_labels_and_titles_only_on_the_left_column_and_the_bottom_row(count, columns):
+def test_tick_labels_and_titles_only_on_the_left_column_and_the_bottom_row(
+    count, columns
+):
     spec = compose_modes(_grid(count, columns), PlotOptions())
     for k, panel in enumerate(spec.panels):
         left, bottom = k % columns == 0, _bottom(k, count, columns)
