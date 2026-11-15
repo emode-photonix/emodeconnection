@@ -328,7 +328,12 @@ def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
 def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
     cb = spec.colorbar
     assert cb is not None
-    out: Dict[str, Any] = {"thickness": 12, "outlinewidth": 0.5, "tickfont": {"size": spec.font_size + 2}}
+    # no padding, anchored on its left: the bar then spans exactly the length and
+    # thickness the contour marks are placed on (`_colorbar_lines`, #178)
+    out: Dict[str, Any] = {
+        "thickness": _BAR_THICKNESS, "outlinewidth": 0.5, "tickfont": {"size": spec.font_size + 2},
+        "x": _BAR_X, "xanchor": "left", "xpad": 0, "ypad": 0,
+    }
     if cb.ticks is not None:
         out["tickvals"] = list(cb.ticks)
         if cb.tick_labels is not None:
@@ -343,18 +348,19 @@ _BAR_THICKNESS = 12
 _BAR_X = 1.02
 
 
-def _colorbar_lines(
-    cb: Any, x: float = _BAR_X, xanchor: str = "left", y: float = 0.5, length: float = 1.0
-) -> List[Dict[str, Any]]:
+def _colorbar_lines(cb: Any, x: float = _BAR_X, y: float = 0.5, length: float = 1.0) -> List[Dict[str, Any]]:
     """A line across the colorbar at each contour level (a Plotly colorbar has no such lines).
 
-    The shapes are anchored at the bar's edge in paper fractions and sized in pixels
-    across its thickness, so they follow the bar when the tab resizes.
+    The shapes are anchored at the bar's left edge in paper fractions and sized in
+    pixels across its thickness, so they follow the bar when the tab resizes. They
+    hold only for a bar drawn as `_colorbar` draws it: anchored on its left, which
+    Plotly does not move with the tick labels' width, and with no padding, which
+    Plotly would take off the bar's ends and put before its left edge.
     """
     span = cb.vmax - cb.vmin
     if not cb.lines or span <= 0:
         return []
-    start, end = (0, _BAR_THICKNESS) if xanchor == "left" else (-_BAR_THICKNESS, 0)
+    start, end = 0, _BAR_THICKNESS
     shapes = []
     for level in cb.lines:
         t = (level - cb.vmin) / span
@@ -711,11 +717,11 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
             on_twin = trace.get("yaxis") == "y2"
             trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
             if "colorbar" in trace:
-                trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
+                # right of the panel's own domain, as a single plot's sits right of its axes
+                bar_x = xd[1] + 0.02 * width
+                trace["colorbar"].update({"x": bar_x, "y": (yd[0] + yd[1]) / 2, "len": height})
                 if panel.colorbar is not None:
-                    shapes += _colorbar_lines(
-                        panel.colorbar, max(0.0, xd[1] - 0.02), "right", (yd[0] + yd[1]) / 2, height
-                    )
+                    shapes += _colorbar_lines(panel.colorbar, bar_x, (yd[0] + yd[1]) / 2, height)
             data.append(trace)
         xaxis, yaxis = dict(sub["layout"]["xaxis"]), dict(sub["layout"]["yaxis"])
         xaxis.update({"domain": xd, "anchor": f"y{suffix}"})

@@ -80,9 +80,7 @@ def _check_marks(figure: Dict[str, Any], vmin: float, vmax: float, levels: List[
             want = d0 + (level - vmin) / (vmax - vmin) * (d1 - d0)
             assert abs(mark["y0"] - want) * H < 0.5, f"the mark of {level} is {(mark['y0'] - want) * H:.1f} px off"
             got = (mark["xanchor"] * W + mark["x0"], mark["xanchor"] * W + mark["x1"])
-            assert abs(got[0] - x0) < 0.5 and abs(got[1] - x1) < 0.5, (
-                f"the mark spans {got} px, the bar {(x0, x1)} px"
-            )
+            assert abs(got[0] - x0) < 0.5 and abs(got[1] - x1) < 0.5, f"the mark spans {got} px, the bar {(x0, x1)} px"
 
 
 def test_each_mark_lies_where_the_bar_shows_its_level():

@@ -595,7 +595,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
             tick_format=view.scale.tick_format,
-            lines=rasters[0].contour_levels if rasters else (),
+            lines=_reached(rasters),
         )
 
     legend: Tuple[LegendEntrySpec, ...] = ()
@@ -635,6 +635,29 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
         dpi=options.dpi,
         arrows=tuple(view.arrows),
     )
+
+
+def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
+    """The contour levels the field reaches, which the colorbar marks (#178).
+
+    A level outside the shown values has no line on the field (an EME x-y cut
+    normalized to the launched field can peak well below the top levels), so
+    marking it on the bar would mark a line that is not there.
+    """
+    if not rasters or not rasters[0].contour_levels:
+        return ()
+    shown = []
+    for r in rasters:
+        z = np.asarray(r.z, np.float64)
+        keep = np.isfinite(z)
+        if r.mask is not None:
+            keep &= ~np.asarray(r.mask, bool)
+        if keep.any():
+            shown.append((float(z[keep].min()), float(z[keep].max())))
+    if not shown:
+        return ()
+    lo, hi = min(a for a, _ in shown), max(b for _, b in shown)
+    return tuple(v for v in rasters[0].contour_levels if lo < v < hi)
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
