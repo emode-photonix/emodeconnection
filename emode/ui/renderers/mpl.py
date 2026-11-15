@@ -185,6 +185,10 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         ax.set_box_aspect(a.box_aspect)
     if a.grid:
         ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
+    if a.integer_xticks and not a.integer_ticks:
+        from matplotlib.ticker import MaxNLocator
+
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if a.integer_ticks:
         from matplotlib.ticker import MaxNLocator
 

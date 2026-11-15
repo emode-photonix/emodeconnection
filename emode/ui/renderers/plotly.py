@@ -657,6 +657,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     if a.grid:
         for axis in (xaxis, yaxis):
             axis.update({"showgrid": True, "gridcolor": "rgba(128,128,128,0.25)", "gridwidth": 0.5})
+    if a.integer_xticks:
+        xaxis.update({"tickformat": "d", "dtick": 1})
     if a.integer_ticks:
         for axis in (xaxis, yaxis):
             axis.update({"tickformat": "d", "dtick": 1})

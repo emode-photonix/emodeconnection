@@ -238,6 +238,8 @@ class AxesSpec:
     visible: bool = True
     grid: bool = False
     integer_ticks: bool = False
+    #: Integer ticks on the x axis only: its values are a discrete count, such as a mode number.
+    integer_xticks: bool = False
     #: A second y axis on the right (``Panel.twin()``): its label and range, None without one.
     y2label: Optional[str] = None
     y2range: Optional[Tuple[float, float]] = None
