@@ -36,12 +36,9 @@ FORGOT_PASSWORD_URL = "https://emodephotonix.com/my-account/lost-password/"
 #: The clear modes the page offers, as ``EMode(clear=...)`` takes them.
 CLEAR_MODES = ("all", "mine", "others", "latest", "oldest")
 
-#: The error-reporting setting's explanation, as the login window gave it.
+#: The error-reporting setting's note on the account page (Eric 2026-11-15: short).
 SETTINGS_EXPLANATION = (
-    "When a session closes, EMode can send EMode Photonix a short report of each internal "
-    "error: the error type, the EMode function, the EMode version and the platform. It never "
-    "includes your script, geometry or files. The setting applies to every session on this "
-    "computer, and 'emode settings --error-reporting on|off' changes it too."
+    "Sends EMode Photonix the error type, function, version and platform. Never your scripts, geometry or files."
 )
 
 #: Seconds between the status checks of ``EMode()`` while it waits for a sign-in.
