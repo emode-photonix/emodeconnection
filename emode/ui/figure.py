@@ -32,9 +32,10 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
-#: The golden ratio: every plot but the S-matrix is this much wider than tall
-#: by default, an x-y cross section included (emodeconnection#160).
-GOLDEN = (1 + math.sqrt(5)) / 2
+#: sqrt(2), the root-2 rectangle of ISO 216 paper and the old plot window: every
+#: plot but the S-matrix is this much wider than tall by default, an x-y cross
+#: section included (emodeconnection#160, Eric 2026-11-15).
+PLOT_RATIO = math.sqrt(2)
 
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
@@ -309,7 +310,7 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
 
     The plot box's height over its width (``AxesSpec.box_aspect``) is 1 for the
-    S-matrix and 1 / ``GOLDEN`` for every other plot, an x-y cross section
+    S-matrix and 1 / ``PLOT_RATIO`` for every other plot, an x-y cross section
     included, unless ``aspect_ratio`` gives one: a number, or ``'real'``
     for the limits' own ratio (emodeconnection#160).
     """
@@ -331,17 +332,17 @@ def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> f
         return limits
     if isinstance(view, SMatrixView):
         return 1.0
-    return 1 / GOLDEN
+    return 1 / PLOT_RATIO
 
 
 def figure_aspect(spec: FigureSpec) -> float:
     """The plot box's height over its width, which the tab sizes the plot to."""
     if spec.panels:
         rows, cols = spec.panel_grid
-        return rows / cols / GOLDEN
+        return rows / cols / PLOT_RATIO
     if spec.axes.box_aspect is not None:
         return float(spec.axes.box_aspect)
-    return 1 / GOLDEN
+    return 1 / PLOT_RATIO
 
 
 def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
