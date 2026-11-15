@@ -572,11 +572,11 @@ class PlotHandle:
 
     @property
     def view(self) -> Union[PlotView, Schematic]:
-        return self._view.data
+        return _without_cut(self._view.data)
 
     @property
     def figure(self) -> FigureSpec:
-        return compose(self._view.data, self._view.options)
+        return compose(_without_cut(self._view.data), self._view.options)
 
     @property
     def url(self) -> Optional[str]:
@@ -616,6 +616,13 @@ class PlotHandle:
 
     def __repr__(self) -> str:
         return f"<PlotHandle {self.id}: {self._view.title}>"
+
+
+def _without_cut(data: Any) -> Any:
+    """`data` without the x-y panel the tab draws below a z panel (#180): a script gets what it asked for."""
+    from .cut import CutPanel
+
+    return data.zpanel if isinstance(data, CutPanel) else data
 
 
 def _public_url(server: UIServer, view_id: str, embed: bool) -> str:

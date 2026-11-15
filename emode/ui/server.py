@@ -54,7 +54,9 @@ from .figure import PlotOptions, compose, effective_contours, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
-from ..plotting import Schematic
+from ..plotting import PlotView, Schematic
+from .cut import CutPanel, cut_arguments, held_xy, offers_cut
+from .cut import frozen as frozen_cut
 from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
 from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
@@ -291,6 +293,10 @@ class UIServer:
         from .views import _select
 
         kind = KINDS[view.kind]
+        # the x-y field at a z panel's cut is drawn below it (#180): the controls apply to the z panel
+        cut = view.data if isinstance(view.data, CutPanel) else None
+        if cut is not None:
+            view.data = cut.zpanel
         controls, grid, want_grid = self._modes_controls(view, controls)
         data_args = {k: controls[k] for k in kind.data_arguments if k in controls}
         local_args = {k: controls[k] for k in kind.local_arguments if k in controls}
@@ -320,6 +326,8 @@ class UIServer:
             view.options = replace(view.options, **_clean_options(figure_args))
         if want_grid and offers_all_modes(view.data):
             view.data = self._modes_grid(view, grid, width)
+        if offers_cut(view.data):
+            view.data = self._with_cut(view, cut)
         view.title = title_of(view.data, view.arguments)
         spec = compose(view.data, view.options)
         aspect = figure_aspect(spec)
@@ -395,6 +403,27 @@ class UIServer:
             arguments = {**view.arguments, "mode": label}
             views.append(self.fetch(view, arguments, view.pixels))
         return ModesPanel(tuple(views), labels, columns, key, shown)
+
+    def _with_cut(self, view: View, previous: Optional[CutPanel]) -> Any:
+        """`view`'s z panel with the device's x-y field at its cut, fetched only when its arguments changed.
+
+        A session that has ended keeps the x-y field it has. When EMode cannot
+        draw the x-y plane there, the z panel is drawn alone, as before.
+        """
+        zpanel = view.data
+        data_arguments = KINDS[view.kind].data_arguments
+        arguments = cut_arguments(zpanel, {k: v for k, v in view.arguments.items() if k in data_arguments})
+        xy = held_xy(previous, arguments)
+        if xy is None:
+            if self.session_ended:
+                return zpanel
+            try:
+                xy = self.fetch(view, arguments, view.pixels)
+            except EModeError:
+                return zpanel
+            if not isinstance(xy, PlotView) or xy.plane != "x-y":
+                return zpanel
+        return CutPanel(zpanel, xy, frozen_cut(arguments))
 
     def open_view(self, view: View, name: str) -> View:
         """Open the schematic or the GDS view of `view`'s device as a plot of its own (#146).
@@ -644,9 +673,11 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _single(data: Any) -> Any:
-    """The single view of `data`: the shown mode's panel of an All modes grid, else `data`."""
+    """The single view of `data`: the shown mode's panel of an All modes grid, a cut's z panel, else `data`."""
     if isinstance(data, ModesPanel):
         return data.view_of(data.shown) or data.views[0]
+    if isinstance(data, CutPanel):
+        return data.zpanel
     return data
 
 

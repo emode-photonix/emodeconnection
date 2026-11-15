@@ -374,6 +374,10 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
 
     if isinstance(view, ModesPanel):
         return compose_modes(view, options)
+    from .cut import CutPanel, compose_cut
+
+    if isinstance(view, CutPanel):
+        return compose_cut(view, options)
     if isinstance(view, Figure):
         return compose_figure(view, options)
     if not isinstance(view, PlotView):
