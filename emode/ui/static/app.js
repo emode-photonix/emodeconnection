@@ -296,29 +296,88 @@ function sliderStep(span) {
 }
 
 // A position slider (emodeconnection#161): a range from the menu's min to its
-// max, with the text box beside it for an exact value or a named entry.
-// Dragging moves the text box only, and letting go posts the position once,
-// through `onslide` with the number. The text box posts its own text through `ontext`.
+// max, a number box beside it for an exact value, and a dropdown of the menu's
+// named entries (EME, the profiles, the reductions). The named entries are a
+// <select>, not a text box's datalist: a datalist filters its suggestions by the
+// text already in the box, so on a phone a box showing "pair" offered only "pair",
+// and the keyboard's autocorrect could post a name that matched nothing.
+// Dragging moves the number box only, and letting go posts the position once,
+// through `onslide` with the number. The dropdown and the number box post their
+// value through `ontext`. A menu with no span (a profile plot's z, which only names
+// a profile) is the dropdown alone.
 function zSlider(label, menu, value, ontext, onslide) {
   const wrap = document.createElement("span");
   wrap.className = "slider";
+  const lo = Number(menu.min), hi = Number(menu.max);
+  const ranged = hi > lo;
+  const names = (menu.options || []).map(String);
+  const current = value == null ? "" : String(value);
+  const named = names.indexOf(current) >= 0;
+  let position = null;
+  if (names.length) {
+    const s = document.createElement("select");
+    s.setAttribute("aria-label", label);
+    if (ranged) {
+      // the first entry stands for a position along the range, and shows it
+      position = document.createElement("option");
+      position.value = named ? "" : current;
+      position.textContent = named ? "position" : current;
+      if (!named) position.selected = true;
+      s.appendChild(position);
+    }
+    for (const v of names) {
+      const o = document.createElement("option");
+      o.value = o.textContent = v;
+      if (v === current) o.selected = true;
+      s.appendChild(o);
+    }
+    s.addEventListener("change", () => {
+      if (s.value !== "" && !(position && s.value === position.value)) ontext(s.value);
+    });
+    const wrapSelect = document.createElement("label");
+    wrapSelect.append(label + ":", s);
+    wrap.append(wrapSelect);
+  }
+  if (!ranged) {
+    if (!names.length) wrap.append(numberBox(label, current, ontext));
+    return wrap;
+  }
   const range = document.createElement("input");
   range.type = "range";
-  const lo = Number(menu.min), hi = Number(menu.max);
   const step = sliderStep(hi - lo);
   const digits = Math.max(0, -Math.floor(Math.log10(step)));
   range.min = String(lo);
   range.max = String(hi);
   range.step = String(step);
-  const start = parseFloat(value);
+  const start = parseFloat(current);
   range.value = String(Number.isFinite(start) ? start : (lo + hi) / 2);
   range.setAttribute("aria-label", label + " (" + menu.unit + ")");
-  const box = textbox(label, menu.options, value, ontext);
+  const box = numberBox(names.length ? "" : label, named ? "" : current, ontext);
   const text = box.querySelector("input");
   const shown = () => Number(Number(range.value).toFixed(digits));
-  range.addEventListener("input", () => { text.value = shown() + " " + menu.unit; });
+  range.addEventListener("input", () => {
+    text.value = shown() + " " + menu.unit;
+    if (position) position.textContent = text.value;
+  });
   range.addEventListener("change", () => onslide(shown()));
   wrap.append(box, range);
+  return wrap;
+}
+
+// A plain text box for a number, with no suggestions and no autocorrect.
+function numberBox(label, value, onchange) {
+  const wrap = document.createElement("label");
+  if (label) wrap.append(label + ":");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.size = 9;
+  input.value = value || "";
+  input.setAttribute("inputmode", "decimal");
+  input.setAttribute("autocorrect", "off");
+  input.setAttribute("autocapitalize", "off");
+  input.setAttribute("spellcheck", "false");
+  input.addEventListener("change", () => onchange(input.value));
+  wrap.append(input);
   return wrap;
 }
 
@@ -943,12 +1002,19 @@ function buildPlotControls(box, reply) {
   if (m.slider) {
     // on the x-y plane the slider is the z of the cut, which a z panel then marks
     const isZ = m.slider.label.startsWith("z");
+    // On x-y the box also names the profile to plot (a saved profile, the current one) or EME for
+    // the device. A profile is plotted through `profile`, and a position or EME clears it, so a
+    // stale profile never outlives the choice.
     const post = (v) => {
-      const z = isZ ? parseFloat(v) : NaN;
-      change(Number.isFinite(z) ? { slice_position: v, z_position: z } : { slice_position: v });
+      if (!isZ) return change({ slice_position: v });
+      const z = parseFloat(v);
+      if (Number.isFinite(z)) return change({ slice_position: v, z_position: z, profile: null });
+      // EME starts the device at its entrance, whatever z was posted last
+      if (String(v).trim() === "EME") return change({ slice_position: 0, z_position: 0, profile: null });
+      change({ slice_position: null, profile: String(v).trim() });
     };
     box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
-      (x) => change(isZ ? { slice_position: x, z_position: x } : { slice_position: x })));
+      (x) => change(isZ ? { slice_position: x, z_position: x, profile: null } : { slice_position: x })));
   }
   if (m.position) {
     // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)

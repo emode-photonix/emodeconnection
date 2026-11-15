@@ -23,6 +23,7 @@ buildPlotControls(box, {menu: {slider: {label: "z:", min: 0, max: 30, unit: "μm
   value: "12.5 μm", options: ["0 μm", "Entrance", "Exit"]}}, controls: {}});
 var range = box.querySelector("input[type=range]");
 var text = box.querySelector("input[type=text]");
+var menu = box.querySelector("select");
 """
 
 ZX = """
@@ -63,25 +64,47 @@ return {during: during, shown: shown, changes: changes};
     )
     assert got["during"] == 0, "a drag posted before it ended"
     assert got["shown"].startswith("20")
-    assert got["changes"] == [{"slice_position": 20, "z_position": 20}]
+    assert got["changes"] == [{"slice_position": 20, "z_position": 20, "profile": None}]
 
 
 @needs_jsc
-def test_the_text_box_still_takes_an_exact_value_or_a_named_entry():
+def test_the_text_box_takes_an_exact_value_and_the_dropdown_a_named_entry():
     got = run_app(
         XY
         + """
-text.value = "Exit";
-text.dispatch("change", {target: text});
+menu.value = "Exit";
+menu.dispatch("change", {target: menu});
 text.value = "3.25";
 text.dispatch("change", {target: text});
 return changes;
 """
     )
     assert got == [
-        {"slice_position": "Exit"},
-        {"slice_position": "3.25", "z_position": 3.25},
+        {"slice_position": None, "profile": "Exit"},
+        {"slice_position": "3.25", "z_position": 3.25, "profile": None},
     ]
+
+
+@needs_jsc
+def test_the_named_entries_are_a_dropdown_that_lists_every_one_whatever_the_value():
+    # A text box with a datalist filters its suggestions by the text in it, so on a
+    # phone a box showing a position or a profile hid EME and the other profiles,
+    # and the keyboard's autocorrect could post text that names nothing ('pair to').
+    got = run_app(
+        XY
+        + """
+return {options: menu.children.map(function (o) { return o.value; }),
+        shown: menu.value, list: text.getAttribute("list"),
+        autocorrect: text.getAttribute("autocorrect"),
+        lists: box.querySelectorAll("datalist").length};
+"""
+    )
+    assert got["options"][1:] == ["0 μm", "Entrance", "Exit"]
+    assert got["options"][0] == "12.5 μm" and got["shown"] == "12.5 μm", (
+        "the dropdown does not show the current position"
+    )
+    assert got["list"] is None and got["lists"] == 0, "the z box still has a filtering datalist"
+    assert got["autocorrect"] == "off"
 
 
 @needs_jsc
@@ -127,3 +150,49 @@ def test_the_script_draws_a_range_input_and_posts_on_change_only():
     body = js[start : js.index("\n}\n", start)]
     assert re.search(r'type\s*=\s*"range"', body)
     assert '"change"' in body
+
+
+PROFILE = """
+var box = document.createElement("div");
+var changes = [];
+change = function (c) { changes.push(c); };
+buildPlotControls(box, {menu: {slider: {label: "z:", min: 0, max: 0, unit: "μm",
+  value: "b", options: ["EME", "FDM", "a", "b"]}}, controls: {}});
+var range = box.querySelector("input[type=range]");
+var text = box.querySelector("input[type=text]");
+"""
+
+
+@needs_jsc
+def test_a_profile_plots_z_box_is_a_dropdown_of_every_profile_and_eme():
+    got = run_app(
+        PROFILE
+        + """
+var menu = box.querySelector("select");
+var options = menu.children.map(function (o) { return o.value; }), shown = menu.value;
+menu.value = "a";
+menu.dispatch("change", {target: menu});
+return {options: options, shown: shown, hasRange: !!range, hasText: !!text, changes: changes};
+"""
+    )
+    assert got["options"] == ["EME", "FDM", "a", "b"]
+    assert got["shown"] == "b"
+    assert got["hasRange"] is False, "a range with no span draws a slider that cannot move"
+    assert got["hasText"] is False, "a profile's z box names profiles only, it takes no text"
+    assert got["changes"] == [{"slice_position": None, "profile": "a"}]
+
+
+@needs_jsc
+def test_choosing_eme_starts_the_device_at_z_zero():
+    # the client keeps the last z_position it posted, and EM_plot reads it as the
+    # x-y cut when slice_position is empty, so EME names z = 0 outright
+    got = run_app(
+        PROFILE
+        + """
+var menu = box.querySelector("select");
+menu.value = "EME";
+menu.dispatch("change", {target: menu});
+return changes;
+"""
+    )
+    assert got == [{"slice_position": 0, "z_position": 0, "profile": None}]
