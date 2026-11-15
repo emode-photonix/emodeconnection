@@ -344,7 +344,10 @@ class UIServer:
         if isinstance(view.data, GDSPanel):
             view.arguments = state_arguments(view.arguments, view.data)
         if figure_args:
-            view.options = replace(view.options, **_clean_options(figure_args))
+            options = replace(view.options, **_clean_options(figure_args))
+            # a figure option out of its bounds (an aspect ratio past 0.001 to 1000, #189) is refused
+            PlotOptions.from_arguments(_options_dict(options))
+            view.options = options
         if want_grid and offers_all_modes(view.data):
             view.data = self._modes_grid(view, grid, width)
         if offers_cut(view.data):

@@ -513,9 +513,47 @@ function buildControls(reply) {
   else if (kind === "sweep") buildSweepControls(box, reply);
   else buildPlotControls(box, reply);
   if (kind === "schematic") box.append(componentMenu(reply));
+  if (kind !== "gds") box.append(aspectControl(reply));
   box.append(renderPanel());
   box.append(exportPanel(reply));
   markRender();
+}
+
+// ------------------------------------------------------------ the aspect ratio (#189)
+//
+// Width:height of the plot box, posted as `aspect_ratio`, the box's height over its width.
+// sqrt(2) is every plot's default but the S-matrix's, which is 1:1. Custom takes any
+// width:height from 0.001 to 1000: past that a figure degenerates.
+
+const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
+const ASPECT_MIN = 0.001;
+const ASPECT_MAX = 1000;
+
+function aspectControl(reply) {
+  const c = reply.controls || {};
+  const wrap = document.createElement("span");
+  wrap.className = "aspect";
+  const chosen = typeof c.aspect_ratio === "number" && c.aspect_ratio > 0 ? 1 / c.aspect_ratio : null;
+  const named = chosen === null
+    ? (reply.kind === "smatrix" ? "1:1" : "√2")
+    : ((ASPECTS.find(([, r]) => Math.abs(r - chosen) < 1e-6 * r) || ["Custom"])[0]);
+  const custom = numberBox("width:height", named === "Custom" ? String(Number(chosen.toPrecision(6))) : "", (text) => {
+    const v = Number(String(text).trim());
+    if (!(v >= ASPECT_MIN && v <= ASPECT_MAX)) {
+      return showMessage("The aspect ratio is width:height, a number from " + ASPECT_MIN + " to " + ASPECT_MAX +
+        ", and " + JSON.stringify(String(text)) + " is not one.");
+    }
+    showMessage("");
+    change({ aspect_ratio: 1 / v });
+  });
+  custom.hidden = named !== "Custom";
+  const menu = select("Aspect", ASPECTS.map(([n]) => n).concat(["Custom"]), named, (v) => {
+    custom.hidden = v !== "Custom";
+    const hit = ASPECTS.find(([n]) => n === v);
+    if (hit) change({ aspect_ratio: 1 / hit[1] });
+  });
+  wrap.append(menu, custom);
+  return wrap;
 }
 
 // ------------------------------------------------------------ a component's details (#159)

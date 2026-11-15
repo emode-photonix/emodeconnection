@@ -122,7 +122,20 @@ class PlotOptions:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
         if "colormap" in arguments and arguments["colormap"] is not None:
             colormaps.check_colormap(arguments["colormap"])
+        ratio = options.aspect_ratio
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
+            if not ASPECT_BOUNDS[0] <= ratio <= ASPECT_BOUNDS[1]:
+                raise ArgumentError(
+                    f"aspect_ratio is the plot box's height over its width, from {ASPECT_BOUNDS[0]:g} "
+                    f"to {ASPECT_BOUNDS[1]:g}, got {ratio:g}",
+                    "plot",
+                    "aspect_ratio",
+                )
         return options
+
+
+#: The plot box's height over its width that `aspect_ratio` may give: past these a figure degenerates (#189).
+ASPECT_BOUNDS = (0.001, 1000.0)
 
 
 # ------------------------------------------------------------------ the spec
@@ -320,6 +333,11 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     options = options or PlotOptions()
     spec = _compose(view, options)
     if spec.panels:
+        chosen = options.aspect_ratio
+        if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+            # every panel takes a chosen ratio, and the figure's aspect follows (#189)
+            panels = tuple(replace(p, axes=replace(p.axes, box_aspect=float(chosen))) for p in spec.panels)
+            spec = replace(spec, panels=panels)
         return spec
     return replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
 
@@ -342,7 +360,8 @@ def figure_aspect(spec: FigureSpec) -> float:
     """The plot box's height over its width, which the tab sizes the plot to."""
     if spec.panels:
         rows, cols = spec.panel_grid
-        return rows / cols / PLOT_RATIO
+        each = spec.panels[0].axes.box_aspect
+        return rows / cols * (float(each) if each else 1 / PLOT_RATIO)
     if spec.axes.box_aspect is not None:
         return float(spec.axes.box_aspect)
     return 1 / PLOT_RATIO
