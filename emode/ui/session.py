@@ -98,7 +98,7 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
 
     ``plot()`` needs ``'plot': 'view'`` in EMode's ``version()`` answer
     (1.0.9). ``plot_S_matrix()``, ``material_explorer()`` and the session page
-    also need their kind listed under ``'views'``.
+    also need their kind listed under ``'views'``, as does ``'inventory'``.
     """
     info = em._emode_info()
     function = {
@@ -106,6 +106,7 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
         "material": "material_explorer()",
         "session": "The session page",
         "details": "A schematic component's details",
+        "inventory": "The plot inventory",
     }
     if isinstance(info, dict) and info.get("plot") == PLOT_VIEW:
         if kind in ("plot", "schematic") or kind in (info.get("views") or ()):
