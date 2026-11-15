@@ -224,6 +224,10 @@ window.addEventListener("resize", fitFigure);
 function draw(reply) {
   const fig = document.getElementById("figure");
   const layout = { ...reply.figure.layout, ...sizeFigure(reply), autosize: true };
+  // a plot taller than the stage must scroll: Plotly takes every touch on a plot with a
+  // drag mode for a zoom box, so none would scroll it (#185). A click still opens a panel.
+  const stage = document.getElementById("stage").clientHeight;
+  if (stage > 0 && layout.height > stage) layout.dragmode = false;
   Plotly.react(fig, reply.figure.data, layout, {
     responsive: true,
     displaylogo: false,
@@ -231,6 +235,8 @@ function draw(reply) {
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_click");
   fig.on && fig.on("plotly_click", (ev) => {
+    // a swipe that scrolled the plot ends in a click without a drag mode: it opens nothing
+    if (swiped) return;
     // a schematic's block, port or connection opens its details (#159)
     const point = ev.points && ev.points[0];
     const meta = point && point.data && point.data.meta;
@@ -244,6 +250,21 @@ function draw(reply) {
     if (target && target.startsWith("go to ")) change({ section: target.slice(6) });
   });
   buildControls(reply);
+}
+
+// A touch that moved more than a few pixels is a swipe, not a tap (#185).
+let swiped = false;
+let touchAt = null;
+function watchSwipes(el) {
+  el.addEventListener("touchstart", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    touchAt = t ? [t.clientX, t.clientY] : null;
+    swiped = false;
+  }, { passive: true });
+  el.addEventListener("touchmove", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (t && touchAt && Math.hypot(t.clientX - touchAt[0], t.clientY - touchAt[1]) > 10) swiped = true;
+  }, { passive: true });
 }
 
 function change(controls) {
@@ -1402,6 +1423,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  watchSwipes(document.getElementById("figure"));
   startSidebar();
   startAccount();
   await loadList().catch((err) => showMessage(String(err)));
