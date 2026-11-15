@@ -226,6 +226,9 @@ class AxesSpec:
     #: Each y axis's label and tick color, None for the default black.
     ylabel_color: Optional[str] = None
     y2label_color: Optional[str] = None
+    #: Whether each axis labels its ticks: a grid's inner panels do not (#184).
+    show_xticklabels: bool = True
+    show_yticklabels: bool = True
 
 
 @dataclass(frozen=True)
