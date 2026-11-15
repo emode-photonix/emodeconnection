@@ -493,3 +493,45 @@ class SessionInfo(TaggedModel):
     solve_pool_workers: int = 0
     cache_entries: int = 0
     session_errors: int = 0
+
+
+@register_type
+class KindEntry(TaggedModel):
+    """One kind of view in the Plot menu, and whether the session can show it now.
+
+    ``kind`` is ``'plot'``, ``'schematic'``, ``'gds'``, ``'smatrix'``,
+    ``'sweep'``, ``'pulse'`` or ``'material'``. ``reason`` says why a kind is
+    unavailable, in the user's words (``'run EME() first'``), and ``summary``
+    is the text the menu shows after the kind's name (``''`` for none).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    available: bool
+    reason: Optional[str] = None
+    summary: str = ""
+
+
+@register_type
+class PlotInventory(TaggedModel):
+    """What a session can plot, from names and keys only (no mesh, no basis, no solve).
+
+    ``kinds`` has one ``KindEntry`` per kind of the Plot menu, in menu order.
+    ``profiles`` are the Profile menu's labels. ``device`` is ``'preview'``
+    when sections are declared and ``EME()`` has not run, ``'solved'`` after it,
+    and None with no sections. ``gds`` says a GDS section exists, ``sweep``
+    summarizes the stored sweep (``'width, 11 points: effective_index'``),
+    ``pulse_response`` says a pulsed ``EME()`` has stored its response, and
+    ``materials`` lists the shapes' materials in shape order without repeats.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kinds: List[KindEntry]
+    profiles: List[str] = []
+    device: Optional[Literal["preview", "solved"]] = None
+    gds: bool = False
+    sweep: Optional[str] = None
+    pulse_response: bool = False
+    materials: List[str] = []
