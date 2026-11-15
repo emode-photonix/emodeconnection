@@ -65,3 +65,16 @@ def test_an_unknown_device_state_is_refused():
 def test_the_two_types_are_versioned():
     for name in ("PlotInventory", "KindEntry"):
         assert compat.TYPE_SINCE[name] == "1.0.9"
+
+
+def test_an_emode_without_the_inventory_is_refused_before_the_call():
+    from plot_standin import VERSION_1_0_9, session
+
+    from emode.types import EModeError
+    from emode.ui.session import check_plot_support
+
+    em, _ = session(version={**VERSION_1_0_9, "views": ["plot", "details"]})
+    with pytest.raises(EModeError, match="plot inventory needs EMode 1.0.9"):
+        check_plot_support(em, "inventory")
+    em, _ = session(version={**VERSION_1_0_9, "views": ["plot", "inventory"]})
+    check_plot_support(em, "inventory")
