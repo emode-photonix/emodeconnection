@@ -225,11 +225,15 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
         for bar in bars:
             cols = slice(int(np.ceil(bar["x0"])) + 2, int(np.floor(bar["x1"])) - 2)
             assert cols.stop > cols.start
-            # a level within 2 px of an end lies on the bar's own outline, which looks the same
-            for y in [
-                r for r in bar["rows"] if min(abs(r - e) for e in bar["ends"]) > 2
-            ]:
+            for y in bar["rows"]:
                 rows = slice(int(np.floor(y)) - 1, int(np.ceil(y)) + 2)
+                expected[
+                    rows.start - 1 : rows.stop + 1,
+                    int(bar["x0"]) - 2 : int(bar["x1"]) + 3,
+                ] = True
+                # a level within 2 px of an end lies on the bar's own outline, which looks the same
+                if min(abs(y - e) for e in bar["ends"]) <= 2:
+                    continue
                 seen = diff[rows, cols].max(axis=0)
                 assert (seen > 40).mean() > 0.6, (
                     f"{name}: the mark at y = {y:.1f} px is not seen across the bar"
@@ -239,10 +243,6 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
                     marked[rows, cols].sum(axis=2).min()
                     < bare[rows, cols].sum(axis=2).min() + 1
                 )
-                expected[
-                    rows.start - 1 : rows.stop + 1,
-                    int(bar["x0"]) - 2 : int(bar["x1"]) + 3,
-                ] = True
     assert not (diff[~expected] > 40).any(), (
         "the clear bar changed pixels off its marks"
     )
