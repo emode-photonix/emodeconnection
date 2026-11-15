@@ -204,8 +204,16 @@ function figureSize(fig, reply) {
   const legend = layout.showlegend ? 30 : 0;
   const width = figureWidth(fig);
   const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
-  return { width: width, height: Math.round(box * (reply.aspect || Math.SQRT1_2) + (m.t || 0) + (m.b || 0) + legend) };
+  // the legend sits above the box, in the top margin: its room goes there, not to the box (#188)
+  const top = (m.t || 0) + legend;
+  const bottom = m.b || 0;
+  // an extreme aspect ratio (0.001 to 1000, #189) still draws: the box is at least 40 px tall,
+  // and the figure at most 6000 px
+  const tall = Math.min(Math.max(40, box * (reply.aspect || Math.SQRT1_2)), MAX_FIGURE_PX - top - bottom);
+  return { width: width, height: Math.round(tall + top + bottom), margin: { ...m, t: top } };
 }
+
+const MAX_FIGURE_PX = 6000;
 
 function sizeFigure(reply) {
   const fig = document.getElementById("figure");
