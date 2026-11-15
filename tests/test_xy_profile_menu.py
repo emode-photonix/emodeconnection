@@ -64,20 +64,26 @@ def _the_y_range_rule(arguments: Dict[str, Any]) -> None:
 
 @needs_jsc
 def test_the_profile_menu_lists_eme_and_the_profiles():
-    got = run_app(PROFILE_PLOT + "return {options: profile.children.map(function (o) { return o.value; }), shown: profile.value};")
+    got = run_app(
+        PROFILE_PLOT + "return {options: profile.children.map(function (o) { return o.value; }), shown: profile.value};"
+    )
     assert got["options"] == ["EME", "FDM", "single", "pair"]
     assert got["shown"] == "single"
 
 
 @needs_jsc
 def test_choosing_eme_posts_the_device_on_the_x_y_plane_and_no_position():
-    got = run_app(PROFILE_PLOT + 'profile.value = "EME"; profile.dispatch("change", {target: profile}); return changes;')
+    got = run_app(
+        PROFILE_PLOT + 'profile.value = "EME"; profile.dispatch("change", {target: profile}); return changes;'
+    )
     assert got == [{"profile": "EME", "plane": "x-y", "slice_position": None}]
 
 
 @needs_jsc
 def test_choosing_a_profile_clears_the_position():
-    got = run_app(PROFILE_PLOT + 'profile.value = "pair"; profile.dispatch("change", {target: profile}); return changes;')
+    got = run_app(
+        PROFILE_PLOT + 'profile.value = "pair"; profile.dispatch("change", {target: profile}); return changes;'
+    )
     assert got == [{"profile": "pair", "slice_position": None}]
 
 
@@ -149,7 +155,9 @@ def test_the_stand_in_reads_the_old_post_as_emode_did():
 
 @needs_jsc
 def test_choosing_eme_on_a_mode_plot_draws_the_device_x_y_plane():
-    (post,) = run_app(PROFILE_PLOT + 'profile.value = "EME"; profile.dispatch("change", {target: profile}); return changes;')
+    (post,) = run_app(
+        PROFILE_PLOT + 'profile.value = "EME"; profile.dispatch("change", {target: profile}); return changes;'
+    )
     server, fetched = _server()
     try:
         status, reply = _post(server, post)

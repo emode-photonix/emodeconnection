@@ -997,34 +997,31 @@ function buildPlotControls(box, reply) {
     box.append(select("Section", m.sections, sel.section || "all", (v) => change({ section: v === "all" ? null : v })));
   }
   if (m.profiles && m.profiles.length) {
-    box.append(select("Profile", m.profiles, sel.profile, (v) => change({ profile: v })));
+    // EME is the device, drawn on the x-y plane at its cut. No position goes with a choice:
+    // the plot's own arguments may name no plane, and EMode's default z-x plane would read
+    // a number as a y (#179).
+    box.append(select("Profile", m.profiles, sel.profile, (v) => change(v === "EME"
+      ? { profile: v, plane: "x-y", slice_position: null }
+      : { profile: v, slice_position: null })));
   }
   if (m.modes && m.modes.length) box.append(select("Mode", m.modes, sel.mode, (v) => change({ mode: v })));
   if (m.slider) {
-    // on the x-y plane the slider is the z of the cut, which a z panel then marks
-    const isZ = m.slider.label.startsWith("z");
-    // On x-y the box also names the profile to plot (a saved profile, the current one) or EME for
-    // the device. A profile is plotted through `profile`, and a position or EME clears it, so a
-    // stale profile never outlives the choice.
-    const post = (v) => {
-      if (!isZ) return change({ slice_position: v });
-      const z = parseFloat(v);
-      if (Number.isFinite(z)) return change({ slice_position: v, z_position: z, profile: null });
-      // EME starts the device at its entrance, whatever z was posted last
-      if (String(v).trim() === "EME") return change({ slice_position: 0, z_position: 0, profile: null });
-      change({ slice_position: null, profile: String(v).trim() });
-    };
-    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
-      (x) => change(isZ ? { slice_position: x, z_position: x, profile: null } : { slice_position: x })));
+    // a z panel's transverse position or reduction (the x-y plane has none, its Profile menu
+    // names EME and the profiles, #179)
+    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value,
+      (v) => change({ slice_position: v }), (x) => change({ slice_position: x })));
   }
   if (m.position) {
-    // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
-    const label = "Cut " + m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    // the z of the x-y cut: marked on a z panel and drawn below it (emode#1625, #180), and the
+    // device's own x-y plane's z, where a stale slice_position must not override it
+    const xy = sel.plane === "x-y";
+    const name = m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    const move = (z) => change(xy ? { z_position: z, slice_position: null } : { z_position: z });
     const post = (v) => {
       const z = parseFloat(v);
-      if (Number.isFinite(z)) change({ z_position: z });
+      if (Number.isFinite(z)) move(z);
     };
-    box.append(zSlider(label, m.position, parseFloat(m.position.value), post, (x) => change({ z_position: x })));
+    box.append(zSlider(xy ? name : "Cut " + name, m.position, parseFloat(m.position.value), post, move));
   }
   if (m.z_resolutions && m.z_resolutions.length) {
     box.append(textbox("Z-res (nm)", m.z_resolutions, sel.z_resolution || "Auto",
