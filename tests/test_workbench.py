@@ -586,3 +586,45 @@ def test_the_tab_refreshes_the_bench_on_session_changed_only_while_shown():
       return [first, second];
     """)
     assert out == [1, 1]
+
+
+# ------------------------------------------------------------------ mode results against mode number (follow-up to #1701)
+
+
+def _modes_sweep(key: str = "mode") -> Any:
+    from emode.ui.sweep_figure import sweep_panel
+
+    return sweep_panel({"key": key, "values": np.arange(3), "effective_index": np.array([2.1, 1.9, 1.6])})
+
+
+def test_results_against_mode_number_draw_markers_only_on_integer_ticks():
+    from emode.ui.figure import compose
+    from emode.ui.renderers import mpl
+    from emode.ui.renderers.plotly import to_plotly
+
+    spec = compose(_modes_sweep())
+    (line,) = [ln for ln in spec.lines if ln.kind == "trace"]
+    assert line.marker and line.width == 0.0 and spec.axes.integer_xticks
+    layout = to_plotly(spec)
+    trace = next(t for t in layout["data"] if t.get("meta") == "trace")
+    assert trace["mode"] == "markers"
+    assert layout["layout"]["xaxis"]["dtick"] == 1 and layout["layout"]["xaxis"]["tickformat"] == "d"
+    assert "dtick" not in layout["layout"]["yaxis"]
+    ax = [a for a in mpl.to_figure(spec).axes][0]
+    (artist,) = [a for a in ax.lines if a.get_gid() == "trace"]
+    assert artist.get_linestyle() == "None" and artist.get_marker() != "None"
+
+
+def test_a_sweep_over_another_key_keeps_its_line():
+    from emode.ui.figure import compose
+
+    spec = compose(_modes_sweep("length"))
+    (line,) = [ln for ln in spec.lines if ln.kind == "trace"]
+    assert not line.marker and line.width > 0 and not spec.axes.integer_xticks
+
+
+def test_the_workbench_draws_mode_results_as_markers(em):
+    reply = bench(em, {"dataset": "modes:FDM"})
+    traces = [t for t in reply["figure"]["data"] if t.get("type") == "scatter" and t.get("meta") == "trace"]
+    assert traces and all(t["mode"] == "markers" for t in traces)
+    assert reply["figure"]["layout"]["xaxis"]["dtick"] == 1
