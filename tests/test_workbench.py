@@ -207,6 +207,16 @@ def _calls(em: Any, function: str) -> List[Dict[str, Any]]:
     return em.client.calls(function)
 
 
+def _xs(trace: Dict[str, Any]) -> List[float]:
+    """A trace's x values, sent as a list or as Plotly's typed array."""
+    import base64
+
+    x = trace["x"]
+    if isinstance(x, dict):
+        return np.frombuffer(base64.b64decode(x["bdata"]), dtype=np.dtype(x["dtype"])).tolist()
+    return list(x)
+
+
 # ------------------------------------------------------------------ the wire type
 
 
@@ -333,7 +343,7 @@ def test_an_unavailable_entry_is_refused_with_its_reason_and_no_call(em):
     ],
 )
 def test_choosing_data_fetches_it_once_with_its_function(em, dataset, function, sent, kind):
-    bench(em, {"category": "trend"})  # start elsewhere, on the sweep
+    bench(em, {"dataset": "profile:FDM"})  # start elsewhere
     before = len(_calls(em, function))
     reply = bench(em, {"dataset": dataset})
     assert "error" not in reply, reply
@@ -354,7 +364,7 @@ def test_an_analysis_dataset_with_no_script_plot_is_plotted(em):
     menus = {m["name"]: m for m in reply["extra"]["menus"]}
     assert menus["result"]["options"] == ["effective_index", "TE_fraction"]
     traces = [t for t in reply["figure"]["data"] if t.get("type") == "scatter"]
-    assert traces and list(traces[0]["x"]) == [0, 1]
+    assert traces and _xs(traces[0]) == [0, 1]
 
 
 def test_a_profile_set_is_plotted_against_wavelength(em):
@@ -362,7 +372,7 @@ def test_a_profile_set_is_plotted_against_wavelength(em):
     assert "error" not in reply, reply
     traces = [t for t in reply["figure"]["data"] if t.get("type") == "scatter"]
     assert len(traces) == 2  # one per mode
-    assert list(traces[0]["x"]) == [1500.0, 1600.0]
+    assert _xs(traces[0]) == [1500.0, 1600.0]
 
 
 def test_choosing_data_shows_only_that_kinds_options(em):

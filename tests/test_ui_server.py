@@ -399,7 +399,7 @@ def test_a_post_body_never_leaks_into_the_next_request_on_the_same_connection(
 ):
     """emodeconnection#156: a route that answered without reading its body left
     ``{}`` on the kept-alive connection, and the next request read ``{}GET``."""
-    view_id = json.loads(request(server, "GET", "/api/views")[2])[0]["id"]
+    view_id = json.loads(request(server, "GET", "/api/views")[2])[-1]["id"]  # after the pinned workbench
     path = path.replace("p1", view_id)
     conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
     host = {"Host": f"127.0.0.1:{server.port}"}
@@ -416,7 +416,7 @@ def test_a_post_body_never_leaks_into_the_next_request_on_the_same_connection(
 
 def test_each_request_on_a_kept_alive_connection_reads_its_own_body(server):
     """A POST after another POST on the same connection still gets its own controls."""
-    view_id = json.loads(request(server, "GET", "/api/views")[2])[0]["id"]
+    view_id = json.loads(request(server, "GET", "/api/views")[2])[-1]["id"]  # after the pinned workbench
     conn = http.client.HTTPConnection("127.0.0.1", server.port, timeout=5)
     headers = {
         "Host": f"127.0.0.1:{server.port}",
