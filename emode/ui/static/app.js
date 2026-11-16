@@ -1269,7 +1269,7 @@ function buildPlotControls(box, reply) {
   if (m.settings && Object.keys(m.settings).length) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
-    summary.textContent = "Settings";
+    summary.textContent = "Sampling";
     const list = document.createElement("div");
     const active = new Set(m.active_settings || []);
     for (const [name, arg] of SETTINGS) {
