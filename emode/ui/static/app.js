@@ -245,7 +245,14 @@ function draw(reply) {
   if (stage > 0 && layout.height > stage) layout.dragmode = false;
   // a figure Plotly cannot draw still gets its controls, so another choice can be made (emode#1701)
   try {
-    const drawn = Plotly.react(fig, reply.figure.data, layout, {
+    // Plotly's Reset axes goes back to the range the plot was first drawn with, and react keeps
+    // that range when a later figure has another (the window display widens it, a plane or mode
+    // switch changes it): a figure with other ranges is drawn anew so Home returns to its own (#201)
+    const ranges = JSON.stringify([layout.xaxis && layout.xaxis.range, layout.yaxis && layout.yaxis.range]);
+    const fresh = fig.dataset.ranges !== ranges;
+    fig.dataset.ranges = ranges;
+    const draws = fresh ? Plotly.newPlot : Plotly.react;
+    const drawn = draws.call(Plotly, fig, reply.figure.data, layout, {
       responsive: true,
       displaylogo: false,
       toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },

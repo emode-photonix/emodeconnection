@@ -1,4 +1,4 @@
-"""Home returns to the range of the figure on screen, not of the first one drawn (#200).
+"""Home returns to the range of the figure on screen, not of the first one drawn (#201).
 
 Eric, 2026-11-15, on his phone: with the window display on, Home and then Autoscale
 showed the hatch on the wrong half. Plotly's Reset axes goes back to the range the plot
