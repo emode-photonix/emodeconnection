@@ -246,7 +246,7 @@ def _contour_line_style(figure: Dict[str, Any]) -> Tuple[float, float]:
     return styles.pop()
 
 
-def test_plotly_marks_draw_at_the_contour_lines_width_and_opacity():
+def test_plotly_marks_draw_at_the_contour_lines_width_and_ink():
     import re
 
     figure = to_plotly(compose(_view()))
@@ -256,7 +256,9 @@ def test_plotly_marks_draw_at_the_contour_lines_width_and_opacity():
         assert clear["tickwidth"] == width
         alpha = re.fullmatch(r"rgba\(0, ?0, ?0, ?([0-9.]+)\)", clear["tickcolor"])
         assert alpha, clear["tickcolor"]
-        assert float(alpha.group(1)) == pytest.approx(opacity)
+        # Plotly draws a tick at least one whole pixel, so a mark of the same ink as a line
+        # narrower than that has the line's opacity times its width (#199)
+        assert float(alpha.group(1)) == pytest.approx(opacity * min(width, 1.0))
 
 
 def test_matplotlib_marks_draw_at_the_contour_lines_width_and_alpha():
