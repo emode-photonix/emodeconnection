@@ -103,12 +103,15 @@ class UIServer:
         fetch_dataset: Optional[Callable[[str, Dict[str, Any], Tuple[int, int]], Any]] = None,
         post_saved: Optional[Callable[[Any], None]] = None,
         delete_saved: Optional[Callable[[str], None]] = None,
+        list_saved: Optional[Callable[[], None]] = None,
     ) -> None:
         self.registry = registry
         #: ``post_saved(view)``: keep a ``SavedView`` in the simulation file (emode#1703)
         self.post_saved = post_saved
         #: ``delete_saved(name)``: remove a saved view from the simulation file
         self.delete_saved = delete_saved
+        #: ``list_saved()``: list the simulation file's saved views, once, when the tab first asks for the list
+        self.list_saved = list_saved
         #: ``inventory()``: EMode's ``PlotInventory``, what the workbench lists (emode#1701)
         self.inventory = inventory
         #: ``fetch_dataset(kind, arguments, pixels)``: one of the inventory's datasets, for the workbench
@@ -367,6 +370,15 @@ class UIServer:
             return reply
 
     # ---------------------------------------------------------------- saved views (emode#1703)
+
+    def views_reply(self) -> List[Dict[str, Any]]:
+        """The sidebar's entries, the simulation file's saved views listed first when the tab first asks."""
+        if self.list_saved is not None and not self.registry.file_listed and not self.session_ended:
+            try:
+                self.list_saved()
+            except EModeError:
+                self.registry.file_listed = True
+        return self.registry.summaries()
 
     def _origin(self) -> Dict[str, Any]:
         """The saved view the workbench came from, and whether its settings have changed since."""
@@ -1240,7 +1252,7 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/events":
             return self._events()
         if path == "/api/views":
-            return self._json(200, self.ui.registry.summaries())
+            return self._json(200, self.ui.views_reply())
         if path == "/api/inventory":
             try:
                 return self._json(200, self.ui.inventory_reply())

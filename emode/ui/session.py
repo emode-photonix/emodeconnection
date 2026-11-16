@@ -355,9 +355,9 @@ def ensure_server(em: "EMode") -> UIServer:
             fetch_dataset=lambda kind, arguments, pixels: fetch_dataset(em, kind, arguments, pixels),
             post_saved=lambda view: post_saved(em, view),
             delete_saved=lambda name: post_delete(em, name),
+            list_saved=lambda: list_file_views(em),
         ).start()
         em._ui = server
-        list_file_views(em)
     return server
 
 
