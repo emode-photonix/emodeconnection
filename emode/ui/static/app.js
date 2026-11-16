@@ -202,7 +202,7 @@ function figureSize(fig, reply) {
   const legend = layout.showlegend ? 30 : 0;
   const width = figureWidth(fig);
   const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
-  return { width: width, height: Math.round(box * (reply.aspect || 0.618) + (m.t || 0) + (m.b || 0) + legend) };
+  return { width: width, height: Math.round(box * (reply.aspect || Math.SQRT1_2) + (m.t || 0) + (m.b || 0) + legend) };
 }
 
 function sizeFigure(reply) {
