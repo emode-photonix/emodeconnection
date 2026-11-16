@@ -296,4 +296,4 @@ def test_the_tab_sends_its_width_and_opens_a_clicked_panels_mode():
 
     app = (STATIC / "app.js").read_text()
     assert "width: width" in app
-    assert 'meta.startsWith("mode:")' in app and "change({ mode: meta.slice(" in app
+    assert 'meta.startsWith("mode:")' in app and "renderNow({ mode: meta.slice(" in app  # at once, auto render or not (#183)

@@ -35,6 +35,11 @@ _MARKERS = {
 }
 _DASHES = {None: "-", "dash": "--", "dot": ":"}
 
+#: A contour line's width in points and its alpha. The colorbar's marks draw with the same two
+#: numbers, so the marks and the lines they stand for look alike (#199).
+CONTOUR_LINEWIDTH = 0.2
+CONTOUR_ALPHA = 0.7
+
 
 def _matplotlib() -> Any:
     try:
@@ -195,18 +200,25 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     else:
         ax.set_xlabel(a.xlabel, fontsize=spec.font_size)
         ax.set_ylabel(a.ylabel, fontsize=spec.font_size)
+        # ticks outside the left and bottom axes (#190), no top line, and a right line only
+        # where an image fills the box or a twin axis has its own (#187)
         ax.tick_params(
-            axis="both", direction="in", labelsize=spec.font_size, top=True, right=twin is None, length=3, width=0.5
+            axis="both", direction="out", labelsize=spec.font_size, top=False, right=False, length=3, width=0.75
         )
+        ax.tick_params(axis="x", labelbottom=a.show_xticklabels)
+        ax.tick_params(axis="y", labelleft=a.show_yticklabels)
         for side in ("top", "bottom", "left", "right"):
             ax.spines[side].set_linewidth(0.5)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(bool(spec.rasters) or spec.colorbar is not None or twin is not None)
         if a.ylabel_color:
             ax.yaxis.label.set_color(a.ylabel_color)
             ax.tick_params(axis="y", colors=a.ylabel_color)
     if twin is not None:
         twin.set_ylim(*a.y2range)
         twin.set_ylabel(a.y2label or "", fontsize=spec.font_size)
-        twin.tick_params(axis="y", direction="in", labelsize=spec.font_size, length=3, width=0.5)
+        twin.tick_params(axis="y", direction="out", labelsize=spec.font_size, length=3, width=0.75)
+        twin.spines["top"].set_visible(False)
         for side in ("top", "bottom", "left", "right"):
             twin.spines[side].set_linewidth(0.5)
         if a.y2label_color:
@@ -238,7 +250,9 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
                 bar.set_ticklabels(list(cb.tick_labels))
         if cb.lines:
             # a line across the bar at each contour level drawn on the panel
-            bar.add_lines(list(cb.lines), ["k"] * len(cb.lines), [0.5] * len(cb.lines))
+            bar.add_lines(
+                list(cb.lines), [to_rgba("k" if v >= 0 else "w", CONTOUR_ALPHA) for v in cb.lines], [CONTOUR_LINEWIDTH] * len(cb.lines)
+            )
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
@@ -274,7 +288,7 @@ def _draw_contours(ax: Any, r: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray)
         for level in r.contour_levels:
             ax.contour(
                 x, y, z, levels=[level], colors="k" if level >= 0 else "w",
-                linewidths=0.2, alpha=0.7, linestyles="solid",
+                linewidths=CONTOUR_LINEWIDTH, alpha=CONTOUR_ALPHA, linestyles="solid",
             )
 
 

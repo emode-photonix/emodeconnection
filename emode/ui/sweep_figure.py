@@ -24,8 +24,8 @@ What each kind draws by default:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -525,6 +525,27 @@ def _figure(
     )
 
 
+#: The parts of a value that cannot be negative (#191).
+NONNEGATIVE_COMPONENTS = {"abs", "abs^2"}
+
+
+def nonnegative(source: Any, selected: Mapping[str, Any]) -> bool:
+    """Whether every curve of the selection is a magnitude or a power, which cannot be negative (#191).
+
+    Decided from the results' kinds and the component drawn, never from a label.
+    """
+    results = selected["result"] if isinstance(selected["result"], list) else [selected["result"]]
+    component = selected.get("component")
+    for name in results:
+        comp = component if name == "S_matrix" or component in _components(source, name) else None
+        if comp in NONNEGATIVE_COMPONENTS:
+            continue
+        if name in POWER_RESULTS and comp is None:
+            continue
+        return False
+    return bool(results)
+
+
 def _curves(source: Any, selected: Mapping[str, Any]) -> Tuple[List[Tuple[Optional[str], np.ndarray]], str]:
     """The traces of a one-key sweep's selection, as (label, values in the sweep's order), and the y label."""
     results = selected["result"] if isinstance(selected["result"], list) else [selected["result"]]
@@ -587,6 +608,9 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         peak = max(float(np.nanmax(y)) for y in shown)
         shown = [np.maximum(y, peak - 60.0) for y in shown]
     lo, hi = _limits(shown)
+    floor = nonnegative(source, selected)
+    if floor:
+        lo = 0.0
     texts: List[TextSpec] = []
     marks = [
         (kind, [(a / scale, b / scale) for a, b in xs] if kind == "unconverged" else np.asarray(xs, float) / scale)
@@ -611,7 +635,8 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         if nodes is not None:
             text += f", {int(nodes)} nodes"
         texts.append(TextSpec(text, 0.02, 0.98, "axes", "left", "top", "#000000", options.font_size - 1, "residual"))
-    return _figure(options, key_label(key, unit), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
+    spec = _figure(options, key_label(key, unit), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
+    return replace(spec, axes=replace(spec.axes, y_nonnegative=floor)) if floor else spec
 
 
 def _sweep_marks(source: Any) -> List[Tuple[str, Any]]:

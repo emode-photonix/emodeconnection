@@ -26,7 +26,7 @@ const SETTINGS = [
   ["Blend slices", "blend_slices"],
 ];
 
-const state = { views: [], current: null, reply: null, ended: false, busyTimer: null };
+const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null };
 
 function api(path, body) {
   const options = body === undefined
@@ -138,10 +138,16 @@ function markSelected() {
 
 // ------------------------------------------------------------ one view
 
+// The plot's size in device pixels. On a phone the stage is a column and the plot has no
+// height until a reply sizes it (#185), so its height is then its width times the plot box's
+// aspect: EMode samples a panel at these pixels, and a panel 0 tall came back one row (emode#1701).
 function pixels() {
   const el = document.getElementById("figure");
   const r = window.devicePixelRatio || 1;
-  return [Math.round(el.clientWidth * r), Math.round(el.clientHeight * r)];
+  const width = el.clientWidth || document.getElementById("stage").clientWidth || 0;
+  const aspect = (state.reply && state.reply.aspect) || Math.SQRT1_2;
+  const height = el.clientHeight > 0 ? el.clientHeight : width * aspect;
+  return [Math.max(1, Math.round(width * r)), Math.max(1, Math.round(height * r))];
 }
 
 async function request(id, controls) {
@@ -161,6 +167,7 @@ async function show(id, controls) {
   if (!id) return;
   const first = state.current !== id;
   state.current = id;
+  forgetPending(id);
   markSelected();
   let reply;
   try {
@@ -173,7 +180,8 @@ async function show(id, controls) {
     showMessage(reply.error);
     if (!state.reply || state.reply.id !== id) return;
   } else {
-    showMessage("");
+    // a notice: the plot could not be brought up to date with the session (#182)
+    showMessage(reply.notice || "");
     state.reply = reply;
     draw(reply);
   }
@@ -202,8 +210,16 @@ function figureSize(fig, reply) {
   const legend = layout.showlegend ? 30 : 0;
   const width = figureWidth(fig);
   const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
-  return { width: width, height: Math.round(box * (reply.aspect || Math.SQRT1_2) + (m.t || 0) + (m.b || 0) + legend) };
+  // the legend sits above the box, in the top margin: its room goes there, not to the box (#188)
+  const top = (m.t || 0) + legend;
+  const bottom = m.b || 0;
+  // an extreme aspect ratio (0.001 to 1000, #189) still draws: the box is at least 40 px tall,
+  // and the figure at most 6000 px
+  const tall = Math.min(Math.max(40, box * (reply.aspect || Math.SQRT1_2)), MAX_FIGURE_PX - top - bottom);
+  return { width: width, height: Math.round(tall + top + bottom), margin: { ...m, t: top } };
 }
+
+const MAX_FIGURE_PX = 6000;
 
 function sizeFigure(reply) {
   const fig = document.getElementById("figure");
@@ -223,30 +239,152 @@ window.addEventListener("resize", fitFigure);
 function draw(reply) {
   const fig = document.getElementById("figure");
   const layout = { ...reply.figure.layout, ...sizeFigure(reply), autosize: true };
-  Plotly.react(fig, reply.figure.data, layout, {
-    responsive: true,
-    displaylogo: false,
-    toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
-  });
+  // a plot taller than the stage must scroll: Plotly takes every touch on a plot with a
+  // drag mode for a zoom box, so none would scroll it (#185). A click still opens a panel.
+  const stage = document.getElementById("stage").clientHeight;
+  if (stage > 0 && layout.height > stage) layout.dragmode = false;
+  // a figure Plotly cannot draw still gets its controls, so another choice can be made (emode#1701)
+  try {
+    // Plotly's Reset axes goes back to the range the plot was first drawn with, and react keeps
+    // that range when a later figure has another (the window display widens it, a plane or mode
+    // switch changes it): a figure with other ranges is drawn anew so Home returns to its own (#201)
+    const ranges = JSON.stringify([layout.xaxis && layout.xaxis.range, layout.yaxis && layout.yaxis.range]);
+    const fresh = fig.dataset.ranges !== ranges;
+    fig.dataset.ranges = ranges;
+    const draws = fresh ? Plotly.newPlot : Plotly.react;
+    const drawn = draws.call(Plotly, fig, reply.figure.data, layout, {
+      responsive: true,
+      displaylogo: false,
+      toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
+    });
+    if (drawn && typeof drawn.catch === "function") drawn.catch((err) => showMessage("The plot could not be drawn: " + err));
+  } catch (err) {
+    showMessage("The plot could not be drawn: " + err);
+  }
   fig.removeAllListeners && fig.removeAllListeners("plotly_click");
   fig.on && fig.on("plotly_click", (ev) => {
+    // a swipe that scrolled the plot ends in a click without a drag mode: it opens nothing
+    if (swiped) return;
     // a schematic's block, port or connection opens its details (#159)
     const point = ev.points && ev.points[0];
     const meta = point && point.data && point.data.meta;
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
-    else if (typeof meta === "string" && meta.startsWith("mode:")) change({ mode: meta.slice("mode:".length) });
+    else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
     const target = ev.annotation && ev.annotation.hovertext;
-    if (target && target.startsWith("go to ")) change({ section: target.slice(6) });
+    if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
 }
 
+// A touch that moved more than a few pixels is a swipe, not a tap (#185).
+let swiped = false;
+let touchAt = null;
+function watchSwipes(el) {
+  el.addEventListener("touchstart", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    touchAt = t ? [t.clientX, t.clientY] : null;
+    swiped = false;
+  }, { passive: true });
+  el.addEventListener("touchmove", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (t && touchAt && Math.hypot(t.clientX - touchAt[0], t.clientY - touchAt[1]) > 10) swiped = true;
+  }, { passive: true });
+}
+
+// ------------------------------------------------------------ auto render (#183)
+//
+// With Auto render on (the default), a control change redraws at once. Off, the
+// changes wait in `pending` and go together when Render is pressed. A click on
+// the plot itself (a grid panel, a section arrow, a key) renders at once, with
+// whatever waits. The choice is remembered per browser, where storage allows.
+
+const AUTO_RENDER_KEY = "emode.autoRender";
+const pending = { id: null, controls: {} };
+
+function autoRender() {
+  if (state.autoRender == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(AUTO_RENDER_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.autoRender = stored !== "off";
+  }
+  return state.autoRender;
+}
+
+function setAutoRender(on) {
+  state.autoRender = !!on;
+  try {
+    localStorage.setItem(AUTO_RENDER_KEY, on ? "on" : "off");
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  if (on && Object.keys(pending.controls).length) renderNow();
+}
+
+function pendingControls() {
+  return pending.id === state.current ? pending.controls : {};
+}
+
+// Drop what waits when another plot is shown: it was meant for the one before.
+function forgetPending(id) {
+  if (pending.id !== id) {
+    pending.id = id;
+    pending.controls = {};
+  }
+  markRender();
+}
+
+function markRender() {
+  const button = state.renderButton;
+  if (!button) return;
+  const waiting = Object.keys(pendingControls()).length > 0;
+  button.disabled = !waiting;
+  button.classList.toggle("pending", waiting);
+}
+
+// A control change: drawn now, or kept for Render.
 function change(controls) {
-  if (state.current) show(state.current, controls);
+  if (!state.current) return;
+  if (autoRender()) return show(state.current, controls);
+  forgetPending(state.current);
+  Object.assign(pending.controls, controls);
+  markRender();
+}
+
+// Draw now, with whatever waits.
+function renderNow(extra) {
+  if (!state.current) return;
+  const controls = { ...pendingControls(), ...(extra || {}) };
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function renderPanel() {
+  const wrap = document.createElement("span");
+  wrap.className = "render";
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = autoRender();
+  box.addEventListener("change", () => setAutoRender(box.checked));
+  label.append(box, " Auto render");
+  const button = document.createElement("button");
+  button.id = "render";
+  button.type = "button";
+  button.textContent = "Render";
+  button.title = "Draw the plot with the controls changed since it was drawn";
+  button.addEventListener("click", () => renderNow());
+  state.renderButton = button;
+  wrap.append(label, button);
+  return wrap;
 }
 
 // ------------------------------------------------------------ the controls
@@ -382,19 +520,119 @@ function numberBox(label, value, onchange) {
   return wrap;
 }
 
+// On a phone the per-kind controls fold into a Settings section, closed by default, so the
+// plot is not pushed below the fold (#196). Its state is kept per browser, where storage allows.
+const SETTINGS_KEY = "emode.settingsOpen";
+
+function storedSettingsOpen() {
+  try {
+    return localStorage.getItem(SETTINGS_KEY) === "open";
+  } catch (err) {
+    return false;
+  }
+}
+
+function settingsFold(box) {
+  const details = document.createElement("details");
+  details.className = "settings";
+  details.open = storedSettingsOpen();
+  const summary = document.createElement("summary");
+  summary.textContent = "Settings";
+  const body = document.createElement("div");
+  details.append(summary, body);
+  details.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, details.open ? "open" : "closed");
+    } catch (err) {
+      // the choice is only a convenience
+    }
+  });
+  box.append(details);
+  return body;
+}
+
 function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
   const kind = reply.kind || "plot";
   buildLayerPanel(reply);
-  if (kind === "smatrix") buildSMatrixControls(box, reply);
-  else if (kind === "material") buildMaterialControls(box, reply);
-  else if (kind === "farfield") buildFarFieldControls(box, reply);
-  else if (kind === "gds") buildGDSControls(box, reply);
-  else if (kind === "sweep") buildSweepControls(box, reply);
-  else buildPlotControls(box, reply);
-  if (kind === "schematic") box.append(componentMenu(reply));
+  const bar = narrowQuery.matches ? settingsFold(box) : box;
+  if (kind === "smatrix") buildSMatrixControls(bar, reply);
+  else if (kind === "material") buildMaterialControls(bar, reply);
+  else if (kind === "farfield") buildFarFieldControls(bar, reply);
+  else if (kind === "gds") buildGDSControls(bar, reply);
+  else if (kind === "sweep") buildSweepControls(bar, reply);
+  else buildPlotControls(bar, reply);
+  if (kind === "schematic") bar.append(componentMenu(reply));
+  if (kind !== "gds") bar.append(aspectControl(reply));
+  if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
+  box.append(renderPanel());
   box.append(exportPanel(reply));
+  markRender();
+}
+
+// crossing the breakpoint (a rotated phone) rebuilds the bar in the other layout
+narrowQuery.addEventListener("change", () => {
+  if (state.reply && state.current) buildControls(state.reply);
+});
+
+// ------------------------------------------------------------ the aspect ratio (#189)
+//
+// Width:height of the plot box, posted as `aspect_ratio`, the box's height over its width.
+// sqrt(2) is every plot's default but the S-matrix's, which is 1:1. Custom takes any
+// width:height from 0.001 to 1000: past that a figure degenerates.
+
+const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
+const ASPECT_MIN = 0.001;
+const ASPECT_MAX = 1000;
+
+function aspectControl(reply) {
+  const c = reply.controls || {};
+  const wrap = document.createElement("span");
+  wrap.className = "aspect";
+  const chosen = typeof c.aspect_ratio === "number" && c.aspect_ratio > 0 ? 1 / c.aspect_ratio : null;
+  const named = chosen === null
+    ? (reply.kind === "smatrix" ? "1:1" : "√2")
+    : ((ASPECTS.find(([, r]) => Math.abs(r - chosen) < 1e-6 * r) || ["Custom"])[0]);
+  const custom = numberBox("width:height", named === "Custom" ? String(Number(chosen.toPrecision(6))) : "", (text) => {
+    const v = Number(String(text).trim());
+    if (!(v >= ASPECT_MIN && v <= ASPECT_MAX)) {
+      return showMessage("The aspect ratio is width:height, a number from " + ASPECT_MIN + " to " + ASPECT_MAX +
+        ", and " + JSON.stringify(String(text)) + " is not one.");
+    }
+    showMessage("");
+    change({ aspect_ratio: 1 / v });
+  });
+  custom.hidden = named !== "Custom";
+  const menu = select("Aspect", ASPECTS.map(([n]) => n).concat(["Custom"]), named, (v) => {
+    custom.hidden = v !== "Custom";
+    const hit = ASPECTS.find(([n]) => n === v);
+    if (hit) change({ aspect_ratio: 1 / hit[1] });
+  });
+  wrap.append(menu, custom);
+  return wrap;
+}
+
+// ------------------------------------------------------------ the axis extents (#191)
+
+// Each axis's ends: a number, or blank for automatic. A quantity that cannot be negative
+// starts its automatic range at 0 in the client, which knows the data's kind.
+function extentsPanel(reply) {
+  const c = reply.controls || {};
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Axes";
+  const list = document.createElement("div");
+  for (const [name, key] of [["x min", "xmin"], ["x max", "xmax"], ["y min", "ymin"], ["y max", "ymax"]]) {
+    list.append(numberBox(name, c[key] == null ? "" : String(c[key]), (v) => {
+      const n = numberOrNull(v);
+      if (n !== null && !Number.isFinite(n)) return showMessage(name + " is a number, or blank for automatic.");
+      showMessage("");
+      change({ [key]: n });
+    }));
+  }
+  details.append(summary, list);
+  return details;
 }
 
 // ------------------------------------------------------------ a component's details (#159)
@@ -511,14 +749,14 @@ function buildMaterialControls(box, reply) {
   const step = textbox("nm, step", [], x.step, () => {});
   const set = document.createElement("button");
   set.textContent = "Set";
-  set.addEventListener("click", () => change({
+  set.addEventListener("click", () => renderNow({
     wavelengths: [numberOrNull(lo.querySelector("input").value), numberOrNull(hi.querySelector("input").value)],
     step: numberOrNull(step.querySelector("input").value),
   }));
   const home = document.createElement("button");
   home.textContent = "Home";
   home.title = "The model's own wavelength range";
-  home.addEventListener("click", () => change({ wavelengths: null, step: null }));
+  home.addEventListener("click", () => renderNow({ wavelengths: null, step: null }));
   box.append(lo, hi, step, set, home);
 }
 
@@ -806,7 +1044,7 @@ function exportPanel(reply) {
   }
   const apply = document.createElement("button");
   apply.textContent = "Apply";
-  apply.addEventListener("click", () => change(labelControls(entries)));
+  apply.addEventListener("click", () => renderNow(labelControls(entries)));
   lbox.append(apply);
   labels.append(ls, lbox);
 
@@ -991,40 +1229,45 @@ function buildPlotControls(box, reply) {
       openView(v);
     }));
   }
-  if (m.planes && m.planes.length) box.append(select("Slice", m.planes, sel.plane, (v) => change({ plane: v })));
+  // the Slice menu: the planes, never the schematic, which is the View menu's (emode#1728). A
+  // plane change clears the position (a z on x-y, a transverse position on a z panel), and a z
+  // plane chosen from a profile's x-y plot names no profile, so EMode draws the device
+  const planes = (m.planes || []).filter((p) => p !== "schematic");
+  if (planes.length) {
+    box.append(select("Slice", planes, sel.plane, (v) => change(v === "x-y"
+      ? { plane: v, slice_position: null }
+      : { plane: v, profile: null, slice_position: null })));
+  }
   if (m.ports && m.ports.length) box.append(select("Port", m.ports, sel.port, (v) => change({ port: v })));
   if (m.sections && m.sections.length) {
     box.append(select("Section", m.sections, sel.section || "all", (v) => change({ section: v === "all" ? null : v })));
   }
   if (m.profiles && m.profiles.length) {
-    box.append(select("Profile", m.profiles, sel.profile, (v) => change({ profile: v })));
+    // EME is the device, drawn on the x-y plane at its cut. No position goes with a choice:
+    // the plot's own arguments may name no plane, and EMode's default z-x plane would read
+    // a number as a y (#179).
+    box.append(select("Profile", m.profiles, sel.profile, (v) => change(v === "EME"
+      ? { profile: v, plane: "x-y", slice_position: null }
+      : { profile: v, slice_position: null })));
   }
   if (m.modes && m.modes.length) box.append(select("Mode", m.modes, sel.mode, (v) => change({ mode: v })));
   if (m.slider) {
-    // on the x-y plane the slider is the z of the cut, which a z panel then marks
-    const isZ = m.slider.label.startsWith("z");
-    // On x-y the box also names the profile to plot (a saved profile, the current one) or EME for
-    // the device. A profile is plotted through `profile`, and a position or EME clears it, so a
-    // stale profile never outlives the choice.
-    const post = (v) => {
-      if (!isZ) return change({ slice_position: v });
-      const z = parseFloat(v);
-      if (Number.isFinite(z)) return change({ slice_position: v, z_position: z, profile: null });
-      // EME starts the device at its entrance, whatever z was posted last
-      if (String(v).trim() === "EME") return change({ slice_position: 0, z_position: 0, profile: null });
-      change({ slice_position: null, profile: String(v).trim() });
-    };
-    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
-      (x) => change(isZ ? { slice_position: x, z_position: x, profile: null } : { slice_position: x })));
+    // a z panel's transverse position or reduction (the x-y plane has none, its Profile menu
+    // names EME and the profiles, #179)
+    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value,
+      (v) => change({ slice_position: v }), (x) => change({ slice_position: x })));
   }
   if (m.position) {
-    // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
-    const label = "Cut " + m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    // the z of the x-y cut: marked on a z panel and drawn below it (emode#1625, #180), and the
+    // device's own x-y plane's z, where a stale slice_position must not override it
+    const xy = sel.plane === "x-y";
+    const name = m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    const move = (z) => change(xy ? { z_position: z, slice_position: null } : { z_position: z });
     const post = (v) => {
       const z = parseFloat(v);
-      if (Number.isFinite(z)) change({ z_position: z });
+      if (Number.isFinite(z)) move(z);
     };
-    box.append(zSlider(label, m.position, parseFloat(m.position.value), post, (x) => change({ z_position: x })));
+    box.append(zSlider(xy ? name : "Cut " + name, m.position, parseFloat(m.position.value), post, move));
   }
   if (m.z_resolutions && m.z_resolutions.length) {
     box.append(textbox("Z-res (nm)", m.z_resolutions, sel.z_resolution || "Auto",
@@ -1033,7 +1276,7 @@ function buildPlotControls(box, reply) {
   if (m.settings && Object.keys(m.settings).length) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
-    summary.textContent = "Settings";
+    summary.textContent = "Sampling";
     const list = document.createElement("div");
     const active = new Set(m.active_settings || []);
     for (const [name, arg] of SETTINGS) {
@@ -1076,12 +1319,12 @@ document.addEventListener("keydown", (ev) => {
   }
   if (!state.reply || ev.target.closest("input, select")) return;
   const arrows = (state.reply.figure.layout.annotations || []).filter((a) => a.name === "arrow");
-  if (ev.key === "Escape") return change({ section: null });
+  if (ev.key === "Escape") return renderNow({ section: null });
   const dir = { ArrowLeft: "◀", ArrowRight: "▶", ArrowUp: "▲", ArrowDown: "▼" }[ev.key];
   const hit = dir && arrows.find((a) => a.text === dir);
   if (hit) {
     ev.preventDefault();
-    change({ section: hit.hovertext.slice(6) });
+    renderNow({ section: hit.hovertext.slice(6) });
   }
 });
 
@@ -1400,6 +1643,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  watchSwipes(document.getElementById("figure"));
   startSidebar();
   startAccount();
   await loadList().catch((err) => showMessage(String(err)));

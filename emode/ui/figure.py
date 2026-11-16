@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import textwrap
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -110,6 +110,11 @@ class PlotOptions:
     aspect_ratio: Union[str, float, None] = None
     vmin: Optional[float] = None
     vmax: Optional[float] = None
+    #: Each axis's ends, None for automatic (#191).
+    xmin: Optional[float] = None
+    xmax: Optional[float] = None
+    ymin: Optional[float] = None
+    ymax: Optional[float] = None
 
     @classmethod
     def from_arguments(cls, arguments: Dict[str, Any]) -> "PlotOptions":
@@ -122,7 +127,20 @@ class PlotOptions:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
         if "colormap" in arguments and arguments["colormap"] is not None:
             colormaps.check_colormap(arguments["colormap"])
+        ratio = options.aspect_ratio
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
+            if not ASPECT_BOUNDS[0] <= ratio <= ASPECT_BOUNDS[1]:
+                raise ArgumentError(
+                    f"aspect_ratio is the plot box's height over its width, from {ASPECT_BOUNDS[0]:g} "
+                    f"to {ASPECT_BOUNDS[1]:g}, got {ratio:g}",
+                    "plot",
+                    "aspect_ratio",
+                )
         return options
+
+
+#: The plot box's height over its width that `aspect_ratio` may give: past these a figure degenerates (#189).
+ASPECT_BOUNDS = (0.001, 1000.0)
 
 
 # ------------------------------------------------------------------ the spec
@@ -226,6 +244,13 @@ class AxesSpec:
     #: Each y axis's label and tick color, None for the default black.
     ylabel_color: Optional[str] = None
     y2label_color: Optional[str] = None
+    #: Whether each axis labels its ticks: a grid's inner panels do not (#184).
+    show_xticklabels: bool = True
+    show_yticklabels: bool = True
+    #: The y values cannot be negative (|S|, a power): the automatic range starts at 0 (#191).
+    y_nonnegative: bool = False
+    #: The same for the twin's right axis, marked by the script.
+    y2_nonnegative: bool = False
 
 
 @dataclass(frozen=True)
@@ -317,8 +342,31 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     options = options or PlotOptions()
     spec = _compose(view, options)
     if spec.panels:
+        chosen = options.aspect_ratio
+        if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+            # every panel takes a chosen ratio, and the figure's aspect follows (#189)
+            panels = tuple(replace(p, axes=replace(p.axes, box_aspect=float(chosen))) for p in spec.panels)
+            spec = replace(spec, panels=panels)
+        return _extents(spec, options)
+    spec = replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+    return _extents(spec, options)
+
+
+def _extents(spec: FigureSpec, options: PlotOptions) -> FigureSpec:
+    """`spec` with the axis ends `options` sets (#191), each panel's for a figure of panels."""
+    ends = (options.xmin, options.xmax, options.ymin, options.ymax)
+    if all(v is None for v in ends):
         return spec
-    return replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+    if spec.panels:
+        return replace(spec, panels=tuple(_extents(p, options) for p in spec.panels))
+    (x0, x1), (y0, y1) = spec.axes.xrange, spec.axes.yrange
+    pick = lambda v, auto: auto if v is None else float(v)  # noqa: E731
+    axes = replace(
+        spec.axes,
+        xrange=(pick(options.xmin, x0), pick(options.xmax, x1)),
+        yrange=(pick(options.ymin, y0), pick(options.ymax, y1)),
+    )
+    return replace(spec, axes=axes)
 
 
 def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> float:
@@ -339,7 +387,8 @@ def figure_aspect(spec: FigureSpec) -> float:
     """The plot box's height over its width, which the tab sizes the plot to."""
     if spec.panels:
         rows, cols = spec.panel_grid
-        return rows / cols / PLOT_RATIO
+        each = spec.panels[0].axes.box_aspect
+        return rows / cols * (float(each) if each else 1 / PLOT_RATIO)
     if spec.axes.box_aspect is not None:
         return float(spec.axes.box_aspect)
     return 1 / PLOT_RATIO
@@ -374,6 +423,10 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
 
     if isinstance(view, ModesPanel):
         return compose_modes(view, options)
+    from .cut import CutPanel, compose_cut
+
+    if isinstance(view, CutPanel):
+        return compose_cut(view, options)
     if isinstance(view, Figure):
         return compose_figure(view, options)
     if not isinstance(view, PlotView):
@@ -595,7 +648,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
             tick_format=view.scale.tick_format,
-            lines=rasters[0].contour_levels if rasters else (),
+            lines=_reached(rasters),
         )
 
     legend: Tuple[LegendEntrySpec, ...] = ()
@@ -635,6 +688,29 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
         dpi=options.dpi,
         arrows=tuple(view.arrows),
     )
+
+
+def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
+    """The contour levels the field reaches, which the colorbar marks (#178).
+
+    A level outside the shown values has no line on the field (an EME x-y cut
+    normalized to the launched field can peak well below the top levels), so
+    marking it on the bar would mark a line that is not there.
+    """
+    if not rasters or not rasters[0].contour_levels:
+        return ()
+    shown = []
+    for r in rasters:
+        z = np.asarray(r.z, np.float64)
+        keep = np.isfinite(z)
+        if r.mask is not None:
+            keep &= ~np.asarray(r.mask, bool)
+        if keep.any():
+            shown.append((float(z[keep].min()), float(z[keep].max())))
+    if not shown:
+        return ()
+    lo, hi = min(a for a, _ in shown), max(b for _, b in shown)
+    return tuple(v for v in rasters[0].contour_levels if lo < v < hi)
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:

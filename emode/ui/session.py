@@ -220,6 +220,7 @@ def ensure_server(em: "EMode") -> UIServer:
             details=lambda component: fetch_details(em, component),
             login=lambda function, **kwargs: em.call(function, **kwargs),
             emode_version=em._emode_version,
+            generation=lambda: em.generation,
         ).start()
         em._ui = server
     return server
@@ -367,7 +368,7 @@ def present(
             return None
         return image
 
-    view = em._views.add(data, arguments, options, DEFAULT_PIXELS)
+    view = em._views.add(data, arguments, options, DEFAULT_PIXELS, em.generation)
     handle = PlotHandle(em, view)
     if noninteractive():
         return handle
@@ -573,11 +574,11 @@ class PlotHandle:
 
     @property
     def view(self) -> Union[PlotView, Schematic]:
-        return self._view.data
+        return _without_cut(self._view.data)
 
     @property
     def figure(self) -> FigureSpec:
-        return compose(self._view.data, self._view.options)
+        return compose(_without_cut(self._view.data), self._view.options)
 
     @property
     def url(self) -> Optional[str]:
@@ -617,6 +618,13 @@ class PlotHandle:
 
     def __repr__(self) -> str:
         return f"<PlotHandle {self.id}: {self._view.title}>"
+
+
+def _without_cut(data: Any) -> Any:
+    """`data` without the x-y panel the tab draws below a z panel (#180): a script gets what it asked for."""
+    from .cut import CutPanel
+
+    return data.zpanel if isinstance(data, CutPanel) else data
 
 
 def _public_url(server: UIServer, view_id: str, embed: bool) -> str:

@@ -50,11 +50,13 @@ import numpy as np
 
 from .. import colormaps
 from ..types import EModeError
-from .figure import PlotOptions, compose, effective_contours, figure_aspect
+from .figure import PLOT_RATIO, PlotOptions, compose, effective_contours, figure_aspect
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel, layer_rows, state_arguments
 from .renderers.plotly import to_plotly
-from ..plotting import Schematic
+from ..plotting import PlotView, Schematic
+from .cut import CutPanel, cut_arguments, held_xy, offers_cut
+from .cut import frozen as frozen_cut
 from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
 from .views import KINDS, View, ViewRegistry, menu_of, title_of
 
@@ -96,8 +98,11 @@ class UIServer:
         details: Optional[Callable[[str], Dict[str, Any]]] = None,
         login: Optional[Callable[..., Any]] = None,
         emode_version: Optional[Callable[[], Optional[str]]] = None,
+        generation: Optional[Callable[[], int]] = None,
     ) -> None:
         self.registry = registry
+        #: The session's generation now (``EMode.generation``): a view fetched before it is stale (#182)
+        self.generation = generation
         #: ``login(function, **kwargs)``: one of EMode's login calls, for the account page
         self.login = login
         self.emode_version = emode_version
@@ -291,35 +296,62 @@ class UIServer:
         from .views import _select
 
         kind = KINDS[view.kind]
+        now = self._stale(view)
+        # the x-y field at a z panel's cut is drawn below it (#180): the controls apply to the z panel
+        cut = view.data if isinstance(view.data, CutPanel) else None
+        if cut is not None:
+            view.data = cut.zpanel
         controls, grid, want_grid = self._modes_controls(view, controls)
+        notice = None
+        if now is not None:
+            # the session has changed since this view was fetched: its menus are fetched again,
+            # with its own arguments, and the panels held beside it with them
+            cut = grid = None
         data_args = {k: controls[k] for k in kind.data_arguments if k in controls}
         local_args = {k: controls[k] for k in kind.local_arguments if k in controls}
         figure_args = {k: controls[k] for k in FIGURE_OPTIONS if k in controls}
         changed = {k: v for k, v in data_args.items() if view.arguments.get(k) != v}
         resize = pixels is not None and _needs_refetch(view, pixels)
-        if changed or resize:
+        if changed or resize or now is not None:
             if self.session_ended:
                 raise EModeError(
                     "This plot's EMode session has ended, so its data cannot change."
                 )
             arguments = {**view.arguments, **data_args}
             sent = {k: v for k, v in arguments.items() if k not in kind.local_arguments}
-            data = self.fetch(view, sent, pixels or view.pixels)
-            local = {
-                k: v for k, v in view.arguments.items() if k in kind.local_arguments
-            }
-            view.data = _select(data, local) if local else data
-            view.arguments = arguments
-            view.pixels = tuple(pixels or view.pixels)
+            try:
+                data = self.fetch(view, sent, pixels or view.pixels)
+            except EModeError as exc:
+                if changed or resize:
+                    raise
+                # only the refresh failed (a profile it names was deleted, say): show the view as it was
+                data = None
+                notice = (
+                    f"This plot could not be brought up to date with the session, so it shows "
+                    f"the session as it was when plotted: {exc}"
+                )
+            if data is not None:
+                local = {
+                    k: v for k, v in view.arguments.items() if k in kind.local_arguments
+                }
+                view.data = _select(data, local) if local else data
+                view.arguments = arguments
+                view.pixels = tuple(pixels or view.pixels)
+                view.generation = now if now is not None else view.generation
         if local_args:
             view.data = _select(view.data, local_args)
             view.arguments = {**view.arguments, **local_args}
         if isinstance(view.data, GDSPanel):
             view.arguments = state_arguments(view.arguments, view.data)
         if figure_args:
-            view.options = replace(view.options, **_clean_options(figure_args))
+            options = replace(view.options, **_clean_options(figure_args))
+            # a figure option out of its bounds (an aspect ratio past 0.001 to 1000, #189) is refused
+            PlotOptions.from_arguments(_options_dict(options))
+            view.options = options
         if want_grid and offers_all_modes(view.data):
             view.data = self._modes_grid(view, grid, width)
+        if offers_cut(view.data):
+            view.data = self._with_cut(view, cut)
         view.title = title_of(view.data, view.arguments)
         spec = compose(view.data, view.options)
         aspect = figure_aspect(spec)
@@ -344,7 +376,19 @@ class UIServer:
                 **({"all_modes": isinstance(view.data, ModesPanel)} if offers_all_modes(_single(view.data)) else {}),
             },
             "extra": _extra(view.data),
+            **({"notice": notice} if notice else {}),
         }
+
+    def _stale(self, view: View) -> Optional[int]:
+        """The session's generation when `view` was fetched before it and can be fetched again, else None.
+
+        Only a view EMode fetched is (a plot, its schematic or GDS view), and only
+        while the session lives: after it ends a view is shown as it was.
+        """
+        if self.generation is None or self.session_ended or view.kind not in REFRESHED_KINDS:
+            return None
+        now = self.generation()
+        return now if now != view.generation else None
 
     def _modes_controls(
         self, view: View, controls: Dict[str, Any]
@@ -396,6 +440,27 @@ class UIServer:
             views.append(self.fetch(view, arguments, view.pixels))
         return ModesPanel(tuple(views), labels, columns, key, shown)
 
+    def _with_cut(self, view: View, previous: Optional[CutPanel]) -> Any:
+        """`view`'s z panel with the device's x-y field at its cut, fetched only when its arguments changed.
+
+        A session that has ended keeps the x-y field it has. When EMode cannot
+        draw the x-y plane there, the z panel is drawn alone, as before.
+        """
+        zpanel = view.data
+        data_arguments = KINDS[view.kind].data_arguments
+        arguments = cut_arguments(zpanel, {k: v for k, v in view.arguments.items() if k in data_arguments})
+        xy = held_xy(previous, arguments)
+        if xy is None:
+            if self.session_ended:
+                return zpanel
+            try:
+                xy = self.fetch(view, arguments, view.pixels)
+            except EModeError:
+                return zpanel
+            if not isinstance(xy, PlotView) or xy.plane != "x-y":
+                return zpanel
+        return CutPanel(zpanel, xy, frozen_cut(arguments))
+
     def open_view(self, view: View, name: str) -> View:
         """Open the schematic or the GDS view of `view`'s device as a plot of its own (#146).
 
@@ -412,7 +477,8 @@ class UIServer:
         data = self.fetch(replace(view, kind=name), arguments, view.pixels)
         if isinstance(data, GDSPanel):
             arguments = state_arguments(arguments, data)
-        opened = self.registry.add(data, arguments, view.options, view.pixels)
+        generation = self.generation() if self.generation is not None else 0
+        opened = self.registry.add(data, arguments, view.options, view.pixels, generation)
         self.publish("view-added", opened.summary())
         return opened
 
@@ -602,6 +668,28 @@ def schematic_components(view: Schematic) -> List[Tuple[str, str]]:
     return out
 
 
+#: The kinds of view fetched again when the session has changed since (#182). The others
+#: hold data the client made or was given (a sweep, a far field, a figure, an S-matrix
+#: the script holds), which EMode cannot answer again.
+REFRESHED_KINDS = ("plot", "schematic", "gds")
+
+
+def _pixels(value: Any) -> Optional[Tuple[int, int]]:
+    """The tab's plot size in device pixels, a side of 0 or less never passed on to EMode.
+
+    A phone's plot has no height before its first reply sizes it, and EMode
+    samples a panel at the pixels it is given: 0 tall came back one row
+    (emode#1701). A missing height is the width times the plot box's default
+    aspect, and a missing width is no size at all.
+    """
+    if not value:
+        return None
+    width, height = (int(p) for p in value)
+    if width <= 0:
+        return None
+    return width, height if height > 0 else max(1, round(width / PLOT_RATIO))
+
+
 def _needs_refetch(view: View, pixels: Tuple[int, int]) -> bool:
     """A z panel sampled for a panel more than a quarter wider or narrower than the tab's."""
     data = view.data
@@ -632,7 +720,7 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
             out["figure_size"] = None
         else:
             out["figure_size"] = (width, height) if width > 0 and height > 0 else None
-    for name in ("font_size", "dpi", "vmin", "vmax"):
+    for name in ("font_size", "dpi", "vmin", "vmax", "xmin", "xmax", "ymin", "ymax", "aspect_ratio"):
         if isinstance(out.get(name), str):
             try:
                 out[name] = float(out[name])
@@ -644,9 +732,11 @@ def _clean_options(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _single(data: Any) -> Any:
-    """The single view of `data`: the shown mode's panel of an All modes grid, else `data`."""
+    """The single view of `data`: the shown mode's panel of an All modes grid, a cut's z panel, else `data`."""
     if isinstance(data, ModesPanel):
         return data.view_of(data.shown) or data.views[0]
+    if isinstance(data, CutPanel):
+        return data.zpanel
     return data
 
 
@@ -852,8 +942,7 @@ class _Handler(BaseHTTPRequestHandler):
             if parts[3] == "data":
                 body = self._body()
                 controls = body.get("controls") or {}
-                pixels = body.get("pixels")
-                pixels = tuple(int(p) for p in pixels) if pixels else None
+                pixels = _pixels(body.get("pixels"))
                 width = body.get("width")
                 width = float(width) if isinstance(width, (int, float)) and width > 0 else None
                 try:
