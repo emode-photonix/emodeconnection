@@ -712,3 +712,41 @@ def test_save_is_visible_at_phone_width_outside_the_settings_fold(em):
     assert got["shown"] and got["width"] >= 44 and got["height"] >= 24, got
     assert 0 <= got["top"] < got["viewportHeight"] and got["right"] <= got["viewport"], got
     assert sheet["hidden"] is False and sheet["width"] <= 390 and sheet["bottom"] <= 844 + 1, sheet
+
+
+# ------------------------------------------------------------------ a dev EMode before the release bumps its version
+
+
+DEV_1_0_8 = {"emode": "1.0.8", "protocol": 1, "plot": "view", "views": VIEWS}
+RELEASE_1_0_8 = {"emode": "1.0.8", "protocol": 1}
+
+
+def test_a_dev_emode_that_lists_saved_views_is_sent_them_whatever_its_version(em):
+    """Every dev EMode says 1.0.8 until the release: it reads a SavedView once it lists 'saved'."""
+    em.client.answers["EM_version"] = DEV_1_0_8
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        em.plot(plane="z-x", component="Ex", name="TE")
+    (posted,) = _calls(em, "EM_save_view")
+    assert posted["view"].name == "TE"
+    assert [v.name for v in em.saved_views()] == ["TE"]
+
+
+def test_a_release_emode_without_saved_views_is_refused_a_saved_view_clearly(em):
+    em.client.answers["EM_version"] = RELEASE_1_0_8
+    with pytest.raises(ArgumentError, match="SavedView needs EMode 1.0.9"):
+        em.call("EM_save_view", view=_recipe("TE"))
+    assert _calls(em, "EM_save_view") == []
+
+
+def test_the_capability_stands_in_for_the_release_only_for_its_own_type():
+    from emode.compat import check_emode_version
+
+    needs = {"view": [("SavedView", "1.0.9")]}
+    check_emode_version(needs, "1.0.8", "EM_save_view", capabilities={"saved"})
+    with pytest.raises(ArgumentError):
+        check_emode_version(needs, "1.0.8", "EM_save_view", capabilities={"inventory"})
+    with pytest.raises(ArgumentError):
+        check_emode_version({"bounds": [("Bounds.num_pml_layers", "1.0.9")]}, "1.0.8", "EM_settings", {"saved"})
