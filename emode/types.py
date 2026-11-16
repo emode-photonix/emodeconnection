@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 import base64
+import os
 import importlib.metadata
 import math
 import numpy as np
@@ -65,6 +66,8 @@ def serialize(data: Any, ndarray: bool = False):
         return serialize(np.squeeze(data).tolist())
     elif isinstance(data, TaggedModel):
         return serialize(wire_dump(data), ndarray)
+    elif isinstance(data, os.PathLike):
+        return os.fspath(data)
     if type(data).__module__ == np.__name__:
         # final catchall
         data = np.squeeze(data).tolist()
