@@ -117,31 +117,92 @@ async function loadList() {
   state.views = await api("views");
   const ol = document.getElementById("views");
   ol.replaceChildren();
-  // the workbench is pinned first, the script's plots follow, newest first
+  // the workbench is pinned first, the saved views follow, newest first
   const bench = state.views.filter((v) => v.kind === "bench");
-  const plots = state.views.filter((v) => v.kind !== "bench").reverse();
-  for (const v of [...bench, ...plots]) {
-    const li = document.createElement("li");
-    li.dataset.id = v.id;
-    li.textContent = v.title || v.id;
-    const when = document.createElement("span");
-    when.className = "when";
-    if (v.kind === "bench") {
-      li.classList.add("pinned");
-      when.textContent = "any data of this session";
-    } else {
-      when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
-    }
-    li.appendChild(when);
-    li.addEventListener("click", () => { closeDrawer(); location.hash = "#/plots/" + v.id; });
-    ol.appendChild(li);
+  const saved = state.views.filter((v) => v.kind !== "bench").reverse();
+  for (const v of bench) ol.appendChild(sidebarEntry(v));
+  if (saved.length) {
+    const head = document.createElement("li");
+    head.className = "group";
+    head.textContent = "Saved views";
+    ol.appendChild(head);
   }
+  for (const v of saved) ol.appendChild(sidebarEntry(v));
   markSelected();
 }
 
+// One entry of the sidebar (emode#1703). A script's view shows its own data, a saved
+// recipe opens on the workbench, and the entry's menu edits it on the workbench,
+// renames it or removes it.
+function sidebarEntry(v) {
+  const li = document.createElement("li");
+  li.dataset.id = v.id;
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = v.title || v.id;
+  li.appendChild(title);
+  const when = document.createElement("span");
+  when.className = "when";
+  if (v.kind === "bench") {
+    li.classList.add("pinned");
+    when.textContent = "any data of this session";
+    li.appendChild(when);
+  } else {
+    const time = new Date(v.created * 1000).toLocaleTimeString();
+    when.textContent = v.session_only ? "this session, " + time : (v.script ? "script, " + time : "saved view");
+    li.appendChild(when);
+    const menu = document.createElement("button");
+    menu.type = "button";
+    menu.className = "entry-menu";
+    menu.textContent = "⋯";
+    menu.setAttribute("aria-label", "Actions for " + (v.title || v.id));
+    menu.setAttribute("aria-expanded", "false");
+    const actions = document.createElement("div");
+    actions.className = "entry-actions";
+    actions.hidden = true;
+    const action = (text, run) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.addEventListener("click", (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        actions.hidden = true;
+        menu.setAttribute("aria-expanded", "false");
+        run();
+      });
+      actions.appendChild(b);
+    };
+    if (!v.session_only) action("Edit in workbench", () => editInWorkbench(v.id));
+    action("Rename", () => openSaveSheet({ mode: "rename", id: v.id, name: v.title || "" }));
+    action("Remove", () => removeSaved(v));
+    menu.addEventListener("click", (ev) => {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      actions.hidden = !actions.hidden;
+      menu.setAttribute("aria-expanded", String(!actions.hidden));
+    });
+    li.append(menu, actions);
+  }
+  li.addEventListener("click", () => { closeDrawer(); openEntry(v.id); });
+  return li;
+}
+
+function openEntry(id) {
+  const target = "#/plots/" + id;
+  if (location.hash === target) {
+    // the same saved view again: open its recipe afresh
+    state.openedSaved = null;
+    route();
+  } else {
+    location.hash = target;
+  }
+}
+
 function markSelected() {
+  // the workbench loaded from a saved view marks that view (emode#1703)
+  const origin = state.current === "bench" && state.reply && state.reply.bench && state.reply.bench.origin;
+  const shown = origin ? origin.id : state.current;
   for (const li of document.querySelectorAll("#views li")) {
-    li.classList.toggle("selected", li.dataset.id === state.current);
+    li.classList.toggle("selected", li.dataset.id === shown);
   }
 }
 
@@ -196,6 +257,7 @@ async function show(id, controls) {
     showMessage(reply.notice || "");
     state.reply = reply;
     draw(reply);
+    markSelected();
   }
   if (first) {
     closeDetails();
@@ -580,6 +642,7 @@ function buildControls(reply) {
   if (kind !== "gds") bar.append(aspectControl(reply));
   if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
   box.append(renderPanel());
+  box.append(saveBar(reply));
   box.append(exportPanel(reply));
   markRender();
 }
@@ -587,6 +650,144 @@ function buildControls(reply) {
 // crossing the breakpoint (a rotated phone) rebuilds the bar in the other layout
 narrowQuery.addEventListener("change", () => {
   if (state.reply && state.current) buildControls(state.reply);
+});
+
+// ------------------------------------------------------------ saved views (emode#1703)
+//
+// The workbench's Save view button sits beside Render and Export, outside the phone's
+// Settings fold, and opens a sheet: Save writes the workbench back to the saved view it
+// came from, Save as keeps it under a new name. The bar says "modified from <name>" when
+// the workbench's settings differ from that view. A script's view offers Edit in
+// workbench, which loads its settings there.
+
+function saveBar(reply) {
+  const wrap = document.createElement("span");
+  wrap.className = "save-view-bar";
+  const bench = reply.bench;
+  if (reply.id === "bench" && bench) {
+    const origin = bench.origin;
+    const mark = document.createElement("span");
+    mark.className = "modified";
+    mark.textContent = origin ? "modified from " + origin.name : "";
+    mark.hidden = !(origin && bench.modified);
+    const button = document.createElement("button");
+    button.id = "save-view";
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = "Save view";
+    button.title = "Keep these settings in the sidebar's saved views and in the simulation file";
+    button.addEventListener("click", () => openSaveSheet({
+      mode: "save", origin: origin, name: origin ? origin.name : (reply.title || ""),
+    }));
+    wrap.append(mark, button);
+    return wrap;
+  }
+  const entry = (state.views || []).find((v) => v.id === reply.id);
+  if (entry && entry.script) {
+    const button = document.createElement("button");
+    button.id = "edit-in-workbench";
+    button.type = "button";
+    button.textContent = "Edit in workbench";
+    button.title = "Load this plot's settings into the workbench, to change and save them";
+    button.addEventListener("click", () => editInWorkbench(reply.id));
+    wrap.append(button);
+  }
+  return wrap;
+}
+
+// A button's one click handler, set again each time the sheet opens.
+function onClick(id, run) {
+  const el = document.getElementById(id);
+  el._run = run;
+  if (!el._bound) {
+    el._bound = true;
+    el.addEventListener("click", (ev) => el._run && el._run(ev));
+  }
+  return el;
+}
+
+let sheetOpener = null;
+
+function openSaveSheet(how) {
+  const sheet = document.getElementById("save-sheet");
+  const name = document.getElementById("sheet-name");
+  const rename = how.mode === "rename";
+  document.getElementById("sheet-title").textContent = rename ? "Rename the saved view" : "Save view";
+  name.value = how.name || "";
+  onClick("sheet-save", () => postSaved({ action: "save" })).hidden = rename || !how.origin;
+  onClick("sheet-save-as", () => postSaved({ action: "save_as", name: name.value })).hidden = rename;
+  onClick("sheet-rename", () => postSaved({ action: "rename", id: how.id, name: name.value })).hidden = !rename;
+  onClick("sheet-cancel", closeSaveSheet);
+  const save = document.getElementById("sheet-save");
+  save.textContent = how.origin ? "Save to “" + how.origin.name + "”" : "Save";
+  document.getElementById("sheet-error").hidden = true;
+  if (sheet.hidden) sheetOpener = document.activeElement || null;
+  sheet.hidden = false;
+  if (name.focus) name.focus();
+}
+
+function closeSaveSheet() {
+  const sheet = document.getElementById("save-sheet");
+  if (sheet.hidden) return;
+  sheet.hidden = true;
+  if (sheetOpener && sheetOpener.focus) sheetOpener.focus();
+  sheetOpener = null;
+}
+
+async function postSaved(body) {
+  let reply;
+  try {
+    reply = await api("saved", body);
+  } catch (err) {
+    reply = { error: String(err) };
+  }
+  if (reply.error) {
+    const error = document.getElementById("sheet-error");
+    if (!document.getElementById("save-sheet").hidden) {
+      error.textContent = reply.error;
+      error.hidden = false;
+    } else {
+      showMessage(reply.error);
+    }
+    return;
+  }
+  closeSaveSheet();
+  showMessage("");
+  await loadList();
+  // the bar's mark follows: the workbench now matches the view it was saved as
+  if (state.current === "bench" && body.action !== "remove") show("bench", {});
+}
+
+function removeSaved(v) {
+  const ok = typeof confirm !== "function" ||
+    confirm("Remove the saved view “" + (v.title || v.id) + "”" + (v.session_only ? "?" : " from this session and its file?"));
+  if (!ok) return;
+  if (state.current === v.id) location.hash = "#/plots/bench";
+  postSaved({ action: "remove", id: v.id });
+}
+
+// Load a script's view, or a saved recipe, into the workbench.
+function editInWorkbench(id) {
+  closeDrawer();
+  state.openedSaved = null;
+  pending.controls = {};
+  const shown = show("bench", { saved: id });
+  if (location.hash !== "#/plots/bench") location.hash = "#/plots/bench";
+  return shown;
+}
+
+// A saved view's route (#/plots/<id>) opens its recipe on the workbench.
+function openSaved(id) {
+  state.openedSaved = id;
+  pending.controls = {};
+  return show("bench", { saved: id });
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !document.getElementById("save-sheet").hidden) {
+    ev.preventDefault();
+    closeSaveSheet();
+  }
 });
 
 // ------------------------------------------------------------ the aspect ratio (#189)
@@ -1677,9 +1878,16 @@ async function listen() {
 async function onEvent(event, data) {
   if (event === "view-added") {
     await loadList();
-    if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) location.hash = "#/plots/" + data.id;
+    if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) {
+      const target = "#/plots/" + data.id;
+      // the same saved view plotted again (emode#1703): the hash does not change, so show it here
+      if (location.hash === target) show(data.id);
+      else location.hash = target;
+    }
   } else if (event === "session-changed") {
     benchChanged();
+  } else if (event === "saved-changed") {
+    loadList().catch(() => {});
   } else if (event === "login-changed") {
     if (onAccount()) loadAccount();
   } else if (event === "session-closed") {
@@ -1722,6 +1930,14 @@ function route() {
     return;
   }
   const id = routeId();
+  const entry = (state.views || []).find((v) => v.id === id);
+  if (entry && entry.opens === "bench") {
+    // a saved recipe opens on the workbench (emode#1703)
+    if (state.openedSaved !== id) openSaved(id);
+    else if (state.reply) fitFigure();
+    return;
+  }
+  state.openedSaved = null;
   if (id && id !== state.current) show(id);
   else if (id && state.reply) fitFigure();
 }

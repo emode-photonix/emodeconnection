@@ -88,6 +88,10 @@ READ_ONLY_FUNCTIONS = frozenset(
         "EM_warnings",
         "EM_logout",
         "EM_clear_session",
+        # saved views are presets, kept beside the simulation: no plot shows them (emode#1703)
+        "EM_saved_views",
+        "EM_save_view",
+        "EM_delete_saved_view",
     }
 )
 READ_ONLY_PREFIXES = ("EM_plot", "EM_get", "EM_login")
@@ -385,7 +389,9 @@ class EMode:
         # sent: that EMode would refuse the whole message, not just the option.
         needs = required_versions(kwargs)
         if needs:
-            check_emode_version(needs, self._emode_version(), function)
+            info = self._emode_info()
+            capabilities = set(info.get("views") or ()) if isinstance(info, dict) else set()
+            check_emode_version(needs, self._emode_version(), function, capabilities)
 
         # An array goes as `__ndarray__` to an EMode that reads it, which keeps its
         # dtype and shape. An older EMode gets the list form, which cannot carry a
@@ -499,6 +505,12 @@ class EMode:
         after. The first ``plot()`` opens the tab and later ones update it.
         ``block=True`` waits until the tab is closed.
 
+        Each plot is listed in the tab's sidebar as a saved view, named by its
+        title, or by ``name`` (which replaces a saved view of that name), and
+        EMode keeps it in the simulation file, so ``save()`` writes it and a
+        file opened later lists it again (``saved_views()``). The same plot
+        again is listed once.
+
         With ``file_name`` the figure is saved under ``EM_figures/`` as
         ``file_type`` ('png', 'pdf' or 'svg'), and with ``EMODE_HEADLESS=1``, on
         Linux without a display, or with ``inline='png'`` in a notebook, the
@@ -553,6 +565,22 @@ class EMode:
         from .ui import session as ui
 
         return ui.browse(self)
+
+    def saved_views(self) -> list:
+        """The saved views of this session's plot tab: its simulation file's, then this session's.
+
+        Each is a ``SavedView``, a recipe for a plot (its ``name``, ``kind``,
+        ``arguments`` and ``options``), with ``show()`` to plot it again and
+        ``delete()`` to remove it. A script's ``plot()`` saves one named by its
+        title, or by ``name=``, and the workbench saves its state with Save or
+        Save as. EMode keeps them in the simulation file, so ``save()`` writes
+        them and a file opened later lists them again. Plots of data the
+        script holds (a far field, a figure, a sweep's result) are listed in
+        the tab for the session only and are not returned here.
+        """
+        from .ui import session as ui
+
+        return ui.saved_views(self)
 
     def plot_S_matrix(self, input: "int | str" = 0, output: "int | str" = 1, plot_function: "str | None" = None,
                       block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,

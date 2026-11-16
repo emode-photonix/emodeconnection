@@ -61,6 +61,7 @@ TYPE_SINCE: dict[str, str] = {
     "Raster": "1.0.9",
     "Region": "1.0.9",
     "ScaleInfo": "1.0.9",
+    "SavedView": "1.0.9",
     "Schematic": "1.0.9",
     "Screen": "1.0.8",
     "ScreenField": "1.0.8",
@@ -72,6 +73,14 @@ TYPE_SINCE: dict[str, str] = {
     "DetailRow": "1.0.9",
     "ComponentDetails": "1.0.9",
     "SweepResult": "1.0.9",
+}
+
+# Wire types an EMode reads once it lists a capability under ``version()['views']``,
+# whatever its release says: a development EMode reports the last release's version
+# until the next one is tagged, so the capability, not the version, says it reads
+# the type. An EMode that does not list the capability is checked by release as usual.
+CAPABILITY_TYPES: dict[str, str] = {
+    "SavedView": "saved",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.
@@ -191,17 +200,24 @@ def required_versions(arguments: dict[str, Any]) -> dict[str, list[tuple[str, st
 
 
 def check_emode_version(
-    needs: dict[str, list[tuple[str, str]]], emode_version: str | None, function: str
+    needs: dict[str, list[tuple[str, str]]],
+    emode_version: str | None,
+    function: str,
+    capabilities: "set[str] | frozenset[str] | None" = None,
 ) -> None:
     """Raise `ArgumentError` for the first need the EMode cannot read.
 
     `emode_version` is None for an EMode older than `FIRST_REPORTING_EMODE`,
     which cannot be told apart further, so only needs from that release on are
-    refused there.
+    refused there. `capabilities` are what the EMode lists under ``version()``'s
+    ``'views'``: a type of `CAPABILITY_TYPES` whose capability is listed passes
+    whatever the version says.
     """
     name = function[3:] if function.startswith("EM_") else function
     for argument, found in needs.items():
         for what, since in found:
+            if CAPABILITY_TYPES.get(what) in (capabilities or ()):
+                continue  # the EMode says it reads this type (CAPABILITY_TYPES)
             if emode_version is None:
                 too_old = parse_version(since) >= parse_version(FIRST_REPORTING_EMODE)
                 this_emode = f"older than {FIRST_REPORTING_EMODE}"

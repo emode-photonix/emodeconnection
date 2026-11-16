@@ -565,3 +565,47 @@ class PlotInventory(TaggedModel):
     materials: List[str] = []
     #: Every piece of data the plot workbench can show, Field then Trend (GUI-M4b).
     datasets: List["DatasetEntry"] = []
+
+
+@register_type
+class SavedView(TaggedModel):
+    """A saved view of the plot tab: a recipe for a plot, never its data (emode#1703).
+
+    The browser tab lists every saved view in its sidebar. A script's
+    ``plot()`` saves one named by its title (or by ``name=``), and the
+    workbench saves its state with Save or Save as. EMode keeps them in the
+    simulation file, so a file opened later lists them again.
+
+    ``kind`` is the kind of plot (``'plot'``, ``'schematic'``, ``'gds'``,
+    ``'smatrix'``, ``'material'``, ``'sweep'``, ``'monitor'``), ``arguments``
+    what it is fetched and selected with, and ``options`` the figure options
+    that differ from their defaults. ``dataset`` is the workbench's data entry
+    it was saved from (a ``DatasetEntry.id``, such as ``'profile:wg'``), or
+    None for a script's plot. ``created`` is an ISO time.
+
+    ``show()`` plots it again in the session's tab, and ``delete()`` removes it
+    from the session and its file. Both act on `em`, by default the newest
+    session of this process that is still running.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+    arguments: Dict[str, Any] = {}
+    options: Dict[str, Any] = {}
+    dataset: Optional[str] = None
+    tags: List[str] = []
+    created: str = ""
+
+    def show(self, em: Any = None, **arguments: Any) -> Any:
+        """Plot this view again in `em`'s browser tab, with the same arguments and options. Returns a ``PlotHandle``."""
+        from .ui.session import show_saved
+
+        return show_saved(self, em=em, **arguments)
+
+    def delete(self, em: Any = None) -> None:
+        """Remove this view from `em`'s sidebar and from its simulation file."""
+        from .ui.session import delete_saved
+
+        delete_saved(self.name, em=em)
