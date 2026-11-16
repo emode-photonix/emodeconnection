@@ -256,14 +256,16 @@ def test_the_colorbar_carries_the_contour_levels_when_contours_are_drawn():
 
 
 def test_plotly_draws_a_line_across_the_colorbar_at_each_level():
+    # the marks are the ticks of a clear colorbar laid over the shown one (#186): a layout
+    # shape is drawn under every colorbar, which Plotly puts on its top layer
     spec = compose(xy_view())
     cb = spec.colorbar
-    shapes = [s for s in to_plotly(spec)["layout"]["shapes"] if s.get("name") == "colorbar_level"]
-    expected = [(v - cb.vmin) / (cb.vmax - cb.vmin) for v in cb.lines]
-    assert [s["y0"] for s in shapes] == pytest.approx(expected)
-    assert all(s["y0"] == s["y1"] and s["yref"] == "paper" for s in shapes)
-    assert all(s["xsizemode"] == "pixel" for s in shapes)
-    assert not to_plotly(compose(xy_view(), PlotOptions(contours=False)))["layout"].get("shapes")
+    figure = to_plotly(spec)
+    (marks,) = [t for t in figure["data"] if t.get("meta") == "colorbar_levels"]
+    assert marks["marker"]["colorbar"]["tickvals"] == pytest.approx(list(cb.lines))
+    assert not [s for s in figure["layout"].get("shapes", []) if s.get("name") == "colorbar_level"]
+    off = to_plotly(compose(xy_view(), PlotOptions(contours=False)))
+    assert not [t for t in off["data"] if t.get("meta") == "colorbar_levels"]
 
 
 def test_matplotlib_draws_the_levels_on_the_colorbar():

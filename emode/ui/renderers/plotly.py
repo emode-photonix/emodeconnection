@@ -236,7 +236,8 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
         "colorscale": colorscale(r.colormap),
         "zmin": r.vmin,
         "zmax": r.vmax,
-        "zsmooth": "best" if r.interpolation == "bilinear" else False,
+        # Plotly cannot smooth a single row or column across a wider range: it throws (emode#1701)
+        "zsmooth": "best" if r.interpolation == "bilinear" and min(z.shape[-2:], default=0) >= 2 else False,
         "showscale": showscale,
         "hovertemplate": "%{x:.4g}, %{y:.4g}: %{z:.4f}<extra></extra>",
     }
@@ -249,6 +250,20 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
 
 #: A contour line's color on each side of zero, as the window drew them.
 _CONTOUR_COLORS = ("#000000", "#ffffff")
+
+#: A contour line's width in pixels and its opacity. The colorbar's marks draw with the same
+#: two numbers (`_colorbar_marks`), so the marks and the lines they stand for look alike (#199).
+CONTOUR_WIDTH = 0.5
+CONTOUR_OPACITY = 0.7
+
+#: A colorbar tick is drawn with crisp edges, so Plotly gives it at least one whole pixel
+#: whatever its `tickwidth`. The mark's opacity is scaled by the fraction of that pixel the contour
+#: line covers (an antialiased 0.5 px line spreads the same ink over two rows), so the mark leaves
+#: the same ink as the line, not twice as much (#199).
+_MARK_OPACITY = CONTOUR_OPACITY * min(CONTOUR_WIDTH, 1.0)
+
+#: The marks' rgb on each side of zero, the contours' colors (`_CONTOUR_COLORS`).
+_MARK_COLORS = ("0,0,0", "255,255,255")
 
 
 def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
@@ -293,8 +308,8 @@ def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
                 "mode": "lines",
                 "x": typed_array(round_digits(xy[:, 0])),
                 "y": typed_array(round_digits(xy[:, 1])),
-                "line": {"color": color, "width": 0.5},
-                "opacity": 0.7,
+                "line": {"color": color, "width": CONTOUR_WIDTH},
+                "opacity": CONTOUR_OPACITY,
                 "connectgaps": False,
                 "hoverinfo": "skip",
                 "showlegend": False,
@@ -316,8 +331,8 @@ def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
                 "y": typed_array(r.y),
                 "z": typed_array(r.z),
                 "contours": {"start": level, "end": level, "size": 1.0, "coloring": "none"},
-                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": 0.5},
-                "opacity": 0.7,
+                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": CONTOUR_WIDTH},
+                "opacity": CONTOUR_OPACITY,
                 "showscale": False,
                 "hoverinfo": "skip",
             }
@@ -328,7 +343,12 @@ def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
 def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
     cb = spec.colorbar
     assert cb is not None
-    out: Dict[str, Any] = {"thickness": 12, "outlinewidth": 0.5, "tickfont": {"size": spec.font_size + 2}}
+    # no padding, anchored on its left (#178): the clear bar of the contour marks
+    # (`_colorbar_marks`) copies this geometry, and lies exactly over it
+    out: Dict[str, Any] = {
+        "thickness": _BAR_THICKNESS, "outlinewidth": 0.5, "tickfont": {"size": spec.font_size + 2},
+        "x": _BAR_X, "xanchor": "left", "xpad": 0, "ypad": 0,
+    }
     if cb.ticks is not None:
         out["tickvals"] = list(cb.ticks)
         if cb.tick_labels is not None:
@@ -342,34 +362,58 @@ def _colorbar(spec: FigureSpec) -> Dict[str, Any]:
 _BAR_THICKNESS = 12
 _BAR_X = 1.02
 
+#: A colorscale with no color: the bar the contour marks are drawn on lets the shown bar through.
+_CLEAR = [[0.0, "rgba(0,0,0,0)"], [1.0, "rgba(0,0,0,0)"]]
 
-def _colorbar_lines(
-    cb: Any, x: float = _BAR_X, xanchor: str = "left", y: float = 0.5, length: float = 1.0
-) -> List[Dict[str, Any]]:
-    """A line across the colorbar at each contour level (a Plotly colorbar has no such lines).
 
-    The shapes are anchored at the bar's edge in paper fractions and sized in pixels
-    across its thickness, so they follow the bar when the tab resizes.
+def _colorbar_marks(cb: Any, bar: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Clear colorbars over `bar` whose ticks cross it at each contour level, empty without levels.
+
+    A Plotly colorbar has no such lines, and a layout shape cannot draw them:
+    Plotly draws shapes in the plot's own SVG and every colorbar in the SVG
+    above it, so the bar's gradient hides any shape across it (#186). A second
+    colorbar can: this trace draws nothing on the axes, and its bar has a
+    transparent colorscale, the shown bar's geometry (copied from `bar`, and
+    moved with it by `_panels`), no outline and no labels, and ticks inside, as
+    long as the bar is thick, at the levels. Plotly draws a later trace's
+    colorbar above an earlier one's, so the trace goes after the field's.
+
+    A colorbar has one tick color, so the levels from zero up (black contours)
+    and the levels below it (white contours) are two clear bars, one over the
+    other, in that order (#199).
     """
     span = cb.vmax - cb.vmin
-    if not cb.lines or span <= 0:
-        return []
-    start, end = (0, _BAR_THICKNESS) if xanchor == "left" else (-_BAR_THICKNESS, 0)
-    shapes = []
-    for level in cb.lines:
-        t = (level - cb.vmin) / span
-        if not 0.0 <= t <= 1.0:
+    levels = [float(v) for v in cb.lines if span > 0 and cb.vmin <= v <= cb.vmax]
+    clear = {k: v for k, v in bar.items() if k not in ("title", "tickvals", "ticktext", "tickfont", "outlinewidth")}
+    out = []
+    for color, here in zip(_MARK_COLORS, ([v for v in levels if v >= 0], [v for v in levels if v < 0])):
+        if not here:
             continue
-        pos = y + (t - 0.5) * length
-        shapes.append(
+        mine = dict(clear)
+        mine.update(
             {
-                "type": "line", "name": "colorbar_level", "layer": "above",
-                "xref": "paper", "xsizemode": "pixel", "xanchor": x, "x0": start, "x1": end,
-                "yref": "paper", "y0": pos, "y1": pos,
-                "line": {"color": "#000000", "width": 0.8},
+                "tickvals": here, "ticks": "inside", "ticklen": bar.get("thickness", _BAR_THICKNESS),
+                "tickwidth": CONTOUR_WIDTH, "tickcolor": f"rgba({color},{_MARK_OPACITY:g})",
+                "showticklabels": False, "outlinewidth": 0,
             }
         )
-    return shapes
+        out.append(
+            {
+                "type": "scatter", "mode": "markers", "x": [None], "y": [None],
+                "marker": {"color": [cb.vmin], "cmin": cb.vmin, "cmax": cb.vmax, "colorscale": _CLEAR,
+                           "showscale": True, "colorbar": mine},
+                "hoverinfo": "skip", "showlegend": False, "name": "colorbar_levels", "meta": "colorbar_levels",
+            }
+        )
+    return out
+
+
+def _bar_of(trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The colorbar `trace` draws (a heatmap's own, or a marker's), None for none."""
+    if "colorbar" in trace:
+        return trace["colorbar"]
+    marker = trace.get("marker")
+    return marker.get("colorbar") if isinstance(marker, dict) else None
 
 
 def _closed(x: np.ndarray, y: np.ndarray, holes: Any) -> tuple:
@@ -477,6 +521,8 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
     rasters = [decimated(r, pixels) for r in spec.rasters]
     for i, r in enumerate(rasters):
         data.append(_heatmap(r, showscale=(i == 0 and spec.colorbar is not None), spec=spec))
+    if spec.colorbar is not None and rasters:
+        data.extend(_colorbar_marks(spec.colorbar, data[-len(rasters)]["colorbar"]))
     for r in rasters:
         data.extend(_contours(r))
 
@@ -563,23 +609,26 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
             }
         )
 
-    layout = _layout(spec)
-    if spec.colorbar is not None and spec.rasters:
-        shapes = _colorbar_lines(spec.colorbar)
-        if shapes:
-            layout["shapes"] = shapes
-    return {"data": data, "layout": layout}
+    return {"data": data, "layout": _layout(spec)}
+
+
+#: Every axis's tick marks: outside, small but visible (#190).
+_TICKS: Dict[str, Any] = {"ticks": "outside", "ticklen": 4, "tickwidth": 1}
 
 
 def _layout(spec: FigureSpec) -> Dict[str, Any]:
     a = spec.axes
     font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3}
     yrange = [a.yrange[1], a.yrange[0]] if a.invert_y else list(a.yrange)
+    # no top line on any plot, and a right line only where an image fills the box (#187), with
+    # no ticks on it: the ticks go outside the left and bottom axes, 4 by 1 px (#190)
+    image = bool(spec.rasters) or spec.colorbar is not None
     xaxis: Dict[str, Any] = {
         "title": {"text": math_html(a.xlabel)},
         "range": list(a.xrange),
-        "ticks": "inside",
-        "mirror": "ticks",
+        "showticklabels": a.show_xticklabels,
+        **_TICKS,
+        "mirror": False,
         "showline": True,
         "linewidth": 0.5,
         "showgrid": False,
@@ -589,14 +638,19 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     yaxis: Dict[str, Any] = {
         "title": {"text": math_html(a.ylabel)},
         "range": yrange,
-        "ticks": "inside",
-        "mirror": "ticks",
+        "showticklabels": a.show_yticklabels,
+        **_TICKS,
+        "mirror": image,
         "showline": True,
         "linewidth": 0.5,
         "showgrid": False,
         "zeroline": False,
         "visible": a.visible,
     }
+    if a.y_nonnegative:
+        # never ranged below 0, not even by Plotly's autorange on a double click (#191)
+        yaxis["rangemode"] = "nonnegative"
+        yaxis["autorangeoptions"] = {"minallowed": 0}
     yaxis2: Optional[Dict[str, Any]] = None
     if a.y2range is not None:
         # the panel's twin: its own range and label on the right, the left axis's ticks only on the left
@@ -607,13 +661,16 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
             "overlaying": "y",
             "side": "right",
             "anchor": "x",
-            "ticks": "inside",
+            **_TICKS,
             "showline": True,
             "linewidth": 0.5,
             "showgrid": False,
             "zeroline": False,
             "visible": a.visible,
         }
+        if a.y2_nonnegative:
+            yaxis2["rangemode"] = "nonnegative"
+            yaxis2["autorangeoptions"] = {"minallowed": 0}
     for axis, color in ((yaxis, a.ylabel_color), (yaxis2, a.y2label_color)):
         if axis is not None and color:
             axis["title"]["font"] = {"color": color}
@@ -624,6 +681,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     if a.grid:
         for axis in (xaxis, yaxis):
             axis.update({"showgrid": True, "gridcolor": "rgba(128,128,128,0.25)", "gridwidth": 0.5})
+    if a.integer_xticks:
+        xaxis.update({"tickformat": "d", "dtick": 1})
     if a.integer_ticks:
         for axis in (xaxis, yaxis):
             axis.update({"tickformat": "d", "dtick": 1})
@@ -697,7 +756,6 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
     data: List[Dict[str, Any]] = []
     layout: Dict[str, Any] = {}
     annotations: List[Dict[str, Any]] = []
-    shapes: List[Dict[str, Any]] = []
     for k, panel in enumerate(spec.panels, start=1):
         row, col = divmod(k - 1, cols)
         x0 = col * (width + gap_x)
@@ -710,12 +768,11 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
         for trace in sub["data"]:
             on_twin = trace.get("yaxis") == "y2"
             trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
-            if "colorbar" in trace:
-                trace["colorbar"].update({"x": max(0.0, xd[1] - 0.02), "xanchor": "right", "y": (yd[0] + yd[1]) / 2, "len": height})
-                if panel.colorbar is not None:
-                    shapes += _colorbar_lines(
-                        panel.colorbar, max(0.0, xd[1] - 0.02), "right", (yd[0] + yd[1]) / 2, height
-                    )
+            bar = _bar_of(trace)
+            if bar is not None:
+                # right of the panel's own domain, as a single plot's sits right of its axes, and
+                # the clear bar of its contour marks with it
+                bar.update({"x": xd[1] + 0.02 * width, "y": (yd[0] + yd[1]) / 2, "len": height})
             data.append(trace)
         xaxis, yaxis = dict(sub["layout"]["xaxis"]), dict(sub["layout"]["yaxis"])
         xaxis.update({"domain": xd, "anchor": f"y{suffix}"})
@@ -744,7 +801,6 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
         {
             "font": first["font"],
             "annotations": annotations,
-            **({"shapes": shapes} if shapes else {}),
             "showlegend": any(t.get("showlegend") for t in data),
             "legend": first["legend"],
             "margin": {"l": 60, "r": 60 if any(p.axes.y2range is not None for p in spec.panels) else 20, "t": 60, "b": 50},

@@ -104,7 +104,7 @@ function fetch(path, options) {
   __posts.push([path, options && options.body ? JSON.parse(options.body) : null]);
   return { then: function () { return { then: function () { return this; }, catch: function () { return this; } }; } };
 }
-var Plotly = { react: function () {}, Plots: { resize: function () {} }, relayout: function () {}, restyle: function () {} };
+var Plotly = { react: function () {}, newPlot: function () { return Plotly.react.apply(Plotly, arguments); }, Plots: { resize: function () {} }, relayout: function () {}, restyle: function () {} };
 var console = { log: function () {} };
 """
 

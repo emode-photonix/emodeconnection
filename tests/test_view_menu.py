@@ -99,7 +99,9 @@ def test_choosing_layout_refetches_with_view() -> None:
             f"/api/views/{view.id}/data",
             body={"controls": {"view": "layout"}},
         )
-        assert fetched[-1] == ("plot", {"plane": "z-x", "view": "layout"})
+        # the z panel, then the x-y field at its cut drawn below it (#180)
+        assert fetched[-2] == ("plot", {"plane": "z-x", "view": "layout"})
+        assert fetched[-1] == ("plot", {"plane": "x-y", "view": "layout", "z_position": 1.5})
     finally:
         server.stop()
 

@@ -113,12 +113,16 @@ def compose_modes(panel: ModesPanel, options: PlotOptions) -> FigureSpec:
     for k, (view, label) in enumerate(zip(panel.views, panel.labels)):
         spec = compose(view, each)
         rasters = tuple(replace(r, target=f"mode:{label}") for r in spec.rasters)
-        # the axis titles on the outer panels only: the bottom of each column, the left row
+        # the axis titles and tick labels on the outer panels only (#184): the left column, and
+        # the bottom row (in a short last row, the lowest panel of each column)
         bottom = k + columns >= len(panel.views)
+        left = k % columns == 0
         axes = replace(
             spec.axes,
             xlabel=spec.axes.xlabel if bottom else "",
-            ylabel=spec.axes.ylabel if k % columns == 0 else "",
+            ylabel=spec.axes.ylabel if left else "",
+            show_xticklabels=bottom,
+            show_yticklabels=left,
         )
         panels.append(
             replace(

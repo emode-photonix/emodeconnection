@@ -26,7 +26,7 @@ const SETTINGS = [
   ["Blend slices", "blend_slices"],
 ];
 
-const state = { views: [], current: null, reply: null, ended: false, busyTimer: null };
+const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null, benchTimer: null };
 
 function api(path, body) {
   const options = body === undefined
@@ -107,41 +107,117 @@ document.addEventListener("keydown", (ev) => {
 
 // ------------------------------------------------------------ the plots list
 
+// #/plots alone is the workbench (emode#1701), the tab's default plot
 function routeId() {
   const m = location.hash.match(/^#\/plots\/([\w-]+)/);
-  return m ? m[1] : null;
+  return m ? m[1] : "bench";
 }
 
 async function loadList() {
   state.views = await api("views");
   const ol = document.getElementById("views");
   ol.replaceChildren();
-  for (const v of [...state.views].reverse()) {
-    const li = document.createElement("li");
-    li.dataset.id = v.id;
-    li.textContent = v.title || v.id;
-    const when = document.createElement("span");
-    when.className = "when";
-    when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
-    li.appendChild(when);
-    li.addEventListener("click", () => { closeDrawer(); location.hash = "#/plots/" + v.id; });
-    ol.appendChild(li);
+  // the workbench is pinned first, the saved views follow, newest first
+  const bench = state.views.filter((v) => v.kind === "bench");
+  const saved = state.views.filter((v) => v.kind !== "bench").reverse();
+  for (const v of bench) ol.appendChild(sidebarEntry(v));
+  if (saved.length) {
+    const head = document.createElement("li");
+    head.className = "group";
+    head.textContent = "Saved views";
+    ol.appendChild(head);
   }
+  for (const v of saved) ol.appendChild(sidebarEntry(v));
   markSelected();
 }
 
+// One entry of the sidebar (emode#1703). A script's view shows its own data, a saved
+// recipe opens on the workbench, and the entry's menu edits it on the workbench,
+// renames it or removes it.
+function sidebarEntry(v) {
+  const li = document.createElement("li");
+  li.dataset.id = v.id;
+  const title = document.createElement("span");
+  title.className = "title";
+  title.textContent = v.title || v.id;
+  li.appendChild(title);
+  const when = document.createElement("span");
+  when.className = "when";
+  if (v.kind === "bench") {
+    li.classList.add("pinned");
+    when.textContent = "any data of this session";
+    li.appendChild(when);
+  } else {
+    const time = new Date(v.created * 1000).toLocaleTimeString();
+    when.textContent = v.session_only ? "this session, " + time : (v.script ? "script, " + time : "saved view");
+    li.appendChild(when);
+    const menu = document.createElement("button");
+    menu.type = "button";
+    menu.className = "entry-menu";
+    menu.textContent = "⋯";
+    menu.setAttribute("aria-label", "Actions for " + (v.title || v.id));
+    menu.setAttribute("aria-expanded", "false");
+    const actions = document.createElement("div");
+    actions.className = "entry-actions";
+    actions.hidden = true;
+    const action = (text, run) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.addEventListener("click", (ev) => {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        actions.hidden = true;
+        menu.setAttribute("aria-expanded", "false");
+        run();
+      });
+      actions.appendChild(b);
+    };
+    if (!v.session_only) action("Edit in workbench", () => editInWorkbench(v.id));
+    action("Rename", () => openSaveSheet({ mode: "rename", id: v.id, name: v.title || "" }));
+    action("Remove", () => removeSaved(v));
+    menu.addEventListener("click", (ev) => {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      actions.hidden = !actions.hidden;
+      menu.setAttribute("aria-expanded", String(!actions.hidden));
+    });
+    li.append(menu, actions);
+  }
+  li.addEventListener("click", () => { closeDrawer(); openEntry(v.id); });
+  return li;
+}
+
+function openEntry(id) {
+  const target = "#/plots/" + id;
+  if (location.hash === target) {
+    // the same saved view again: open its recipe afresh
+    state.openedSaved = null;
+    route();
+  } else {
+    location.hash = target;
+  }
+}
+
 function markSelected() {
+  // the workbench loaded from a saved view marks that view (emode#1703)
+  const origin = state.current === "bench" && state.reply && state.reply.bench && state.reply.bench.origin;
+  const shown = origin ? origin.id : state.current;
   for (const li of document.querySelectorAll("#views li")) {
-    li.classList.toggle("selected", li.dataset.id === state.current);
+    li.classList.toggle("selected", li.dataset.id === shown);
   }
 }
 
 // ------------------------------------------------------------ one view
 
+// The plot's size in device pixels. On a phone the stage is a column and the plot has no
+// height until a reply sizes it (#185), so its height is then its width times the plot box's
+// aspect: EMode samples a panel at these pixels, and a panel 0 tall came back one row (emode#1701).
 function pixels() {
   const el = document.getElementById("figure");
   const r = window.devicePixelRatio || 1;
-  return [Math.round(el.clientWidth * r), Math.round(el.clientHeight * r)];
+  const width = el.clientWidth || document.getElementById("stage").clientWidth || 0;
+  const aspect = (state.reply && state.reply.aspect) || Math.SQRT1_2;
+  const height = el.clientHeight > 0 ? el.clientHeight : width * aspect;
+  return [Math.max(1, Math.round(width * r)), Math.max(1, Math.round(height * r))];
 }
 
 async function request(id, controls) {
@@ -161,6 +237,7 @@ async function show(id, controls) {
   if (!id) return;
   const first = state.current !== id;
   state.current = id;
+  forgetPending(id);
   markSelected();
   let reply;
   try {
@@ -171,11 +248,16 @@ async function show(id, controls) {
   }
   if (reply.error) {
     showMessage(reply.error);
+    // a refused choice on the workbench keeps its menus, so another can be chosen
+    if (reply.bench && (!state.reply || state.reply.id !== id)) benchRefused(reply);
+    else if (reply.bench) buildControls({ ...state.reply, bench: reply.bench });
     if (!state.reply || state.reply.id !== id) return;
   } else {
-    showMessage("");
+    // a notice: the plot could not be brought up to date with the session (#182)
+    showMessage(reply.notice || "");
     state.reply = reply;
     draw(reply);
+    markSelected();
   }
   if (first) {
     closeDetails();
@@ -202,8 +284,16 @@ function figureSize(fig, reply) {
   const legend = layout.showlegend ? 30 : 0;
   const width = figureWidth(fig);
   const box = Math.max(100, width - (m.l || 0) - (m.r || 0) - colorbar);
-  return { width: width, height: Math.round(box * (reply.aspect || 0.618) + (m.t || 0) + (m.b || 0) + legend) };
+  // the legend sits above the box, in the top margin: its room goes there, not to the box (#188)
+  const top = (m.t || 0) + legend;
+  const bottom = m.b || 0;
+  // an extreme aspect ratio (0.001 to 1000, #189) still draws: the box is at least 40 px tall,
+  // and the figure at most 6000 px
+  const tall = Math.min(Math.max(40, box * (reply.aspect || Math.SQRT1_2)), MAX_FIGURE_PX - top - bottom);
+  return { width: width, height: Math.round(tall + top + bottom), margin: { ...m, t: top } };
 }
+
+const MAX_FIGURE_PX = 6000;
 
 function sizeFigure(reply) {
   const fig = document.getElementById("figure");
@@ -223,30 +313,152 @@ window.addEventListener("resize", fitFigure);
 function draw(reply) {
   const fig = document.getElementById("figure");
   const layout = { ...reply.figure.layout, ...sizeFigure(reply), autosize: true };
-  Plotly.react(fig, reply.figure.data, layout, {
-    responsive: true,
-    displaylogo: false,
-    toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
-  });
+  // a plot taller than the stage must scroll: Plotly takes every touch on a plot with a
+  // drag mode for a zoom box, so none would scroll it (#185). A click still opens a panel.
+  const stage = document.getElementById("stage").clientHeight;
+  if (stage > 0 && layout.height > stage) layout.dragmode = false;
+  // a figure Plotly cannot draw still gets its controls, so another choice can be made (emode#1701)
+  try {
+    // Plotly's Reset axes goes back to the range the plot was first drawn with, and react keeps
+    // that range when a later figure has another (the window display widens it, a plane or mode
+    // switch changes it): a figure with other ranges is drawn anew so Home returns to its own (#201)
+    const ranges = JSON.stringify([layout.xaxis && layout.xaxis.range, layout.yaxis && layout.yaxis.range]);
+    const fresh = fig.dataset.ranges !== ranges;
+    fig.dataset.ranges = ranges;
+    const draws = fresh ? Plotly.newPlot : Plotly.react;
+    const drawn = draws.call(Plotly, fig, reply.figure.data, layout, {
+      responsive: true,
+      displaylogo: false,
+      toImageButtonOptions: { filename: "EM_plot_" + reply.id, scale: 3 },
+    });
+    if (drawn && typeof drawn.catch === "function") drawn.catch((err) => showMessage("The plot could not be drawn: " + err));
+  } catch (err) {
+    showMessage("The plot could not be drawn: " + err);
+  }
   fig.removeAllListeners && fig.removeAllListeners("plotly_click");
   fig.on && fig.on("plotly_click", (ev) => {
+    // a swipe that scrolled the plot ends in a click without a drag mode: it opens nothing
+    if (swiped) return;
     // a schematic's block, port or connection opens its details (#159)
     const point = ev.points && ev.points[0];
     const meta = point && point.data && point.data.meta;
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
-    else if (typeof meta === "string" && meta.startsWith("mode:")) change({ mode: meta.slice("mode:".length) });
+    else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
     const target = ev.annotation && ev.annotation.hovertext;
-    if (target && target.startsWith("go to ")) change({ section: target.slice(6) });
+    if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
 }
 
+// A touch that moved more than a few pixels is a swipe, not a tap (#185).
+let swiped = false;
+let touchAt = null;
+function watchSwipes(el) {
+  el.addEventListener("touchstart", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    touchAt = t ? [t.clientX, t.clientY] : null;
+    swiped = false;
+  }, { passive: true });
+  el.addEventListener("touchmove", (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (t && touchAt && Math.hypot(t.clientX - touchAt[0], t.clientY - touchAt[1]) > 10) swiped = true;
+  }, { passive: true });
+}
+
+// ------------------------------------------------------------ auto render (#183)
+//
+// With Auto render on (the default), a control change redraws at once. Off, the
+// changes wait in `pending` and go together when Render is pressed. A click on
+// the plot itself (a grid panel, a section arrow, a key) renders at once, with
+// whatever waits. The choice is remembered per browser, where storage allows.
+
+const AUTO_RENDER_KEY = "emode.autoRender";
+const pending = { id: null, controls: {} };
+
+function autoRender() {
+  if (state.autoRender == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(AUTO_RENDER_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.autoRender = stored !== "off";
+  }
+  return state.autoRender;
+}
+
+function setAutoRender(on) {
+  state.autoRender = !!on;
+  try {
+    localStorage.setItem(AUTO_RENDER_KEY, on ? "on" : "off");
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  if (on && Object.keys(pending.controls).length) renderNow();
+}
+
+function pendingControls() {
+  return pending.id === state.current ? pending.controls : {};
+}
+
+// Drop what waits when another plot is shown: it was meant for the one before.
+function forgetPending(id) {
+  if (pending.id !== id) {
+    pending.id = id;
+    pending.controls = {};
+  }
+  markRender();
+}
+
+function markRender() {
+  const button = state.renderButton;
+  if (!button) return;
+  const waiting = Object.keys(pendingControls()).length > 0;
+  button.disabled = !waiting;
+  button.classList.toggle("pending", waiting);
+}
+
+// A control change: drawn now, or kept for Render.
 function change(controls) {
-  if (state.current) show(state.current, controls);
+  if (!state.current) return;
+  if (autoRender()) return show(state.current, controls);
+  forgetPending(state.current);
+  Object.assign(pending.controls, controls);
+  markRender();
+}
+
+// Draw now, with whatever waits.
+function renderNow(extra) {
+  if (!state.current) return;
+  const controls = { ...pendingControls(), ...(extra || {}) };
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function renderPanel() {
+  const wrap = document.createElement("span");
+  wrap.className = "render";
+  const label = document.createElement("label");
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = autoRender();
+  box.addEventListener("change", () => setAutoRender(box.checked));
+  label.append(box, " Auto render");
+  const button = document.createElement("button");
+  button.id = "render";
+  button.type = "button";
+  button.textContent = "Render";
+  button.title = "Draw the plot with the controls changed since it was drawn";
+  button.addEventListener("click", () => renderNow());
+  state.renderButton = button;
+  wrap.append(label, button);
+  return wrap;
 }
 
 // ------------------------------------------------------------ the controls
@@ -382,19 +594,332 @@ function numberBox(label, value, onchange) {
   return wrap;
 }
 
+// On a phone the per-kind controls fold into a Settings section, closed by default, so the
+// plot is not pushed below the fold (#196). Its state is kept per browser, where storage allows.
+const SETTINGS_KEY = "emode.settingsOpen";
+
+function storedSettingsOpen() {
+  try {
+    return localStorage.getItem(SETTINGS_KEY) === "open";
+  } catch (err) {
+    return false;
+  }
+}
+
+function settingsFold(box) {
+  const details = document.createElement("details");
+  details.className = "settings";
+  details.open = storedSettingsOpen();
+  const summary = document.createElement("summary");
+  summary.textContent = "Settings";
+  const body = document.createElement("div");
+  details.append(summary, body);
+  details.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, details.open ? "open" : "closed");
+    } catch (err) {
+      // the choice is only a convenience
+    }
+  });
+  box.append(details);
+  return body;
+}
+
 function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
+  if (reply.bench) buildBenchControls(box, reply.bench);
   const kind = reply.kind || "plot";
   buildLayerPanel(reply);
-  if (kind === "smatrix") buildSMatrixControls(box, reply);
-  else if (kind === "material") buildMaterialControls(box, reply);
-  else if (kind === "farfield") buildFarFieldControls(box, reply);
-  else if (kind === "gds") buildGDSControls(box, reply);
-  else if (kind === "sweep") buildSweepControls(box, reply);
-  else buildPlotControls(box, reply);
-  if (kind === "schematic") box.append(componentMenu(reply));
+  const bar = narrowQuery.matches ? settingsFold(box) : box;
+  if (kind === "smatrix") buildSMatrixControls(bar, reply);
+  else if (kind === "material") buildMaterialControls(bar, reply);
+  else if (kind === "farfield") buildFarFieldControls(bar, reply);
+  else if (kind === "gds") buildGDSControls(bar, reply);
+  else if (kind === "sweep") buildSweepControls(bar, reply);
+  else buildPlotControls(bar, reply);
+  if (kind === "schematic") bar.append(componentMenu(reply));
+  if (kind !== "gds") bar.append(aspectControl(reply));
+  if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
+  box.append(renderPanel());
+  box.append(saveBar(reply));
   box.append(exportPanel(reply));
+  markRender();
+}
+
+// crossing the breakpoint (a rotated phone) rebuilds the bar in the other layout
+narrowQuery.addEventListener("change", () => {
+  if (state.reply && state.current) buildControls(state.reply);
+});
+
+// ------------------------------------------------------------ saved views (emode#1703)
+//
+// The workbench's Save view button sits beside Render and Export, outside the phone's
+// Settings fold, and opens a sheet: Save writes the workbench back to the saved view it
+// came from, Save as keeps it under a new name. The bar says "modified from <name>" when
+// the workbench's settings differ from that view. A script's view offers Edit in
+// workbench, which loads its settings there.
+
+function saveBar(reply) {
+  const wrap = document.createElement("span");
+  wrap.className = "save-view-bar";
+  const bench = reply.bench;
+  if (reply.id === "bench" && bench) {
+    const origin = bench.origin;
+    const mark = document.createElement("span");
+    mark.className = "modified";
+    mark.textContent = origin ? "modified from " + origin.name : "";
+    mark.hidden = !(origin && bench.modified);
+    const button = document.createElement("button");
+    button.id = "save-view";
+    button.type = "button";
+    button.className = "primary";
+    button.textContent = "Save view";
+    button.title = "Keep these settings in the sidebar's saved views and in the simulation file";
+    button.addEventListener("click", () => openSaveSheet({
+      mode: "save", origin: origin, name: origin ? origin.name : (reply.title || ""),
+    }));
+    wrap.append(mark, button);
+    return wrap;
+  }
+  const entry = (state.views || []).find((v) => v.id === reply.id);
+  if (entry && entry.script) {
+    const button = document.createElement("button");
+    button.id = "edit-in-workbench";
+    button.type = "button";
+    button.textContent = "Edit in workbench";
+    button.title = "Load this plot's settings into the workbench, to change and save them";
+    button.addEventListener("click", () => editInWorkbench(reply.id));
+    wrap.append(button);
+  }
+  return wrap;
+}
+
+// A button's one click handler, set again each time the sheet opens.
+function onClick(id, run) {
+  const el = document.getElementById(id);
+  el._run = run;
+  if (!el._bound) {
+    el._bound = true;
+    el.addEventListener("click", (ev) => el._run && el._run(ev));
+  }
+  return el;
+}
+
+let sheetOpener = null;
+
+function openSaveSheet(how) {
+  const sheet = document.getElementById("save-sheet");
+  const name = document.getElementById("sheet-name");
+  const rename = how.mode === "rename";
+  document.getElementById("sheet-title").textContent = rename ? "Rename the saved view" : "Save view";
+  name.value = how.name || "";
+  onClick("sheet-save", () => postSaved({ action: "save" })).hidden = rename || !how.origin;
+  onClick("sheet-save-as", () => postSaved({ action: "save_as", name: name.value })).hidden = rename;
+  onClick("sheet-rename", () => postSaved({ action: "rename", id: how.id, name: name.value })).hidden = !rename;
+  onClick("sheet-cancel", closeSaveSheet);
+  const save = document.getElementById("sheet-save");
+  save.textContent = how.origin ? "Save to “" + how.origin.name + "”" : "Save";
+  document.getElementById("sheet-error").hidden = true;
+  if (sheet.hidden) sheetOpener = document.activeElement || null;
+  sheet.hidden = false;
+  if (name.focus) name.focus();
+}
+
+function closeSaveSheet() {
+  const sheet = document.getElementById("save-sheet");
+  if (sheet.hidden) return;
+  sheet.hidden = true;
+  if (sheetOpener && sheetOpener.focus) sheetOpener.focus();
+  sheetOpener = null;
+}
+
+async function postSaved(body) {
+  let reply;
+  try {
+    reply = await api("saved", body);
+  } catch (err) {
+    reply = { error: String(err) };
+  }
+  if (reply.error) {
+    const error = document.getElementById("sheet-error");
+    if (!document.getElementById("save-sheet").hidden) {
+      error.textContent = reply.error;
+      error.hidden = false;
+    } else {
+      showMessage(reply.error);
+    }
+    return;
+  }
+  closeSaveSheet();
+  showMessage("");
+  await loadList();
+  // the bar's mark follows: the workbench now matches the view it was saved as
+  if (state.current === "bench" && body.action !== "remove") show("bench", {});
+}
+
+function removeSaved(v) {
+  const ok = typeof confirm !== "function" ||
+    confirm("Remove the saved view “" + (v.title || v.id) + "”" + (v.session_only ? "?" : " from this session and its file?"));
+  if (!ok) return;
+  if (state.current === v.id) location.hash = "#/plots/bench";
+  postSaved({ action: "remove", id: v.id });
+}
+
+// Load a script's view, or a saved recipe, into the workbench.
+function editInWorkbench(id) {
+  closeDrawer();
+  state.openedSaved = null;
+  pending.controls = {};
+  const shown = show("bench", { saved: id });
+  if (location.hash !== "#/plots/bench") location.hash = "#/plots/bench";
+  return shown;
+}
+
+// A saved view's route (#/plots/<id>) opens its recipe on the workbench.
+function openSaved(id) {
+  state.openedSaved = id;
+  pending.controls = {};
+  return show("bench", { saved: id });
+}
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && !document.getElementById("save-sheet").hidden) {
+    ev.preventDefault();
+    closeSaveSheet();
+  }
+});
+
+// ------------------------------------------------------------ the aspect ratio (#189)
+//
+// Width:height of the plot box, posted as `aspect_ratio`, the box's height over its width.
+// sqrt(2) is every plot's default but the S-matrix's, which is 1:1. Custom takes any
+// width:height from 0.001 to 1000: past that a figure degenerates.
+
+const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
+const ASPECT_MIN = 0.001;
+const ASPECT_MAX = 1000;
+
+function aspectControl(reply) {
+  const c = reply.controls || {};
+  const wrap = document.createElement("span");
+  wrap.className = "aspect";
+  const chosen = typeof c.aspect_ratio === "number" && c.aspect_ratio > 0 ? 1 / c.aspect_ratio : null;
+  const named = chosen === null
+    ? (reply.kind === "smatrix" ? "1:1" : "√2")
+    : ((ASPECTS.find(([, r]) => Math.abs(r - chosen) < 1e-6 * r) || ["Custom"])[0]);
+  const custom = numberBox("width:height", named === "Custom" ? String(Number(chosen.toPrecision(6))) : "", (text) => {
+    const v = Number(String(text).trim());
+    if (!(v >= ASPECT_MIN && v <= ASPECT_MAX)) {
+      return showMessage("The aspect ratio is width:height, a number from " + ASPECT_MIN + " to " + ASPECT_MAX +
+        ", and " + JSON.stringify(String(text)) + " is not one.");
+    }
+    showMessage("");
+    change({ aspect_ratio: 1 / v });
+  });
+  custom.hidden = named !== "Custom";
+  const menu = select("Aspect", ASPECTS.map(([n]) => n).concat(["Custom"]), named, (v) => {
+    custom.hidden = v !== "Custom";
+    const hit = ASPECTS.find(([n]) => n === v);
+    if (hit) change({ aspect_ratio: 1 / hit[1] });
+  });
+  wrap.append(menu, custom);
+  return wrap;
+}
+
+// ------------------------------------------------------------ the axis extents (#191)
+
+// Each axis's ends: a number, or blank for automatic. A quantity that cannot be negative
+// starts its automatic range at 0 in the client, which knows the data's kind.
+function extentsPanel(reply) {
+  const c = reply.controls || {};
+  const details = document.createElement("details");
+  const summary = document.createElement("summary");
+  summary.textContent = "Axes";
+  const list = document.createElement("div");
+  for (const [name, key] of [["x min", "xmin"], ["x max", "xmax"], ["y min", "ymin"], ["y max", "ymax"]]) {
+    list.append(numberBox(name, c[key] == null ? "" : String(c[key]), (v) => {
+      const n = numberOrNull(v);
+      if (n !== null && !Number.isFinite(n)) return showMessage(name + " is a number, or blank for automatic.");
+      showMessage("");
+      change({ [key]: n });
+    }));
+  }
+  details.append(summary, list);
+  return details;
+}
+
+// ------------------------------------------------------------ the workbench (emode#1701)
+//
+// The workbench's own menus come first: Field or Trend, then the data of that
+// kind the session holds, from EMode's inventory. An entry the session cannot
+// show yet is listed greyed with its reason ("run EME() first"). The chosen
+// data's own controls follow, the bar the tab draws for its kind.
+
+const CATEGORY_NAMES = { field: "Field", trend: "Trend" };
+
+function optionSelect(label, options, selected, onchange) {
+  const wrap = document.createElement("label");
+  if (label) wrap.append(label + ":");
+  const s = document.createElement("select");
+  for (const opt of options) {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.text;
+    if (opt.disabled) o.disabled = true;
+    if (opt.title) o.title = opt.title;
+    if (String(opt.value) === String(selected)) o.selected = true;
+    s.appendChild(o);
+  }
+  s.addEventListener("change", () => onchange(s.value));
+  wrap.appendChild(s);
+  return wrap;
+}
+
+function datasetText(d) {
+  const text = d.label + (d.summary ? ": " + d.summary : "");
+  return d.available ? text : text + " (" + (d.reason || "not available") + ")";
+}
+
+// Choosing what the workbench shows draws it at once, even with Auto render off (#183):
+// the changes kept for Render were the old data's, so they are dropped.
+function benchChoose(controls) {
+  if (!state.current) return;
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function buildBenchControls(box, bench) {
+  const row = document.createElement("span");
+  row.className = "bench-menus";
+  row.append(optionSelect("Plot",
+    (bench.categories || []).map((c) => ({ value: c, text: CATEGORY_NAMES[c] || c })),
+    bench.category, (v) => benchChoose({ category: v })));
+  const data = (bench.datasets || []).map((d) => ({
+    value: d.id, text: datasetText(d), disabled: !d.available, title: d.available ? "" : d.reason,
+  }));
+  if (!data.length) data.push({ value: "", text: "nothing yet", disabled: true });
+  row.append(optionSelect("Data", data, bench.dataset, (v) => benchChoose({ dataset: v })));
+  box.append(row);
+}
+
+// a refused choice with nothing shown yet: the workbench's menus alone
+function benchRefused(reply) {
+  const box = document.getElementById("controls");
+  box.replaceChildren();
+  buildBenchControls(box, reply.bench);
+}
+
+// The session changed (a solve, a label, a sweep): the workbench asks again what it can
+// plot, once per two seconds at most and only while it is shown, so a script's loop of
+// solves queues nothing behind the call lock.
+function benchChanged() {
+  if (state.current !== "bench" || state.benchTimer) return;
+  state.benchTimer = setTimeout(() => {
+    state.benchTimer = null;
+    if (document.visibilityState === "visible" && state.current === "bench") show("bench", {});
+  }, 2000);
 }
 
 // ------------------------------------------------------------ a component's details (#159)
@@ -511,14 +1036,14 @@ function buildMaterialControls(box, reply) {
   const step = textbox("nm, step", [], x.step, () => {});
   const set = document.createElement("button");
   set.textContent = "Set";
-  set.addEventListener("click", () => change({
+  set.addEventListener("click", () => renderNow({
     wavelengths: [numberOrNull(lo.querySelector("input").value), numberOrNull(hi.querySelector("input").value)],
     step: numberOrNull(step.querySelector("input").value),
   }));
   const home = document.createElement("button");
   home.textContent = "Home";
   home.title = "The model's own wavelength range";
-  home.addEventListener("click", () => change({ wavelengths: null, step: null }));
+  home.addEventListener("click", () => renderNow({ wavelengths: null, step: null }));
   box.append(lo, hi, step, set, home);
 }
 
@@ -806,7 +1331,7 @@ function exportPanel(reply) {
   }
   const apply = document.createElement("button");
   apply.textContent = "Apply";
-  apply.addEventListener("click", () => change(labelControls(entries)));
+  apply.addEventListener("click", () => renderNow(labelControls(entries)));
   lbox.append(apply);
   labels.append(ls, lbox);
 
@@ -991,40 +1516,45 @@ function buildPlotControls(box, reply) {
       openView(v);
     }));
   }
-  if (m.planes && m.planes.length) box.append(select("Slice", m.planes, sel.plane, (v) => change({ plane: v })));
+  // the Slice menu: the planes, never the schematic, which is the View menu's (emode#1728). A
+  // plane change clears the position (a z on x-y, a transverse position on a z panel), and a z
+  // plane chosen from a profile's x-y plot names no profile, so EMode draws the device
+  const planes = (m.planes || []).filter((p) => p !== "schematic");
+  if (planes.length) {
+    box.append(select("Slice", planes, sel.plane, (v) => change(v === "x-y"
+      ? { plane: v, slice_position: null }
+      : { plane: v, profile: null, slice_position: null })));
+  }
   if (m.ports && m.ports.length) box.append(select("Port", m.ports, sel.port, (v) => change({ port: v })));
   if (m.sections && m.sections.length) {
     box.append(select("Section", m.sections, sel.section || "all", (v) => change({ section: v === "all" ? null : v })));
   }
   if (m.profiles && m.profiles.length) {
-    box.append(select("Profile", m.profiles, sel.profile, (v) => change({ profile: v })));
+    // EME is the device, drawn on the x-y plane at its cut. No position goes with a choice:
+    // the plot's own arguments may name no plane, and EMode's default z-x plane would read
+    // a number as a y (#179).
+    box.append(select("Profile", m.profiles, sel.profile, (v) => change(v === "EME"
+      ? { profile: v, plane: "x-y", slice_position: null }
+      : { profile: v, slice_position: null })));
   }
   if (m.modes && m.modes.length) box.append(select("Mode", m.modes, sel.mode, (v) => change({ mode: v })));
   if (m.slider) {
-    // on the x-y plane the slider is the z of the cut, which a z panel then marks
-    const isZ = m.slider.label.startsWith("z");
-    // On x-y the box also names the profile to plot (a saved profile, the current one) or EME for
-    // the device. A profile is plotted through `profile`, and a position or EME clears it, so a
-    // stale profile never outlives the choice.
-    const post = (v) => {
-      if (!isZ) return change({ slice_position: v });
-      const z = parseFloat(v);
-      if (Number.isFinite(z)) return change({ slice_position: v, z_position: z, profile: null });
-      // EME starts the device at its entrance, whatever z was posted last
-      if (String(v).trim() === "EME") return change({ slice_position: 0, z_position: 0, profile: null });
-      change({ slice_position: null, profile: String(v).trim() });
-    };
-    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value, post,
-      (x) => change(isZ ? { slice_position: x, z_position: x, profile: null } : { slice_position: x })));
+    // a z panel's transverse position or reduction (the x-y plane has none, its Profile menu
+    // names EME and the profiles, #179)
+    box.append(zSlider(m.slider.label.replace(":", ""), m.slider, m.slider.value,
+      (v) => change({ slice_position: v }), (x) => change({ slice_position: x })));
   }
   if (m.position) {
-    // on a z panel: the z of the x-y cut, marked on the panel (emode#1625)
-    const label = "Cut " + m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    // the z of the x-y cut: marked on a z panel and drawn below it (emode#1625, #180), and the
+    // device's own x-y plane's z, where a stale slice_position must not override it
+    const xy = sel.plane === "x-y";
+    const name = m.position.label.replace(":", "") + " (" + m.position.unit + ")";
+    const move = (z) => change(xy ? { z_position: z, slice_position: null } : { z_position: z });
     const post = (v) => {
       const z = parseFloat(v);
-      if (Number.isFinite(z)) change({ z_position: z });
+      if (Number.isFinite(z)) move(z);
     };
-    box.append(zSlider(label, m.position, parseFloat(m.position.value), post, (x) => change({ z_position: x })));
+    box.append(zSlider(xy ? name : "Cut " + name, m.position, parseFloat(m.position.value), post, move));
   }
   if (m.z_resolutions && m.z_resolutions.length) {
     box.append(textbox("Z-res (nm)", m.z_resolutions, sel.z_resolution || "Auto",
@@ -1033,7 +1563,7 @@ function buildPlotControls(box, reply) {
   if (m.settings && Object.keys(m.settings).length) {
     const details = document.createElement("details");
     const summary = document.createElement("summary");
-    summary.textContent = "Settings";
+    summary.textContent = "Sampling";
     const list = document.createElement("div");
     const active = new Set(m.active_settings || []);
     for (const [name, arg] of SETTINGS) {
@@ -1063,6 +1593,8 @@ async function openView(name) {
     return showMessage(String(err));
   }
   if (reply.error) return showMessage(reply.error);
+  // on the workbench the View menu switches its data, so the plot is shown again in place
+  if (reply.id === id) return show(id, {});
   await loadList();
   location.hash = "#/plots/" + reply.id;
 }
@@ -1076,12 +1608,12 @@ document.addEventListener("keydown", (ev) => {
   }
   if (!state.reply || ev.target.closest("input, select")) return;
   const arrows = (state.reply.figure.layout.annotations || []).filter((a) => a.name === "arrow");
-  if (ev.key === "Escape") return change({ section: null });
+  if (ev.key === "Escape") return renderNow({ section: null });
   const dir = { ArrowLeft: "◀", ArrowRight: "▶", ArrowUp: "▲", ArrowDown: "▼" }[ev.key];
   const hit = dir && arrows.find((a) => a.text === dir);
   if (hit) {
     ev.preventDefault();
-    change({ section: hit.hovertext.slice(6) });
+    renderNow({ section: hit.hovertext.slice(6) });
   }
 });
 
@@ -1346,7 +1878,16 @@ async function listen() {
 async function onEvent(event, data) {
   if (event === "view-added") {
     await loadList();
-    if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) location.hash = "#/plots/" + data.id;
+    if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) {
+      const target = "#/plots/" + data.id;
+      // the same saved view plotted again (emode#1703): the hash does not change, so show it here
+      if (location.hash === target) show(data.id);
+      else location.hash = target;
+    }
+  } else if (event === "session-changed") {
+    benchChanged();
+  } else if (event === "saved-changed") {
+    loadList().catch(() => {});
   } else if (event === "login-changed") {
     if (onAccount()) loadAccount();
   } else if (event === "session-closed") {
@@ -1388,7 +1929,15 @@ function route() {
     }, 5000);
     return;
   }
-  const id = routeId() || (state.views.length ? state.views[state.views.length - 1].id : null);
+  const id = routeId();
+  const entry = (state.views || []).find((v) => v.id === id);
+  if (entry && entry.opens === "bench") {
+    // a saved recipe opens on the workbench (emode#1703)
+    if (state.openedSaved !== id) openSaved(id);
+    else if (state.reply) fitFigure();
+    return;
+  }
+  state.openedSaved = null;
   if (id && id !== state.current) show(id);
   else if (id && state.reply) fitFigure();
 }
@@ -1400,6 +1949,7 @@ window.addEventListener("pagehide", () => {
 
 document.addEventListener("DOMContentLoaded", async () => {
   if (EMBED) document.body.classList.add("embed");
+  watchSwipes(document.getElementById("figure"));
   startSidebar();
   startAccount();
   await loadList().catch((err) => showMessage(String(err)));

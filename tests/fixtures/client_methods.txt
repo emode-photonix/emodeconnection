@@ -12,6 +12,7 @@ confinement
 connect_ports
 converge
 copy_section
+coupler_section
 create_profile_set
 d_matrix
 delete_profile
@@ -62,5 +63,6 @@ straight_section
 sweep
 taper_section
 to_gds
+transformed_section
 version
 warnings

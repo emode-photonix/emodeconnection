@@ -107,6 +107,7 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
         "session": "The session page",
         "details": "A schematic component's details",
         "inventory": "The plot inventory",
+        "saved": "Saved views",
     }
     if isinstance(info, dict) and info.get("plot") == PLOT_VIEW:
         if kind in ("plot", "schematic") or kind in (info.get("views") or ()):
@@ -150,6 +151,135 @@ def fetch_view(
     if isinstance(data, GDSView):
         data = GDSPanel.from_view(data)
     return data
+
+
+def fetch_dataset(
+    em: "EMode", kind: str, arguments: Dict[str, Any], pixels: Tuple[int, int]
+) -> Any:
+    """Ask EMode for a dataset of the inventory (a ``DatasetEntry``'s `kind` and `arguments`) for the workbench.
+
+    A field, the schematic, the GDS layers, the S-matrix and a material are
+    fetched as ``plot()`` and the others fetch them. The stored sweep and the
+    pulse response come from ``get()``, a profile's mode results and a profile
+    set's results against wavelength from ``get()`` of each result, and a
+    monitor's plane from ``monitor_field()``.
+    """
+    from .figure import MonitorPanel
+    from .sweep_figure import sweep_panel
+
+    if kind in FUNCTIONS:
+        return fetch_view(em, dict(arguments), pixels, kind)
+    if kind == "sweep":
+        return sweep_panel(em.call("EM_get", key="sweep_data"))
+    if kind == "pulse":
+        return sweep_panel(em.call("EM_get", key="pulse_response"))
+    if kind == "response":
+        from ..nonlinear import CircuitResponse
+
+        value = em.call("EM_get", key="response")
+        if not isinstance(value, CircuitResponse):
+            raise EModeError("EMode answered get('response') with something this client cannot draw.")
+        return sweep_panel(response_trend(value))
+    if kind in ("modes", "dispersion"):
+        return sweep_panel(profile_trend(em, kind, arguments))
+    if kind == "monitor":
+        from ..monitor import PlaneField
+
+        value = em.call("EM_monitor_field", **arguments)
+        if not isinstance(value, PlaneField):
+            raise EModeError("EMode answered monitor_field() with something this client cannot draw.")
+        return MonitorPanel(value)
+    raise EModeError(f"This client cannot draw EMode's {kind!r} data. Update it with pip install -U emode.")
+
+
+def _numeric(value: Any) -> Optional[np.ndarray]:
+    try:
+        array = np.asarray(value)
+    except (TypeError, ValueError):
+        return None
+    return array if array.dtype.kind in "biufc" and array.ndim <= 1 else None
+
+
+def profile_trend(em: "EMode", kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """A profile's per-mode results as a sweep over the mode (`kind` ``'modes'``), or a set's over wavelength.
+
+    `arguments` are a ``DatasetEntry``'s: ``profile`` and the ``results`` to
+    ask for. A result that is not a number per mode is left out.
+    """
+    from collections.abc import Mapping
+
+    profile = arguments["profile"]
+    answers = {r: em.call("EM_get", key=r, profile=profile) for r in arguments.get("results") or ["effective_index"]}
+    if kind == "modes":
+        arrays = {r: a for r, a in ((r, _numeric(v)) for r, v in answers.items()) if a is not None and a.ndim == 1}
+        n = max((len(a) for a in arrays.values()), default=0)
+        out: Dict[str, Any] = {"key": "mode", "values": np.arange(n)}
+        out.update({r: a for r, a in arrays.items() if len(a) == n})
+    else:
+        tables = {r: v for r, v in answers.items() if isinstance(v, Mapping) and len(v)}
+        wavelengths = sorted(next(iter(tables.values())).keys()) if tables else []
+        out = {"key": "wavelength", "values": np.asarray(wavelengths, float)}
+        for r, table in tables.items():
+            rows = [_numeric(table[w]) if w in table else None for w in wavelengths]
+            if any(row is None for row in rows):
+                continue
+            rows = [np.atleast_1d(row) for row in rows]
+            width = max(len(row) for row in rows)
+            dtype = complex if any(row.dtype.kind == "c" for row in rows) else float
+            grid = np.full((len(rows), width), np.nan, dtype=dtype)
+            for i, row in enumerate(rows):
+                grid[i, : len(row)] = row
+            out[r] = grid
+    if len(out) == 2 or not len(out["values"]):
+        raise EModeError(f"profile {profile!r} holds no results to plot. Solve it first.")
+    return out
+
+
+def response_trend(response: Any) -> Dict[str, Any]:
+    """The driven operating point (``get('response')``, a ``CircuitResponse``) as a sweep-shaped result.
+
+    A chi(2) device that sampled its trajectories gives each wavelength's
+    forward power along the chain, against ``z`` in nm. Otherwise it is the
+    power into and out of each port mode, against the port mode's index (the
+    ports in order, each mode of a port in turn).
+    """
+    from ..types import ArgumentError
+
+    if response.trajectories:
+        wavelengths = list(dict.fromkeys(wl for tr in response.trajectories for wl in tr.wavelengths))
+        z: Optional[np.ndarray] = None
+        out: Dict[str, Any] = {"key": "z"}
+        for wavelength in wavelengths:
+            try:
+                zs, power = response.power_vs_z(wavelength)
+            except ArgumentError:
+                continue
+            if z is None:
+                z = np.asarray(zs, float)
+            if len(zs) == len(z):
+                out[f"power at {wavelength:g} nm"] = np.asarray(power, float)
+        if z is not None:
+            out["values"] = z
+            return out
+    return {
+        "key": "port_mode",
+        "values": np.arange(len(response.output)),
+        "output_power": np.abs(np.asarray(response.output)) ** 2,
+        "input_power": np.abs(np.asarray(response.input)) ** 2,
+    }
+
+
+def fetch_inventory(em: "EMode") -> Any:
+    """Ask EMode what the session can plot: its ``PlotInventory``."""
+    from ..plotting import PlotInventory
+
+    if not em.running:
+        raise EModeError("This EMode session has ended.")
+    check_plot_support(em, "inventory")
+    value = em.call("EM_plot_inventory")
+    if not isinstance(value, PlotInventory):
+        raise EModeError("EMode answered plot_inventory() with something this client cannot read.")
+    return value
 
 
 def fetch_details(em: "EMode", component: str) -> Dict[str, Any]:
@@ -220,9 +350,140 @@ def ensure_server(em: "EMode") -> UIServer:
             details=lambda component: fetch_details(em, component),
             login=lambda function, **kwargs: em.call(function, **kwargs),
             emode_version=em._emode_version,
+            generation=lambda: em.generation,
+            inventory=lambda: fetch_inventory(em),
+            fetch_dataset=lambda kind, arguments, pixels: fetch_dataset(em, kind, arguments, pixels),
+            post_saved=lambda view: post_saved(em, view),
+            delete_saved=lambda name: post_delete(em, name),
+            list_saved=lambda: list_file_views(em),
         ).start()
         em._ui = server
     return server
+
+
+# ---------------------------------------------------------------- saved views (emode#1703)
+
+
+def saved_supported(em: "EMode") -> bool:
+    """Whether this EMode keeps saved views in its file (``'saved'`` among its ``version()`` views)."""
+    info = em._emode_info()
+    return isinstance(info, dict) and info.get("plot") == PLOT_VIEW and "saved" in (info.get("views") or ())
+
+
+def list_file_views(em: "EMode") -> None:
+    """List the simulation file's saved views in the sidebar, asking EMode once a session.
+
+    Nothing is asked under ``EMODE_NONINTERACTIVE=1`` or of an EMode that keeps
+    no saved views.
+    """
+
+    registry = em._views
+    if registry.file_listed:
+        return
+    if noninteractive() or not em.running or not saved_supported(em):
+        registry.file_listed = True
+        return
+    views = em.call("EM_saved_views")
+    registry.list_file([v for v in (as_saved_view(v) for v in views or []) if v is not None])
+
+
+def as_saved_view(value: Any) -> Any:
+    """`value` as a ``SavedView``, or None.
+
+    EMode answers ``saved_views()`` with a list, and a list reply goes out
+    without the protocol's stamp, so the client hands it back as it decoded
+    it: each view a tagged dict, not yet a ``SavedView``.
+    """
+    from ..plotting import SavedView
+    from ..types import reconstruct
+
+    if isinstance(value, dict) and value.get("__data_type__") == "SavedView":
+        value = reconstruct(value)
+    return value if isinstance(value, SavedView) else None
+
+
+def post_saved(em: "EMode", view: Any) -> None:
+    """Keep `view` in the simulation file (``EM_save_view``): not under ``EMODE_NONINTERACTIVE=1``."""
+    if noninteractive() or not saved_supported(em):
+        return
+    if not em.running:
+        raise EModeError("This EMode session has ended, so the saved view cannot be written to its file.")
+    em.call("EM_save_view", view=view)
+
+
+def post_delete(em: "EMode", name: str) -> None:
+    """Remove the saved view `name` from the simulation file (``EM_delete_saved_view``)."""
+    if noninteractive() or not saved_supported(em):
+        return
+    if not em.running:
+        raise EModeError("This EMode session has ended, so the saved view cannot be removed from its file.")
+    em.call("EM_delete_saved_view", name=name)
+
+
+def saved_views(em: "EMode") -> List[Any]:
+    """``EMode.saved_views``: the file's saved views and this session's, in the sidebar's order."""
+    list_file_views(em)
+    return [e.saved for e in em._views.entries() if not e.session_only]
+
+
+def _session_for(em: Optional["EMode"]) -> "EMode":
+    em = em or current_session()
+    if em is None:
+        raise EModeError("A saved view acts on an EMode session: start one with em = emode.EMode(), or pass em=.")
+    return em
+
+
+def load_recipe(em: "EMode", saved: Any, pixels: Tuple[int, int] = DEFAULT_PIXELS) -> Any:
+    """The data of the saved view `saved`, fetched from EMode as its recipe says.
+
+    A view saved from the workbench names its data entry (``dataset``), which
+    the session's inventory resolves. A script's view is fetched with the
+    function its kind names. The client-side selection is applied after.
+    """
+    from .views import kind_of
+
+    if saved.dataset is not None:
+        entries = {d.id: d for d in fetch_inventory(em).datasets}
+        entry = entries.get(saved.dataset)
+        if entry is None:
+            raise EModeError(f"This session holds no {saved.dataset!r}, which the saved view {saved.name!r} shows.")
+        if not entry.available:
+            raise EModeError(entry.reason or f"{entry.label} is not available")
+        kept = KINDS[saved.kind].data_arguments if saved.kind in KINDS else ()
+        arguments = {**entry.arguments, **{k: v for k, v in saved.arguments.items() if k in kept}}
+        data = fetch_dataset(em, entry.kind, arguments, pixels)
+    elif saved.kind in FUNCTIONS:
+        check_plot_support(em, saved.kind)
+        data = fetch_view(em, _sent(saved.kind, dict(saved.arguments)), pixels, saved.kind)
+    else:
+        raise EModeError(
+            f"The saved view {saved.name!r} shows data only the script that made it held, so it cannot be fetched again."
+        )
+    local = {k: v for k, v in saved.arguments.items() if k in KINDS[kind_of(data)].local_arguments}
+    return _select(data, local) if local else data
+
+
+def show_saved(saved: Any, em: Optional["EMode"] = None, **arguments: Any) -> Union["PlotHandle", PlotImage, None]:
+    """``SavedView.show()``: the saved view plotted again in `em`'s tab, with its arguments and options."""
+    from .views import options_of
+
+    em = _session_for(em)
+    data = load_recipe(em, saved)
+    options = options_of(saved.options)
+    return present(em, data, dict(saved.arguments), options, name=saved.name, dataset=saved.dataset, **arguments)
+
+
+def delete_saved(name: str, em: Optional["EMode"] = None) -> None:
+    """``SavedView.delete()``: the saved view `name` removed from `em`'s sidebar and its simulation file."""
+    em = _session_for(em)
+    entry = em._views.by_name(name)
+    if entry is None or not entry.session_only:
+        post_delete(em, name)
+    if entry is not None:
+        em._views.remove(entry.id)
+    server = em.__dict__.get("_ui")
+    if server is not None and server.running:
+        server.publish("saved-changed", {})
 
 
 def headless_image(
@@ -272,6 +533,16 @@ def open_tab(em: "EMode", server: UIServer, view: View) -> None:
     webbrowser.open(server.url(view.id))
 
 
+def browse(em: "EMode") -> str:
+    """Open the session's tab on the workbench (emode#1701), with no plot and no EMode call. Returns its address."""
+    server = ensure_server(em)
+    url = _public_url(server, None, embed=False)
+    em._ui_opened = True
+    server.opened_at = clock()
+    webbrowser.open(url)
+    return url
+
+
 def _sent(kind: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """The arguments of a view EMode computes: the client-side selection stays here."""
     local = KINDS[kind].local_arguments if kind in ("material", "farfield", "gds") else ()
@@ -284,16 +555,17 @@ def plot(
     inline: Optional[str] = None,
     file_name: Optional[str] = None,
     file_type: str = "png",
+    name: Optional[str] = None,
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     if arguments.get("view") == "gds":
         # the GDS layer view: its layer panel's arguments stay in this client
         data_args, figure_args = _split(arguments, DATA_ARGUMENTS + GDS_ARGUMENTS, "plot")
-        return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type)
+        return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type, name)
     arguments = _physical_space(arguments)
     check_figure_arguments(arguments)
     data_args, figure_args = split_arguments(arguments)
-    return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type)
+    return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type, name)
 
 
 def _physical_space(arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -328,8 +600,12 @@ def show_call(
     inline: Optional[str] = None,
     file_name: Optional[str] = None,
     file_type: str = "png",
+    name: Optional[str] = None,
 ) -> Union["PlotHandle", PlotImage, None]:
-    """Fetch a view of `kind` from EMode and show it: in the tab, or as a static image."""
+    """Fetch a view of `kind` from EMode and show it: in the tab, or as a static image.
+
+    `name` names its saved view (emode#1703), replacing one of that name.
+    """
     options = PlotOptions.from_arguments(figure_args)
     if inline not in (None, "png"):
         raise EModeError("inline is 'png' or None")
@@ -342,7 +618,7 @@ def show_call(
     if isinstance(data, GDSPanel):
         # the view keeps the panel's resolved state, which a fetch again reapplies
         data_args = state_arguments(data_args, data)
-    return present(em, data, data_args, options, block, inline, file_name, file_type)
+    return present(em, data, data_args, options, block, inline, file_name, file_type, name=name)
 
 
 def present(
@@ -354,8 +630,18 @@ def present(
     inline: Optional[str] = None,
     file_name: Optional[str] = None,
     file_type: str = "png",
+    name: Optional[str] = None,
+    session_only: bool = False,
+    dataset: Optional[str] = None,
 ) -> Union["PlotHandle", PlotImage, None]:
-    """Show `data` (a view's data the client holds): register it with the tab, or draw it here."""
+    """Show `data` (a view's data the client holds): register it with the tab, or draw it here.
+
+    The view is listed as a saved view (emode#1703), named `name` or by its
+    title, and its recipe is kept in the simulation file unless the data is
+    the client's own (`session_only`: no recipe can fetch it again) or
+    ``EMODE_NONINTERACTIVE=1`` is set. `dataset` is the workbench data entry
+    a replayed saved view names.
+    """
     inline = inline or os.environ.get("EMODE_PLOT_INLINE") or None
     if headless_requested(file_name) or inline == "png":
         notebook = em.in_ipython()
@@ -367,8 +653,29 @@ def present(
             return None
         return image
 
-    view = em._views.add(data, arguments, options, DEFAULT_PIXELS)
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        from ..types import ArgumentError
+
+        raise ArgumentError("name is the saved view's name, a string that is not blank", "plot", "name")
+    list_file_views(em)
+    view, recipe = em._views.register(
+        data,
+        arguments,
+        options,
+        DEFAULT_PIXELS,
+        em.generation,
+        name=name.strip() if name is not None else None,
+        session_only=session_only,
+        dataset=dataset,
+    )
     handle = PlotHandle(em, view)
+    if recipe is not None:
+        try:
+            post_saved(em, recipe)
+        except EModeError as exc:
+            import warnings
+
+            warnings.warn(f"EMode could not keep the saved view {recipe.name!r} in its file: {exc}", stacklevel=3)
     if noninteractive():
         return handle
     server = ensure_server(em)
@@ -390,8 +697,9 @@ def plot_S_matrix(
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     """``EMode.plot_S_matrix``: the S-matrix's block from `input` to `output`, as a view."""
+    name = arguments.pop("name", None)
     data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "plot_S_matrix")
-    return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type)
+    return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type, name)
 
 
 def material_explorer(
@@ -403,10 +711,11 @@ def material_explorer(
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     """``EMode.material_explorer``: a material's refractive index against wavelength, as a view."""
+    name = arguments.pop("name", None)
     data_args, figure_args = _split(
         arguments, ("material", "wavelengths", "step", "x", "component"), "material_explorer"
     )
-    return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type)
+    return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type, name)
 
 
 def _split(arguments: Dict[str, Any], data: Sequence[str], function: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -435,12 +744,15 @@ def show_data(
     inline: Optional[str] = None,
     file_name: Optional[str] = None,
     file_type: str = "png",
+    name: Optional[str] = None,
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     """``FarField.show()``, ``SMatrix.show()`` and a sweep's ``plot()``: data this client holds, shown with no EMode call.
 
     `em` is the session whose tab shows it, by default the newest session of
-    this process that is still running.
+    this process that is still running. `name` names its entry in the
+    sidebar, which is listed for this session only: no recipe can fetch the
+    client's own data again, so it is not kept in the simulation file.
     """
     from ..free_space import FarField
     from ..smatrix import SMatrix
@@ -475,7 +787,7 @@ def show_data(
             "show() opens the plot in an EMode session's browser tab. Start one with "
             "em = emode.EMode(), or pass em=, file_name= or inline='png'."
         )
-    return present(em, view_data, data_args, options, block, inline, file_name, file_type)
+    return present(em, view_data, data_args, options, block, inline, file_name, file_type, name=name, session_only=True)
 
 
 def smatrix_view(smatrix: Any) -> SMatrixView:
@@ -566,6 +878,9 @@ class PlotHandle:
     def __init__(self, em: "EMode", view: View) -> None:
         self._em = em
         self._view = view
+        # the data and options of the call, which a later plot() of the same saved view does not change
+        self._data = view.data
+        self._options = view.options
 
     @property
     def id(self) -> str:
@@ -573,11 +888,11 @@ class PlotHandle:
 
     @property
     def view(self) -> Union[PlotView, Schematic]:
-        return self._view.data
+        return _without_cut(self._data)
 
     @property
     def figure(self) -> FigureSpec:
-        return compose(self._view.data, self._view.options)
+        return compose(_without_cut(self._data), self._options)
 
     @property
     def url(self) -> Optional[str]:
@@ -619,7 +934,14 @@ class PlotHandle:
         return f"<PlotHandle {self.id}: {self._view.title}>"
 
 
-def _public_url(server: UIServer, view_id: str, embed: bool) -> str:
+def _without_cut(data: Any) -> Any:
+    """`data` without the x-y panel the tab draws below a z panel (#180): a script gets what it asked for."""
+    from .cut import CutPanel
+
+    return data.zpanel if isinstance(data, CutPanel) else data
+
+
+def _public_url(server: UIServer, view_id: Optional[str], embed: bool) -> str:
     """The app's address as the browser reaches it: through Colab's proxy on Colab."""
     url = server.url(view_id, embed=embed)
     if "google.colab" in sys.modules and not os.environ.get("EMODE_UI_URL"):
