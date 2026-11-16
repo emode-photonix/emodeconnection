@@ -389,7 +389,9 @@ class EMode:
         # sent: that EMode would refuse the whole message, not just the option.
         needs = required_versions(kwargs)
         if needs:
-            check_emode_version(needs, self._emode_version(), function)
+            info = self._emode_info()
+            capabilities = set(info.get("views") or ()) if isinstance(info, dict) else set()
+            check_emode_version(needs, self._emode_version(), function, capabilities)
 
         # An array goes as `__ndarray__` to an EMode that reads it, which keeps its
         # dtype and shape. An older EMode gets the list form, which cannot carry a
