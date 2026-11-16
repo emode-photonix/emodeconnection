@@ -651,6 +651,9 @@ OMITTED = {
     "copy_section": "a later tool",
     "check_layout": "a later tool",
     "to_gds": "a later tool",
+    # their curves and registered transforms have no JSON form in the tool specs yet
+    "coupler_section": "a later tool",
+    "transformed_section": "a later tool",
     "free_space_field": "a later tool",
     "free_space_field_diagnostics": "a later tool",
     "monitor": "a later tool",
