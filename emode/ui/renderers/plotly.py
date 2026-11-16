@@ -251,6 +251,20 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
 #: A contour line's color on each side of zero, as the window drew them.
 _CONTOUR_COLORS = ("#000000", "#ffffff")
 
+#: A contour line's width in pixels and its opacity. The colorbar's marks draw with the same
+#: two numbers (`_colorbar_marks`), so the marks and the lines they stand for look alike (#199).
+CONTOUR_WIDTH = 0.5
+CONTOUR_OPACITY = 0.7
+
+#: A colorbar tick is drawn with crisp edges, so Plotly gives it at least one whole pixel
+#: whatever its `tickwidth`. The mark's opacity is scaled by the fraction of that pixel the contour
+#: line covers (an antialiased 0.5 px line spreads the same ink over two rows), so the mark leaves
+#: the same ink as the line, not twice as much (#199).
+_MARK_OPACITY = CONTOUR_OPACITY * min(CONTOUR_WIDTH, 1.0)
+
+#: The marks' rgb on each side of zero, the contours' colors (`_CONTOUR_COLORS`).
+_MARK_COLORS = ("0,0,0", "255,255,255")
+
 
 def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
     """The raster's contour lines: one trace for the levels at or above zero, one for those below.
@@ -294,8 +308,8 @@ def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
                 "mode": "lines",
                 "x": typed_array(round_digits(xy[:, 0])),
                 "y": typed_array(round_digits(xy[:, 1])),
-                "line": {"color": color, "width": 0.5},
-                "opacity": 0.7,
+                "line": {"color": color, "width": CONTOUR_WIDTH},
+                "opacity": CONTOUR_OPACITY,
                 "connectgaps": False,
                 "hoverinfo": "skip",
                 "showlegend": False,
@@ -317,8 +331,8 @@ def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
                 "y": typed_array(r.y),
                 "z": typed_array(r.z),
                 "contours": {"start": level, "end": level, "size": 1.0, "coloring": "none"},
-                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": 0.5},
-                "opacity": 0.7,
+                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": CONTOUR_WIDTH},
+                "opacity": CONTOUR_OPACITY,
                 "showscale": False,
                 "hoverinfo": "skip",
             }
@@ -352,8 +366,8 @@ _BAR_X = 1.02
 _CLEAR = [[0.0, "rgba(0,0,0,0)"], [1.0, "rgba(0,0,0,0)"]]
 
 
-def _colorbar_marks(cb: Any, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """A clear colorbar over `bar` whose ticks cross it at each contour level, None without levels.
+def _colorbar_marks(cb: Any, bar: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Clear colorbars over `bar` whose ticks cross it at each contour level, empty without levels.
 
     A Plotly colorbar has no such lines, and a layout shape cannot draw them:
     Plotly draws shapes in the plot's own SVG and every colorbar in the SVG
@@ -363,24 +377,35 @@ def _colorbar_marks(cb: Any, bar: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     moved with it by `_panels`), no outline and no labels, and ticks inside, as
     long as the bar is thick, at the levels. Plotly draws a later trace's
     colorbar above an earlier one's, so the trace goes after the field's.
+
+    A colorbar has one tick color, so the levels from zero up (black contours)
+    and the levels below it (white contours) are two clear bars, one over the
+    other, in that order (#199).
     """
     span = cb.vmax - cb.vmin
     levels = [float(v) for v in cb.lines if span > 0 and cb.vmin <= v <= cb.vmax]
-    if not levels:
-        return None
     clear = {k: v for k, v in bar.items() if k not in ("title", "tickvals", "ticktext", "tickfont", "outlinewidth")}
-    clear.update(
-        {
-            "tickvals": levels, "ticks": "inside", "ticklen": bar.get("thickness", _BAR_THICKNESS),
-            "tickwidth": 0.8, "tickcolor": "#000000", "showticklabels": False, "outlinewidth": 0,
-        }
-    )
-    return {
-        "type": "scatter", "mode": "markers", "x": [None], "y": [None],
-        "marker": {"color": [cb.vmin], "cmin": cb.vmin, "cmax": cb.vmax, "colorscale": _CLEAR,
-                   "showscale": True, "colorbar": clear},
-        "hoverinfo": "skip", "showlegend": False, "name": "colorbar_levels", "meta": "colorbar_levels",
-    }
+    out = []
+    for color, here in zip(_MARK_COLORS, ([v for v in levels if v >= 0], [v for v in levels if v < 0])):
+        if not here:
+            continue
+        mine = dict(clear)
+        mine.update(
+            {
+                "tickvals": here, "ticks": "inside", "ticklen": bar.get("thickness", _BAR_THICKNESS),
+                "tickwidth": CONTOUR_WIDTH, "tickcolor": f"rgba({color},{_MARK_OPACITY:g})",
+                "showticklabels": False, "outlinewidth": 0,
+            }
+        )
+        out.append(
+            {
+                "type": "scatter", "mode": "markers", "x": [None], "y": [None],
+                "marker": {"color": [cb.vmin], "cmin": cb.vmin, "cmax": cb.vmax, "colorscale": _CLEAR,
+                           "showscale": True, "colorbar": mine},
+                "hoverinfo": "skip", "showlegend": False, "name": "colorbar_levels", "meta": "colorbar_levels",
+            }
+        )
+    return out
 
 
 def _bar_of(trace: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -497,9 +522,7 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
     for i, r in enumerate(rasters):
         data.append(_heatmap(r, showscale=(i == 0 and spec.colorbar is not None), spec=spec))
     if spec.colorbar is not None and rasters:
-        marks = _colorbar_marks(spec.colorbar, data[-len(rasters)]["colorbar"])
-        if marks is not None:
-            data.append(marks)
+        data.extend(_colorbar_marks(spec.colorbar, data[-len(rasters)]["colorbar"]))
     for r in rasters:
         data.extend(_contours(r))
 

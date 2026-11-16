@@ -151,10 +151,17 @@ def _overlays(figure: Dict[str, Any]) -> List[Tuple[int, Dict[str, Any]]]:
 
 
 def _check_marks(figure: Dict[str, Any], levels: List[float]) -> None:
+    """Each shown bar has a clear bar of marks per sign: black ticks at the levels from zero up
+    and white ticks at the levels below zero, as the contours are drawn (#199)."""
     bars = _shown_bars(figure)
     overlays = _overlays(figure)
-    assert bars and len(overlays) == len(bars), (
-        "one clear bar of marks over each shown bar"
+    groups = []
+    if any(v >= 0 for v in levels):
+        groups.append(([v for v in levels if v >= 0], "0,0,0"))
+    if any(v < 0 for v in levels):
+        groups.append(([v for v in levels if v < 0], "255,255,255"))
+    assert bars and len(overlays) == len(bars) * len(groups), (
+        "one clear bar of marks per sign over each shown bar"
     )
     # no layout shape marks a level: a shape is drawn under the colorbar, so never seen
     assert not [
@@ -162,35 +169,44 @@ def _check_marks(figure: Dict[str, Any], levels: List[float]) -> None:
         for s in figure["layout"].get("shapes", [])
         if s.get("name") == "colorbar_level"
     ]
-    for (i, bar, (lo, hi)), (j, overlay) in zip(bars, overlays):
-        assert j > i, "the clear bar is drawn after, so above, the shown one"
-        marker = overlay["marker"]
-        clear = marker["colorbar"]
-        assert marker["showscale"] is True
-        assert (marker["cmin"], marker["cmax"]) == (lo, hi)
-        assert all(
-            str(c).replace(" ", "").endswith(",0)") for _, c in marker["colorscale"]
-        ), "the clear bar is transparent"
-        for key in GEOMETRY:
-            assert clear.get(key, DEFAULTS.get(key)) == bar.get(
-                key, DEFAULTS.get(key)
-            ), key
-        assert _bar(clear) == _bar(bar)
-        assert clear["tickvals"] == pytest.approx(levels)
-        assert clear["ticks"] == "inside"
-        assert clear["ticklen"] == bar.get("thickness", DEFAULTS["thickness"]), (
-            "each mark spans the bar"
-        )
-        assert clear["showticklabels"] is False
-        assert clear["outlinewidth"] == 0
-        assert not (clear.get("title") or {}).get("text")
-        # nothing of the clear trace is drawn on the axes
-        assert (
-            overlay["x"] == [None]
-            and overlay["y"] == [None]
-            and overlay["hoverinfo"] == "skip"
-        )
-        assert overlay.get("showlegend") is False
+    for k, (i, bar, (lo, hi)) in enumerate(bars):
+        mine = overlays[k * len(groups) : (k + 1) * len(groups)]
+        for (levels_here, rgb), (j, overlay) in zip(groups, mine):
+            _check_overlay(i, bar, lo, hi, levels_here, rgb, j, overlay)
+
+
+def _check_overlay(i, bar, lo, hi, levels, rgb, j, overlay) -> None:
+    import re
+
+    assert j > i, "the clear bar is drawn after, so above, the shown one"
+    marker = overlay["marker"]
+    clear = marker["colorbar"]
+    assert marker["showscale"] is True
+    assert (marker["cmin"], marker["cmax"]) == (lo, hi)
+    assert all(
+        str(c).replace(" ", "").endswith(",0)") for _, c in marker["colorscale"]
+    ), "the clear bar is transparent"
+    for key in GEOMETRY:
+        assert clear.get(key, DEFAULTS.get(key)) == bar.get(key, DEFAULTS.get(key)), key
+    assert _bar(clear) == _bar(bar)
+    assert clear["tickvals"] == pytest.approx(levels)
+    assert re.fullmatch(rf"rgba\({rgb},[0-9.]+\)", clear["tickcolor"].replace(" ", "")), (
+        clear["tickcolor"]
+    )
+    assert clear["ticks"] == "inside"
+    assert clear["ticklen"] == bar.get("thickness", DEFAULTS["thickness"]), (
+        "each mark spans the bar"
+    )
+    assert clear["showticklabels"] is False
+    assert clear["outlinewidth"] == 0
+    assert not (clear.get("title") or {}).get("text")
+    # nothing of the clear trace is drawn on the axes
+    assert (
+        overlay["x"] == [None]
+        and overlay["y"] == [None]
+        and overlay["hoverinfo"] == "skip"
+    )
+    assert overlay.get("showlegend") is False
 
 
 def test_each_mark_is_a_tick_of_a_clear_bar_over_the_shown_one():
@@ -233,3 +249,69 @@ def test_the_colorbar_stays_unmarked_when_contours_are_off():
     spec = compose(_view(), PlotOptions(contours=False))
     assert spec.colorbar is not None and spec.colorbar.lines == ()
     assert not _overlays(to_plotly(spec))
+
+
+# ------------------------------------------------------------------ the marks match the contours (#199)
+
+
+def _contour_line_style(figure: Dict[str, Any]) -> Tuple[float, float]:
+    lines = [t for t in figure["data"] if t.get("meta") == "contour"]
+    assert lines
+    styles = {(t["line"]["width"], t["opacity"]) for t in lines}
+    assert len(styles) == 1
+    return styles.pop()
+
+
+def test_plotly_marks_draw_at_the_contour_lines_width_and_ink():
+    import re
+
+    figure = to_plotly(compose(_view()))
+    width, opacity = _contour_line_style(figure)
+    assert _overlays(figure)
+    for _, overlay in _overlays(figure):
+        clear = overlay["marker"]["colorbar"]
+        assert clear["tickwidth"] == width
+        alpha = re.fullmatch(r"rgba\((?:0,0,0|255,255,255),([0-9.]+)\)", clear["tickcolor"].replace(" ", ""))
+        assert alpha, clear["tickcolor"]
+        # Plotly draws a tick at least one whole pixel, so a mark of the same ink as a line
+        # narrower than that has the line's opacity times its width (#199)
+        assert float(alpha.group(1)) == pytest.approx(opacity * min(width, 1.0))
+
+
+def test_matplotlib_marks_draw_at_the_contour_lines_width_and_alpha():
+    from matplotlib.colors import to_rgba
+
+    from emode.ui.renderers import mpl as mpl_renderer
+
+    fig = mpl_renderer.to_figure(compose(_view()))
+    ax = fig.axes[0]
+    contour = [c for c in ax.collections if type(c).__name__ == "QuadContourSet"]
+    assert contour
+    width = float(contour[0].get_linewidths()[0])
+    alpha = contour[0].get_alpha()
+    assert alpha is not None
+    marks = [
+        c
+        for c in fig.axes[-1].collections
+        if hasattr(c, "get_segments") and len(c.get_segments())
+    ]
+    assert marks
+    for c in marks:
+        assert float(c.get_linewidths()[0]) == pytest.approx(width)
+        assert to_rgba(c.get_edgecolor()[0])[3] == pytest.approx(alpha)
+
+
+def test_matplotlib_marks_take_their_contours_colors():
+    from matplotlib.colors import to_rgba
+
+    from emode.ui.renderers import mpl as mpl_renderer
+
+    spec = compose(_view())
+    fig = mpl_renderer.to_figure(spec)
+    marks = [
+        c for c in fig.axes[-1].collections if hasattr(c, "get_segments") and len(c.get_segments())
+    ]
+    assert len(marks) == 1
+    colors = [tuple(c[:3]) for c in marks[0].get_edgecolor()]
+    expected = [(0.0, 0.0, 0.0) if v >= 0 else (1.0, 1.0, 1.0) for v in spec.colorbar.lines]
+    assert colors == [pytest.approx(e) for e in expected]
