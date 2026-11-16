@@ -11,9 +11,9 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from ..plotting import MaterialView, MenuState, PlotView, Schematic, SMatrixView
+from ..plotting import MaterialView, MenuState, Schematic, SMatrixView
 from .figure import DATA_ARGUMENTS, FarFieldPanel, PlotOptions
 from .gds import LOCAL_ARGUMENTS as GDS_ARGUMENTS
 from .gds import GDSPanel

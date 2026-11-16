@@ -23,7 +23,7 @@ author's responsibility.
 from typing import Union
 
 import numpy as np
-from pydantic import ConfigDict, computed_field, field_validator, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 from .types import ArgumentError, TaggedModel, register_type
 

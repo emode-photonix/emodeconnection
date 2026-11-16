@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 import emode.__main__ as entry
 from emode.types import LicenseError
