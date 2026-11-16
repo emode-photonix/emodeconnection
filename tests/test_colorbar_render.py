@@ -148,7 +148,7 @@ SCENARIOS.forEach(function (figs, k) {{
     var bottom = cy - clen / 2;
     var x0 = left + size.l + cb.x * size.w;
     var row = function (v) {{ return top + size.t + (1 - (bottom + (v - lo) / (hi - lo) * clen)) * size.h; }};
-    bars.push({{x0: x0, x1: x0 + cb.thickness, ends: [row(hi), row(lo)], rows: cb.tickvals.map(row)}});
+    bars.push({{x0: x0, x1: x0 + cb.thickness, ends: [row(hi), row(lo)], rows: cb.tickvals.map(row), white: cb.tickcolor.indexOf("255") >= 0}});
   }});
   out.push(bars);
 }});
@@ -238,11 +238,18 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
                 assert (seen > 40).mean() > 0.6, (
                     f"{name}: the mark at y = {y:.1f} px is not seen across the bar"
                 )
-                # a black mark: darker than the bar under it
-                assert (
-                    marked[rows, cols].sum(axis=2).min()
-                    < bare[rows, cols].sum(axis=2).min() + 1
-                )
+                if bar["white"]:
+                    # a white mark (a negative level): lighter than the bar under it
+                    assert (
+                        marked[rows, cols].sum(axis=2).max()
+                        > bare[rows, cols].sum(axis=2).max() - 1
+                    )
+                else:
+                    # a black mark: darker than the bar under it
+                    assert (
+                        marked[rows, cols].sum(axis=2).min()
+                        < bare[rows, cols].sum(axis=2).min() + 1
+                    )
     # on the bars' columns, the clear bars draw nothing but their marks (a title or tick label
     # elsewhere can move by a pixel between two drawings, which says nothing of the bar)
     band = np.zeros(diff.shape, bool)

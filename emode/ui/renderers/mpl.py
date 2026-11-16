@@ -251,7 +251,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         if cb.lines:
             # a line across the bar at each contour level drawn on the panel
             bar.add_lines(
-                list(cb.lines), [to_rgba("k", CONTOUR_ALPHA)] * len(cb.lines), [CONTOUR_LINEWIDTH] * len(cb.lines)
+                list(cb.lines), [to_rgba("k" if v >= 0 else "w", CONTOUR_ALPHA) for v in cb.lines], [CONTOUR_LINEWIDTH] * len(cb.lines)
             )
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
