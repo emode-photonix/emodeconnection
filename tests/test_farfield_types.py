@@ -163,3 +163,16 @@ def test_a_default_screen_sends_only_what_it_was_given() -> None:
 def test_the_new_types_name_the_emode_that_reads_them() -> None:
     for name in ("FarField", "Screen", "ScreenField"):
         assert compat.TYPE_SINCE[name] == "1.0.8"
+
+
+def test_a_far_field_says_what_radiated_and_from_which_monitor() -> None:
+    """``radiated_from`` and ``monitor`` round-trip, and an older reply without
+    them reads as the transverse E of a port or a profile."""
+    sent = _gaussian_far_field().model_copy(
+        update={"radiated_from": "E and H", "monitor": "above", "port": "left"}
+    )
+    received = _round_trip(sent)
+    assert received.radiated_from == "E and H"
+    assert received.monitor == "above" and received.port == "left"
+    plain = _round_trip(_gaussian_far_field())
+    assert plain.radiated_from == "E" and plain.monitor is None

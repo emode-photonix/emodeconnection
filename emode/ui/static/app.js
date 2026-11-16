@@ -1619,11 +1619,7 @@ function loadAccount() {
 }
 
 function startAccount() {
-  setText("error-reporting-explanation",
-    "When a session closes, EMode can send EMode Photonix a short report of each internal error: " +
-    "the error type, the EMode function, the EMode version and the platform. It never includes " +
-    "your script, geometry or files. The setting applies to every session on this computer, and " +
-    "'emode settings --error-reporting on|off' changes it too.");
+  setText("error-reporting-explanation", "Sends EMode Photonix the error type, function, version and platform. Never your scripts, geometry or files.");
   document.getElementById("login-form").addEventListener("submit", (event) => {
     event.preventDefault();
     signInWithPassword();
