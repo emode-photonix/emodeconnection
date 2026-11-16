@@ -637,3 +637,58 @@ def test_the_workbench_draws_mode_results_as_markers(em):
     traces = [t for t in reply["figure"]["data"] if t.get("type") == "scatter" and t.get("meta") == "trace"]
     assert traces and all(t["mode"] == "markers" for t in traces)
     assert reply["figure"]["layout"]["xaxis"]["dtick"] == 1
+
+
+# ------------------------------------------------------------------ the phone's Settings fold (#196)
+
+
+def _bench_page(em: Any, size: tuple):
+    from chrome_cdp import Page
+    from test_colorbar_render import CHROME
+
+    if CHROME is None:
+        pytest.skip("needs a headless Chrome")
+    server = _server(em)
+    page = Page(CHROME, f"http://127.0.0.1:{server.port}/?token={server.token}#/plots", *size)
+    page.wait_for("document.querySelectorAll('#controls select').length > 2")
+    return page
+
+
+_BENCH_PROBE = """(function () {
+  var c = document.getElementById("controls");
+  var d = c.querySelector("details.settings");
+  var labels = function (root) { return Array.prototype.map.call(root.querySelectorAll("label"),
+    function (l) { return l.textContent.trim().split(":")[0]; }); };
+  var fig = document.getElementById("figure").getBoundingClientRect();
+  return JSON.stringify({fold: !!d, open: d ? d.open : null,
+    bench: labels(c.querySelector(".bench-menus")),
+    inside: d ? labels(d) : [], benchInFold: d ? !!d.querySelector(".bench-menus") : null,
+    plotTop: fig.top, controlsBottom: c.getBoundingClientRect().bottom});
+})()"""
+
+
+def test_the_workbench_on_a_phone_keeps_plot_and_data_outside_the_settings_fold(em):
+    import json
+
+    page = _bench_page(em, (390, 844))
+    try:
+        closed = json.loads(page.eval(_BENCH_PROBE))
+        page.eval("document.querySelector('#controls details.settings').open = true")
+        opened = json.loads(page.eval(_BENCH_PROBE))
+    finally:
+        page.close()
+    assert closed["fold"] and closed["open"] is False and closed["benchInFold"] is False
+    assert closed["bench"] == ["Plot", "Data"]
+    assert "Aspect" in opened["inside"] and "Plot" not in opened["inside"] and opened["benchInFold"] is False
+    assert opened["open"] is True
+
+
+def test_the_workbench_on_a_desktop_has_no_settings_fold(em):
+    import json
+
+    page = _bench_page(em, (1280, 900))
+    try:
+        got = json.loads(page.eval(_BENCH_PROBE))
+    finally:
+        page.close()
+    assert got["fold"] is False and got["bench"] == ["Plot", "Data"]
