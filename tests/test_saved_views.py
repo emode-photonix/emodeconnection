@@ -750,3 +750,23 @@ def test_the_capability_stands_in_for_the_release_only_for_its_own_type():
         check_emode_version(needs, "1.0.8", "EM_save_view", capabilities={"inventory"})
     with pytest.raises(ArgumentError):
         check_emode_version({"bounds": [("Bounds.num_pml_layers", "1.0.9")]}, "1.0.8", "EM_settings", {"saved"})
+
+
+# ------------------------------------------------------------------ the file's views as the wire brings them
+
+
+def test_the_files_views_are_read_from_the_plain_list_the_wire_brings(em, file_views):
+    """EMode answers saved_views() with a list, which goes out unstamped: the client gets tagged dicts.
+
+    The licensed run listed nothing after reopening the file because those dicts were dropped.
+    """
+    from emode.types import wire_dump
+
+    file_views.views = [_recipe("TE", arguments={"component": "Ex"}), _recipe("b")]
+    em.client.answers["EM_saved_views"] = lambda request: json.loads(
+        json.dumps([wire_dump(v) for v in file_views.views])
+    )
+    views = em.saved_views()
+    assert [v.name for v in views] == ["TE", "b"]
+    assert all(type(v) is SavedView for v in views)
+    assert views[0] == file_views.views[0]
