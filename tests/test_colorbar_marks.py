@@ -233,3 +233,52 @@ def test_the_colorbar_stays_unmarked_when_contours_are_off():
     spec = compose(_view(), PlotOptions(contours=False))
     assert spec.colorbar is not None and spec.colorbar.lines == ()
     assert not _overlays(to_plotly(spec))
+
+
+# ------------------------------------------------------------------ the marks match the contours (#199)
+
+
+def _contour_line_style(figure: Dict[str, Any]) -> Tuple[float, float]:
+    lines = [t for t in figure["data"] if t.get("meta") == "contour"]
+    assert lines
+    styles = {(t["line"]["width"], t["opacity"]) for t in lines}
+    assert len(styles) == 1
+    return styles.pop()
+
+
+def test_plotly_marks_draw_at_the_contour_lines_width_and_ink():
+    import re
+
+    figure = to_plotly(compose(_view()))
+    width, opacity = _contour_line_style(figure)
+    for _, overlay in _overlays(figure):
+        clear = overlay["marker"]["colorbar"]
+        assert clear["tickwidth"] == width
+        alpha = re.fullmatch(r"rgba\(0, ?0, ?0, ?([0-9.]+)\)", clear["tickcolor"])
+        assert alpha, clear["tickcolor"]
+        # Plotly draws a tick at least one whole pixel, so a mark of the same ink as a line
+        # narrower than that has the line's opacity times its width (#199)
+        assert float(alpha.group(1)) == pytest.approx(opacity * min(width, 1.0))
+
+
+def test_matplotlib_marks_draw_at_the_contour_lines_width_and_alpha():
+    from matplotlib.colors import to_rgba
+
+    from emode.ui.renderers import mpl as mpl_renderer
+
+    fig = mpl_renderer.to_figure(compose(_view()))
+    ax = fig.axes[0]
+    contour = [c for c in ax.collections if type(c).__name__ == "QuadContourSet"]
+    assert contour
+    width = float(contour[0].get_linewidths()[0])
+    alpha = contour[0].get_alpha()
+    assert alpha is not None
+    marks = [
+        c
+        for c in fig.axes[-1].collections
+        if hasattr(c, "get_segments") and len(c.get_segments())
+    ]
+    assert marks
+    for c in marks:
+        assert float(c.get_linewidths()[0]) == pytest.approx(width)
+        assert to_rgba(c.get_edgecolor()[0])[3] == pytest.approx(alpha)

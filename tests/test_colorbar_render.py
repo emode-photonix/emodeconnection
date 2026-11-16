@@ -252,3 +252,70 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
     assert not (diff[band & ~expected] > 40).any(), (
         "the clear bar changed pixels off its marks"
     )
+
+
+# ------------------------------------------------------------------ the marks look like the contours (#199)
+
+INK_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<script src="{plotly}"></script></head><body style="margin:0;background:#fff">
+<div id="p" style="width:{pw}px;height:{ph}px"></div><script>
+var fig = {figure}, drop = {drop};
+var data = fig.data.filter(function (t) {{ return drop.indexOf(t.meta) < 0; }});
+Plotly.newPlot(document.getElementById("p"), data,
+  Object.assign({{}}, fig.layout, {{width: {pw}, height: {ph}}}));
+</script></body></html>"""
+
+
+def _ink_shot(tmp_path: Path, name: str, figure: Dict[str, Any], drop: List[str]) -> np.ndarray:
+    page = tmp_path / f"{name}.html"
+    page.write_text(
+        INK_PAGE.format(
+            plotly=PLOTLY.as_uri(),
+            figure=json.dumps(figure, default=_json_default),
+            drop=json.dumps(drop),
+            pw=PW,
+            ph=PH,
+        ),
+        encoding="utf-8",
+    )
+    return _shot(page, tmp_path / f"{name}.png", PH + 20)
+
+
+def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path) -> None:
+    """Plotly draws a colorbar tick at least one whole pixel and a contour line at 0.5 px.
+
+    The field is a ramp in y, so its one contour is a horizontal line across the plot. The ink
+    each leaves (how much darker its rows are than the same rows without it, summed over the
+    rows) is the same within 10%.
+    """
+    base = _view(signed=False)
+    x, y = np.linspace(-1000, 1000, 81), np.linspace(-500, 700, 61)
+    z = np.tile(np.linspace(0.02, 0.98, 61)[:, None], (1, 81)).astype(np.float32)
+    raster = base.rasters[0].model_copy(
+        update={"x": x, "y": y, "z": z, "contour_levels": np.array([0.5])}
+    )
+    figure = to_plotly(compose(base.model_copy(update={"rasters": [raster]})))
+    full = _ink_shot(tmp_path, "full", figure, [])
+    no_marks = _ink_shot(tmp_path, "no_marks", figure, ["colorbar_levels"])
+    bare = _ink_shot(tmp_path, "bare", figure, ["colorbar_levels", "contour"])
+
+    def luminance(a: np.ndarray) -> np.ndarray:
+        return a.sum(axis=2)
+
+    # the plot's columns away from its edges, where only the contour line differs
+    plot = slice(100, 500)
+    line = (luminance(bare[:, plot]) - luminance(no_marks[:, plot])) / np.maximum(
+        luminance(bare[:, plot]), 1
+    )
+    line_ink = line.mean(axis=1).sum()
+    # the bar's columns, where only the mark differs
+    changed = np.abs(luminance(full) - luminance(no_marks)).sum(axis=0)
+    cols = np.where(changed > 0)[0]
+    assert cols.size, "no mark on the bar"
+    inner = slice(cols.min() + 2, cols.max() - 1)
+    mark = (luminance(no_marks[:, inner]) - luminance(full[:, inner])) / np.maximum(
+        luminance(no_marks[:, inner]), 1
+    )
+    mark_ink = mark.mean(axis=1).sum()
+    assert line_ink > 0.1, "the contour line is not seen"
+    assert mark_ink == pytest.approx(line_ink, rel=0.1)
