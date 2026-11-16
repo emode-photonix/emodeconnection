@@ -1,7 +1,7 @@
 """The view sets the space, there is no 'Physical space' setting (emode#1649).
 
 Layout is physical space and simulation the simulation space, chosen in the View
-menu. The tab's Settings list no longer offers 'Physical space', even from an
+menu. The tab's Sampling list no longer offers 'Physical space', even from an
 EMode that still sends it, and ``plot(physical_space=...)`` still works with a
 ``DeprecationWarning``, as ``view='layout'`` or ``view='simulation'``.
 """

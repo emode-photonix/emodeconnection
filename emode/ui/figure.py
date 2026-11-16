@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import textwrap
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -32,9 +32,10 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
-#: The golden ratio: every plot but the S-matrix is this much wider than tall
-#: by default, an x-y cross section included (emodeconnection#160).
-GOLDEN = (1 + math.sqrt(5)) / 2
+#: sqrt(2), the root-2 rectangle of ISO 216 paper and the old plot window: every
+#: plot but the S-matrix is this much wider than tall by default, an x-y cross
+#: section included (emodeconnection#160, Eric 2026-11-15).
+PLOT_RATIO = math.sqrt(2)
 
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
@@ -109,6 +110,11 @@ class PlotOptions:
     aspect_ratio: Union[str, float, None] = None
     vmin: Optional[float] = None
     vmax: Optional[float] = None
+    #: Each axis's ends, None for automatic (#191).
+    xmin: Optional[float] = None
+    xmax: Optional[float] = None
+    ymin: Optional[float] = None
+    ymax: Optional[float] = None
 
     @classmethod
     def from_arguments(cls, arguments: Dict[str, Any]) -> "PlotOptions":
@@ -121,7 +127,20 @@ class PlotOptions:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
         if "colormap" in arguments and arguments["colormap"] is not None:
             colormaps.check_colormap(arguments["colormap"])
+        ratio = options.aspect_ratio
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
+            if not ASPECT_BOUNDS[0] <= ratio <= ASPECT_BOUNDS[1]:
+                raise ArgumentError(
+                    f"aspect_ratio is the plot box's height over its width, from {ASPECT_BOUNDS[0]:g} "
+                    f"to {ASPECT_BOUNDS[1]:g}, got {ratio:g}",
+                    "plot",
+                    "aspect_ratio",
+                )
         return options
+
+
+#: The plot box's height over its width that `aspect_ratio` may give: past these a figure degenerates (#189).
+ASPECT_BOUNDS = (0.001, 1000.0)
 
 
 # ------------------------------------------------------------------ the spec
@@ -219,12 +238,21 @@ class AxesSpec:
     visible: bool = True
     grid: bool = False
     integer_ticks: bool = False
+    #: Integer ticks on the x axis only: its values are a discrete count, such as a mode number.
+    integer_xticks: bool = False
     #: A second y axis on the right (``Panel.twin()``): its label and range, None without one.
     y2label: Optional[str] = None
     y2range: Optional[Tuple[float, float]] = None
     #: Each y axis's label and tick color, None for the default black.
     ylabel_color: Optional[str] = None
     y2label_color: Optional[str] = None
+    #: Whether each axis labels its ticks: a grid's inner panels do not (#184).
+    show_xticklabels: bool = True
+    show_yticklabels: bool = True
+    #: The y values cannot be negative (|S|, a power): the automatic range starts at 0 (#191).
+    y_nonnegative: bool = False
+    #: The same for the twin's right axis, marked by the script.
+    y2_nonnegative: bool = False
 
 
 @dataclass(frozen=True)
@@ -309,15 +337,38 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
 
     The plot box's height over its width (``AxesSpec.box_aspect``) is 1 for the
-    S-matrix and 1 / ``GOLDEN`` for every other plot, an x-y cross section
+    S-matrix and 1 / ``PLOT_RATIO`` for every other plot, an x-y cross section
     included, unless ``aspect_ratio`` gives one: a number, or ``'real'``
     for the limits' own ratio (emodeconnection#160).
     """
     options = options or PlotOptions()
     spec = _compose(view, options)
     if spec.panels:
+        chosen = options.aspect_ratio
+        if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+            # every panel takes a chosen ratio, and the figure's aspect follows (#189)
+            panels = tuple(replace(p, axes=replace(p.axes, box_aspect=float(chosen))) for p in spec.panels)
+            spec = replace(spec, panels=panels)
+        return _extents(spec, options)
+    spec = replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+    return _extents(spec, options)
+
+
+def _extents(spec: FigureSpec, options: PlotOptions) -> FigureSpec:
+    """`spec` with the axis ends `options` sets (#191), each panel's for a figure of panels."""
+    ends = (options.xmin, options.xmax, options.ymin, options.ymax)
+    if all(v is None for v in ends):
         return spec
-    return replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+    if spec.panels:
+        return replace(spec, panels=tuple(_extents(p, options) for p in spec.panels))
+    (x0, x1), (y0, y1) = spec.axes.xrange, spec.axes.yrange
+    pick = lambda v, auto: auto if v is None else float(v)  # noqa: E731
+    axes = replace(
+        spec.axes,
+        xrange=(pick(options.xmin, x0), pick(options.xmax, x1)),
+        yrange=(pick(options.ymin, y0), pick(options.ymax, y1)),
+    )
+    return replace(spec, axes=axes)
 
 
 def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> float:
@@ -331,17 +382,18 @@ def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> f
         return limits
     if isinstance(view, SMatrixView):
         return 1.0
-    return 1 / GOLDEN
+    return 1 / PLOT_RATIO
 
 
 def figure_aspect(spec: FigureSpec) -> float:
     """The plot box's height over its width, which the tab sizes the plot to."""
     if spec.panels:
         rows, cols = spec.panel_grid
-        return rows / cols / GOLDEN
+        each = spec.panels[0].axes.box_aspect
+        return rows / cols * (float(each) if each else 1 / PLOT_RATIO)
     if spec.axes.box_aspect is not None:
         return float(spec.axes.box_aspect)
-    return 1 / GOLDEN
+    return 1 / PLOT_RATIO
 
 
 def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
@@ -363,6 +415,8 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
         return _compose_farfield(view, options)
     if isinstance(view, FarFieldPanel):
         return _compose_farfield(view.farfield, options, view.panel)
+    if isinstance(view, MonitorPanel):
+        return _compose_monitor(view, options)
     from .sweep_figure import SweepPanel, compose_sweep
 
     if isinstance(view, SweepPanel):
@@ -373,6 +427,10 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
 
     if isinstance(view, ModesPanel):
         return compose_modes(view, options)
+    from .cut import CutPanel, compose_cut
+
+    if isinstance(view, CutPanel):
+        return compose_cut(view, options)
     if isinstance(view, Figure):
         return compose_figure(view, options)
     if not isinstance(view, PlotView):
@@ -594,7 +652,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
             tick_format=view.scale.tick_format,
-            lines=rasters[0].contour_levels if rasters else (),
+            lines=_reached(rasters),
         )
 
     legend: Tuple[LegendEntrySpec, ...] = ()
@@ -634,6 +692,29 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
         dpi=options.dpi,
         arrows=tuple(view.arrows),
     )
+
+
+def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
+    """The contour levels the field reaches, which the colorbar marks (#178).
+
+    A level outside the shown values has no line on the field (an EME x-y cut
+    normalized to the launched field can peak well below the top levels), so
+    marking it on the bar would mark a line that is not there.
+    """
+    if not rasters or not rasters[0].contour_levels:
+        return ()
+    shown = []
+    for r in rasters:
+        z = np.asarray(r.z, np.float64)
+        keep = np.isfinite(z)
+        if r.mask is not None:
+            keep &= ~np.asarray(r.mask, bool)
+        if keep.any():
+            shown.append((float(z[keep].min()), float(z[keep].max())))
+    if not shown:
+        return ()
+    lo, hi = min(a for a, _ in shown), max(b for _, b in shown)
+    return tuple(v for v in rasters[0].contour_levels if lo < v < hi)
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
@@ -967,6 +1048,68 @@ def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity")
         texts=texts if options.text_display else (),
         colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or bar_label, tick_format="%.3g"),
         title=options.title or f"far field, {view.wavelength:g} nm",
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
+    )
+
+
+@dataclass(frozen=True)
+class MonitorPanel:
+    """A monitor's ``PlaneField`` and what is shown of it: a component (or the flux ``Sn``) and its part."""
+
+    field: Any
+    data: str = "Ex"
+    part: str = "abs"
+
+    #: What the Data menu offers.
+    DATA = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "Sn")
+    #: What the part menu offers.
+    PARTS = ("abs", "abs^2", "real", "imag")
+
+    def with_selection(self, data: Optional[str], part: Optional[str]) -> "MonitorPanel":
+        data = data if data in self.DATA else self.data
+        part = part if part in self.PARTS else self.part
+        return MonitorPanel(self.field, data, part)
+
+
+def _compose_monitor(view: MonitorPanel, options: PlotOptions) -> FigureSpec:
+    """The field on a monitor's plane: across it (x) against along it (s), both in μm."""
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    plane = view.field
+    values = np.asarray(plane.Sn if view.data == "Sn" else plane.fields[view.data])
+    part = {"abs": np.abs, "abs^2": lambda v: np.abs(v) ** 2, "real": np.real, "imag": np.imag}[view.part]
+    z = np.asarray(part(values), float)
+    signed = view.part in ("real", "imag") or (view.data == "Sn" and np.nanmin(z) < 0)
+    peak = float(np.nanmax(np.abs(z))) if z.size else 1.0
+    peak = peak or 1.0
+    vmin = (-peak if signed else 0.0) if options.vmin is None else float(options.vmin)
+    vmax = peak if options.vmax is None else float(options.vmax)
+    cmap = _cmap("diverging" if signed else "sequential", options)
+    x = np.asarray(plane.s, float) / 1000
+    y = np.asarray(plane.x, float) / 1000
+    raster = RasterSpec(x=x, y=y, z=z, colormap=cmap, vmin=vmin, vmax=vmax)
+    axes = AxesSpec(
+        xlabel=options.xlabel or "s, along the plane (μm)",
+        ylabel=options.ylabel or "x (μm)",
+        xrange=(float(x.min()), float(x.max())),
+        yrange=(float(y.min()), float(y.max())),
+        equal_aspect=True,
+    )
+    texts = (
+        TextSpec(
+            f"{plane.power_through_plane:.3g} W through the plane of {plane.power_in:g} W launched",
+            0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+        ),
+    )
+    label = "Sn (W/m²)" if view.data == "Sn" else view.data
+    return FigureSpec(
+        axes=axes,
+        rasters=(raster,),
+        texts=texts if options.text_display else (),
+        colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or f"{label} {view.part}", tick_format="%.3g"),
+        title=options.title or f"monitor {plane.name}, {plane.wavelength:g} nm",
         width_mm=float(width),
         height_mm=float(height),
         font_size=options.font_size,

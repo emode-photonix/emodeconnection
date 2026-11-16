@@ -75,6 +75,33 @@ def _launch_solver(cmd: list[str], ipython: bool, quiet: bool) -> "Popen[bytes]"
     return Popen(cmd, stdout=None, stderr=None)
 
 
+#: The calls that read the session and change nothing a plot shows (emodeconnection#182):
+#: every other call counts a new generation, and a view fetched before it is fetched
+#: again when the tab shows it. A function not listed counts, which at worst costs a fetch.
+READ_ONLY_FUNCTIONS = frozenset(
+    {
+        "EM_session_info",
+        "EM_component_details",
+        "EM_version",
+        "EM_material_explorer",
+        "EM_monitor_field",
+        "EM_warnings",
+        "EM_logout",
+        "EM_clear_session",
+        # saved views are presets, kept beside the simulation: no plot shows them (emode#1703)
+        "EM_saved_views",
+        "EM_save_view",
+        "EM_delete_saved_view",
+    }
+)
+READ_ONLY_PREFIXES = ("EM_plot", "EM_get", "EM_login")
+
+
+def changes_session(function: str) -> bool:
+    """Whether a call of `function` can change what a plot of the session shows."""
+    return function not in READ_ONLY_FUNCTIONS and not function.startswith(READ_ONLY_PREFIXES)
+
+
 class EMode:
     def __init__(
         self,
@@ -337,7 +364,21 @@ class EMode:
         call made while another is in flight waits for it.
         """
         with self._lock():
-            return self._call(function, **kwargs)
+            try:
+                return self._call(function, **kwargs)
+            finally:
+                if changes_session(function):
+                    # a call that failed may have changed the session too
+                    self.__dict__["_generation"] = self.generation + 1
+                    server = self.__dict__.get("_ui")
+                    if server is not None and server.running:
+                        # the tab's workbench asks again what the session can plot (emode#1701)
+                        server.publish("session-changed", {"generation": self.generation})
+
+    @property
+    def generation(self) -> int:
+        """How many calls that can change the session this client has made (emodeconnection#182)."""
+        return self.__dict__.get("_generation", 0)
 
     def _call(self, function: str, **kwargs) -> Union[dict, Literal['failed'], float, str, list, PlotImage, None]:
         logger.debug(f"calling '{function}' with args: {_redacted(kwargs)}")
@@ -348,7 +389,9 @@ class EMode:
         # sent: that EMode would refuse the whole message, not just the option.
         needs = required_versions(kwargs)
         if needs:
-            check_emode_version(needs, self._emode_version(), function)
+            info = self._emode_info()
+            capabilities = set(info.get("views") or ()) if isinstance(info, dict) else set()
+            check_emode_version(needs, self._emode_version(), function, capabilities)
 
         # An array goes as `__ndarray__` to an EMode that reads it, which keeps its
         # dtype and shape. An older EMode gets the list form, which cannot carry a
@@ -462,6 +505,12 @@ class EMode:
         after. The first ``plot()`` opens the tab and later ones update it.
         ``block=True`` waits until the tab is closed.
 
+        Each plot is listed in the tab's sidebar as a saved view, named by its
+        title, or by ``name`` (which replaces a saved view of that name), and
+        EMode keeps it in the simulation file, so ``save()`` writes it and a
+        file opened later lists it again (``saved_views()``). The same plot
+        again is listed once.
+
         With ``file_name`` the figure is saved under ``EM_figures/`` as
         ``file_type`` ('png', 'pdf' or 'svg'), and with ``EMODE_HEADLESS=1``, on
         Linux without a display, or with ``inline='png'`` in a notebook, the
@@ -501,6 +550,37 @@ class EMode:
             return ui.show_data(result, em=self, block=block, inline=inline, file_name=file_name,
                                 file_type=file_type, **kwargs)
         return ui.plot(self, block=block, inline=inline, file_name=file_name, file_type=file_type, **kwargs)
+
+    def browse(self) -> str:
+        """Open this session's browser tab on the plot workbench, with no plot, and return its address.
+
+        The workbench lists every piece of data the session holds, under Field
+        (the device's field, each profile's modes, a free-space field, a
+        monitor's plane, the schematic, the GDS layers) or Trend (the stored
+        sweep, the pulse response, the S-matrix, each profile's mode results, a
+        profile set against wavelength, a material's index), and plots any of
+        them with that data's own controls. It asks EMode for nothing until the
+        tab shows it.
+        """
+        from .ui import session as ui
+
+        return ui.browse(self)
+
+    def saved_views(self) -> list:
+        """The saved views of this session's plot tab: its simulation file's, then this session's.
+
+        Each is a ``SavedView``, a recipe for a plot (its ``name``, ``kind``,
+        ``arguments`` and ``options``), with ``show()`` to plot it again and
+        ``delete()`` to remove it. A script's ``plot()`` saves one named by its
+        title, or by ``name=``, and the workbench saves its state with Save or
+        Save as. EMode keeps them in the simulation file, so ``save()`` writes
+        them and a file opened later lists them again. Plots of data the
+        script holds (a far field, a figure, a sweep's result) are listed in
+        the tab for the session only and are not returned here.
+        """
+        from .ui import session as ui
+
+        return ui.saved_views(self)
 
     def plot_S_matrix(self, input: "int | str" = 0, output: "int | str" = 1, plot_function: "str | None" = None,
                       block: bool = False, inline: "str | None" = None, file_name: "str | None" = None,
