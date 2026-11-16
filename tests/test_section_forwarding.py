@@ -37,10 +37,18 @@ def _session() -> tuple[EMode, list[tuple[str, dict[str, Any]]]]:
                 length=6000.0,
             ),
         ),
-        ("transformed_section", dict(name="t", transform="bend", profile="p", length=3000.0)),
+        (
+            "transformed_section",
+            dict(name="t", transform="bend", profile="p", length=3000.0),
+        ),
         (
             "bend_section",
-            dict(name="b", profile="p", path=Arc(radius=20000.0, sweep_angle=0.2), method="TO"),
+            dict(
+                name="b",
+                profile="p",
+                path=Arc(radius=20000.0, sweep_angle=0.2),
+                method="TO",
+            ),
         ),
     ],
 )
