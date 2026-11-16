@@ -161,6 +161,48 @@ def test_the_rslab_variant_downloads_the_slim_linux_build(
     assert (linux['system'] / 'emode').read_bytes() == BINARY
 
 
+def test_the_rslab_variant_takes_the_one_linux_zip_from_1_0_9(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+    run: _Recorder,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    versions = {
+        'latest': '1.0.9',
+        'versions': {
+            '1.0.8': ['Linux', 'Linux-rslab', 'Mac', 'Mac-x86', 'Windows'],
+            '1.0.9': ['Linux', 'Mac', 'Mac-x86', 'Windows'],
+        },
+    }
+    monkeypatch.setattr(installer, 'get_versions', lambda: versions)
+    installer.install(variant='rslab')
+    assert downloads == [
+        {'platform_key': 'linux', 'version': '1.0.9', 'filename': 'EMode-1.0.9-Linux.zip'}
+    ]
+    assert 'rslab' in capsys.readouterr().out
+
+
+def test_the_rslab_variant_keeps_linux_rslab_for_1_0_8(
+    linux: dict[str, Path],
+    downloads: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+    run: _Recorder,
+) -> None:
+    versions = {
+        'latest': '1.0.9',
+        'versions': {
+            '1.0.8': ['Linux', 'Linux-rslab', 'Mac', 'Mac-x86', 'Windows'],
+            '1.0.9': ['Linux', 'Mac', 'Mac-x86', 'Windows'],
+        },
+    }
+    monkeypatch.setattr(installer, 'get_versions', lambda: versions)
+    installer.install(variant='rslab', version='1.0.8')
+    assert downloads == [
+        {'platform_key': 'linux-rslab', 'version': '1.0.8', 'filename': 'EMode-1.0.8-Linux-rslab.zip'}
+    ]
+
+
 def test_the_rslab_variant_must_be_listed_for_the_version(
     linux: dict[str, Path],
     downloads: list[dict[str, Any]],
