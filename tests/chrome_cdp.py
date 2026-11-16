@@ -55,7 +55,9 @@ class Page:
         )
         self.cmd("Page.navigate", {"url": url})
 
-    def _send(self, method: str, params: Dict[str, Any], session: Optional[str] = None) -> Any:
+    def _send(
+        self, method: str, params: Dict[str, Any], session: Optional[str] = None
+    ) -> Any:
         self._id += 1
         msg: Dict[str, Any] = {"id": self._id, "method": method, "params": params}
         if session:

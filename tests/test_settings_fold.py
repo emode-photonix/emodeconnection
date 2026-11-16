@@ -24,7 +24,7 @@ state.current = "p1";
 var box = document.getElementById("controls");
 function build() { buildControls(reply); }
 function fold() { return box.children.filter(function (c) {
-  return c.tagName === "DETAILS" && c.classList.contains("settings"); })[0]; }
+  return c.tagName === "DETAILS" && c.className === "settings"; })[0]; }
 function names(el) { return el.querySelectorAll("select").length; }
 """
 
@@ -39,7 +39,7 @@ def test_narrow_the_per_kind_controls_sit_in_a_closed_settings_fold():
         "narrowQuery.matches = true; build();",
         """
 var f = fold();
-var outside = box.children.filter(function (c) { return c !== f; });
+var outside = box.children.filter(function (c) { return c !== f && c.className !== "export"; });
 return {fold: !!f, open: f && f.open, inside: f ? names(f) : -1,
   selectsOutside: outside.reduce(function (n, c) { return n + names(c) + (c.tagName === "LABEL" ? 1 : 0); }, 0),
   text: f ? __text(f.children[0]) : "",
@@ -57,7 +57,10 @@ return {fold: !!f, open: f && f.open, inside: f ? names(f) : -1,
 
 @needs_jsc
 def test_wide_there_is_no_settings_fold():
-    got = _app("narrowQuery.matches = false; build();", "return {fold: !!fold(), selects: box.querySelectorAll('select').length};")
+    got = _app(
+        "narrowQuery.matches = false; build();",
+        "return {fold: !!fold(), selects: box.querySelectorAll('select').length};",
+    )
     assert got["fold"] is False
     assert got["selects"] >= 3
 
@@ -112,7 +115,8 @@ PROBE = """(function () {
   var d = c.querySelector("details.settings");
   var fig = f.getBoundingClientRect(), bar = c.getBoundingClientRect();
   var inside = d ? d.querySelectorAll("select, input[type=text]").length : 0;
-  var all = c.querySelectorAll("select, input[type=text]").length;
+  var all = Array.prototype.filter.call(c.querySelectorAll("select, input[type=text]"),
+    function (e) { return !e.closest("details.export"); }).length;
   var shown = d ? Array.prototype.every.call(d.querySelectorAll("select"),
     function (s) { return s.getBoundingClientRect().height > 0; }) : null;
   return JSON.stringify({fold: !!d, open: d ? d.open : null, inside: inside, all: all,
