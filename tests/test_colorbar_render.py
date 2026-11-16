@@ -281,18 +281,20 @@ def _ink_shot(tmp_path: Path, name: str, figure: Dict[str, Any], drop: List[str]
     return _shot(page, tmp_path / f"{name}.png", PH + 20)
 
 
-def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path) -> None:
+@pytest.mark.parametrize("level", [0.5, -0.5], ids=["black", "white"])
+def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path, level: float) -> None:
     """Plotly draws a colorbar tick at least one whole pixel and a contour line at 0.5 px.
 
-    The field is a ramp in y, so its one contour is a horizontal line across the plot. The ink
-    each leaves (how much darker its rows are than the same rows without it, summed over the
-    rows) is the same within 10%.
+    The field is a ramp in y from -1 to 1, so its one contour is a horizontal line across the
+    plot, black above zero and white below. The ink each leaves (how much darker, or lighter for
+    white, its rows are than the same rows without it, summed over the rows) is the same within
+    10%.
     """
-    base = _view(signed=False)
+    base = _view()
     x, y = np.linspace(-1000, 1000, 81), np.linspace(-500, 700, 61)
-    z = np.tile(np.linspace(0.02, 0.98, 61)[:, None], (1, 81)).astype(np.float32)
+    z = np.tile(np.linspace(-0.98, 0.98, 61)[:, None], (1, 81)).astype(np.float32)
     raster = base.rasters[0].model_copy(
-        update={"x": x, "y": y, "z": z, "contour_levels": np.array([0.5])}
+        update={"x": x, "y": y, "z": z, "contour_levels": np.array([level])}
     )
     figure = to_plotly(compose(base.model_copy(update={"rasters": [raster]})))
     full = _ink_shot(tmp_path, "full", figure, [])
@@ -302,20 +304,20 @@ def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path) -> None:
     def luminance(a: np.ndarray) -> np.ndarray:
         return a.sum(axis=2)
 
+    def ink(without: np.ndarray, with_: np.ndarray) -> np.ndarray:
+        """The share of the way to black (or white) each row went."""
+        if level >= 0:
+            return (luminance(without) - luminance(with_)) / np.maximum(luminance(without), 1)
+        return (luminance(with_) - luminance(without)) / np.maximum(765.0 - luminance(without), 1)
+
     # the plot's columns away from its edges, where only the contour line differs
     plot = slice(100, 500)
-    line = (luminance(bare[:, plot]) - luminance(no_marks[:, plot])) / np.maximum(
-        luminance(bare[:, plot]), 1
-    )
-    line_ink = line.mean(axis=1).sum()
-    # the bar's columns, where only the mark differs
+    line_ink = ink(bare[:, plot], no_marks[:, plot]).mean(axis=1).sum()
+    # the bar's columns, where only the marks differ
     changed = np.abs(luminance(full) - luminance(no_marks)).sum(axis=0)
     cols = np.where(changed > 0)[0]
     assert cols.size, "no mark on the bar"
     inner = slice(cols.min() + 2, cols.max() - 1)
-    mark = (luminance(no_marks[:, inner]) - luminance(full[:, inner])) / np.maximum(
-        luminance(no_marks[:, inner]), 1
-    )
-    mark_ink = mark.mean(axis=1).sum()
+    mark_ink = ink(no_marks[:, inner], full[:, inner]).mean(axis=1).sum()
     assert line_ink > 0.1, "the contour line is not seen"
     assert mark_ink == pytest.approx(line_ink, rel=0.1)
