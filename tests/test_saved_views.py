@@ -30,7 +30,7 @@ from emode.types import ArgumentError, EModeError
 from emode.ui import session as ui
 
 from js_harness import needs_jsc, run_app
-from plot_fixtures import farfield, zx_view
+from plot_fixtures import farfield
 from test_plot_inventory import _round_trip
 from test_workbench import _entry, _http, _server, bench, inventory
 from test_workbench import desktop  # noqa: F401  (autouse fixture)
@@ -286,7 +286,9 @@ def test_a_script_run_twice_lists_its_plot_once(em, file_views):
 
 
 def test_opening_a_saved_entry_fetches_with_its_arguments_and_options(em, file_views):
-    recipe = _recipe("Ey", arguments={"profile": "wg", "plane": "x-y", "component": "Ey"}, options={"colormap": "magma"})
+    recipe = _recipe(
+        "Ey", arguments={"profile": "wg", "plane": "x-y", "component": "Ey"}, options={"colormap": "magma"}
+    )
     file_views.views = [recipe]
     (entry,) = _sidebar(em)
     plots = len(_calls(em, "EM_plot"))
@@ -318,9 +320,7 @@ def _jsonable(value: Any) -> Any:
 
 
 def test_a_saved_view_of_analysis_data_opens_by_its_dataset(em, file_views):
-    file_views.views = [
-        _recipe("modes", kind="sweep", arguments={"result": "TE_fraction"}, dataset="modes:FDM")
-    ]
+    file_views.views = [_recipe("modes", kind="sweep", arguments={"result": "TE_fraction"}, dataset="modes:FDM")]
     (entry,) = _sidebar(em)
     reply = bench(em, {"saved": entry["id"]})
     assert "error" not in reply, reply
@@ -347,7 +347,7 @@ def test_edit_in_workbench_loads_a_script_views_settings(em):
     assert "error" not in reply, reply
     assert len(_calls(em, "EM_plot")) == plots  # the script's data, not fetched again
     assert reply["bench"]["dataset"] == "profile:wg"
-    assert reply["bench"]["origin"] == {"id": handle.id, "name": "x-y Ey abs"}
+    assert reply["bench"]["origin"] == {"id": handle.id, "name": "x-y Ex real"}
     assert reply["controls"]["component"] == "Ey" and reply["controls"]["colormap"] == "magma"
     assert reply["bench"]["modified"] is False
     # the script's own view is left as it was
@@ -372,7 +372,7 @@ def test_save_writes_the_bench_back_to_the_view_it_came_from(em):
     reply = _act(em, action="save")
     assert reply.get("error") is None, reply
     posted = _calls(em, "EM_save_view")[-1]["view"]
-    assert posted.name == "x-y Ex abs" and posted.arguments["component"] == "Ey"
+    assert posted.name == "x-y Ex real" and posted.arguments["component"] == "Ey"
     assert posted.dataset == "profile:wg"
     assert bench(em)["bench"]["modified"] is False
     # the entry shows what was saved
@@ -461,7 +461,8 @@ def test_the_saved_route_refuses_another_page(em, headers):
 # ------------------------------------------------------------------ after close()
 
 
-def test_after_close_a_cached_entry_opens_and_an_uncached_one_says_the_session_ended(em, file_views):
+def test_after_close_a_cached_entry_opens_and_an_uncached_one_says_the_session_ended(em, file_views, monkeypatch):
+    monkeypatch.setenv("EMODE_UI_EXIT_WAIT", "0")
     file_views.views = [_recipe("from the file")]
     handle = em.plot(plane="z-x", component="Ex")
     entries = {e["title"]: e["id"] for e in _sidebar(em)}

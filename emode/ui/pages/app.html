@@ -36,6 +36,18 @@
       </aside>
     </div>
   </section>
+  <div id="save-sheet" role="dialog" aria-modal="false" aria-labelledby="sheet-title" hidden>
+    <h2 id="sheet-title">Save view</h2>
+    <label for="sheet-name">Name</label>
+    <input id="sheet-name" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div id="sheet-error" role="alert" hidden></div>
+    <div class="sheet-buttons">
+      <button id="sheet-save" type="button" class="primary">Save</button>
+      <button id="sheet-save-as" type="button">Save as new</button>
+      <button id="sheet-rename" type="button" class="primary" hidden>Rename</button>
+      <button id="sheet-cancel" type="button">Cancel</button>
+    </div>
+  </div>
 </main>
 <main id="session" hidden>
   <h2>This session</h2>

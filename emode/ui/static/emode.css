@@ -28,6 +28,23 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views li.selected { background: #e8f0fb; }
 #views li .when { display: block; color: var(--muted); font-size: 11px; }
 #views li.pinned { font-weight: 600; border-bottom: 2px solid var(--line); }
+/* saved views (emode#1703): a group heading, and each entry's menu of actions */
+#views li { position: relative; }
+#views li.group { cursor: default; padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+#views li .title { display: block; padding-right: 30px; overflow-wrap: anywhere; }
+#views li .entry-menu { position: absolute; top: 4px; right: 4px; min-width: 28px; min-height: 28px; font: inherit; font-size: 16px; line-height: 1; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--muted); cursor: pointer; }
+#views li .entry-menu:hover, #views li .entry-menu[aria-expanded="true"] { border-color: var(--line); color: var(--text); }
+#views li .entry-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }
+#views li .entry-actions button { font: inherit; font-size: 12px; padding: 4px 8px; }
+#controls .save-view-bar { display: inline-flex; gap: 8px; align-items: center; }
+#controls .save-view-bar .modified { color: var(--warn); font-style: italic; }
+#controls button.primary, #save-sheet button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+#save-sheet { position: fixed; top: 52px; right: 16px; z-index: 40; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); padding: 12px 14px; display: grid; gap: 6px; }
+#save-sheet h2 { font-size: 14px; margin: 0 0 2px; }
+#save-sheet input { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; width: 100%; }
+#save-sheet .sheet-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+#save-sheet .sheet-buttons button { font: inherit; min-height: 36px; padding: 4px 12px; }
+#sheet-error { color: var(--warn); }
 .bench-menus { display: inline-flex; flex-wrap: wrap; gap: 8px; padding-right: 8px; margin-right: 4px; border-right: 1px solid var(--line); }
 .bench-menus option:disabled { color: var(--muted); }
 #panel { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 8px 12px; }
@@ -137,6 +154,9 @@ body.embed #app { height: 100vh; }
   #controls details.settings { flex: 1 0 100%; }
   #controls details.settings > div { position: static; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; border: 0; padding: 6px 0 2px; max-width: none; }
   #controls details.settings > summary { font-weight: 600; }
+  /* the Save sheet is a bottom sheet on a phone, as the details panel is */
+  #save-sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 8px 8px 0 0; padding: 14px 16px 20px; }
+  #controls .save-view-bar button { min-height: 36px; }
   #details { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 60vh; z-index: 30; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.25); }
   #session { padding: 10px; }
   #nav { gap: 10px; padding: 6px 10px; }

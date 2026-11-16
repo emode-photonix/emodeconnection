@@ -61,6 +61,7 @@ TYPE_SINCE: dict[str, str] = {
     "Raster": "1.0.9",
     "Region": "1.0.9",
     "ScaleInfo": "1.0.9",
+    "SavedView": "1.0.9",
     "Schematic": "1.0.9",
     "Screen": "1.0.8",
     "ScreenField": "1.0.8",

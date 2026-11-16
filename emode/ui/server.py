@@ -58,7 +58,7 @@ from ..plotting import PlotView, Schematic
 from .cut import CutPanel, cut_arguments, held_xy, offers_cut
 from .cut import frozen as frozen_cut
 from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
-from .views import BENCH, KINDS, View, ViewRegistry, kind_of, menu_of, title_of
+from .views import BENCH, KINDS, View, ViewRegistry, kind_of, menu_of, options_of, plain, title_of
 
 UI_DIR = Path(__file__).parent
 PAGES = UI_DIR / "pages"
@@ -101,8 +101,14 @@ class UIServer:
         generation: Optional[Callable[[], int]] = None,
         inventory: Optional[Callable[[], Any]] = None,
         fetch_dataset: Optional[Callable[[str, Dict[str, Any], Tuple[int, int]], Any]] = None,
+        post_saved: Optional[Callable[[Any], None]] = None,
+        delete_saved: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.registry = registry
+        #: ``post_saved(view)``: keep a ``SavedView`` in the simulation file (emode#1703)
+        self.post_saved = post_saved
+        #: ``delete_saved(name)``: remove a saved view from the simulation file
+        self.delete_saved = delete_saved
         #: ``inventory()``: EMode's ``PlotInventory``, what the workbench lists (emode#1701)
         self.inventory = inventory
         #: ``fetch_dataset(kind, arguments, pixels)``: one of the inventory's datasets, for the workbench
@@ -327,8 +333,13 @@ class UIServer:
         with self._bench_lock:
             bench = self.registry.bench
             controls = dict(controls)
+            saved = controls.pop("saved", None)
             category = controls.pop("category", None)
             dataset = controls.pop("dataset", None)
+            if saved is not None:
+                # a saved view, or a script's view (Edit in workbench), loaded into the workbench (emode#1703)
+                self.bench_open_saved(str(saved), pixels)
+                controls, category, dataset = {}, None, bench.dataset
             inventory = self.current_inventory()
             entries = {d.id: d for d in inventory.datasets}
             if category not in (None, "field", "trend"):
@@ -352,8 +363,153 @@ class UIServer:
                 if self._bench_stale(entry, view):
                     bench.show(entry.id, entry.category, self._bench_load(entry, view, pixels))
             reply = self.view_reply(bench.view, controls, pixels, width)
-            reply["bench"] = _bench_menus(inventory, bench.category, bench.dataset)
+            reply["bench"] = {**_bench_menus(inventory, bench.category, bench.dataset), **self._origin()}
             return reply
+
+    # ---------------------------------------------------------------- saved views (emode#1703)
+
+    def _origin(self) -> Dict[str, Any]:
+        """The saved view the workbench came from, and whether its settings have changed since."""
+        bench = self.registry.bench
+        entry = self.registry.entry(bench.origin) if bench.origin is not None else None
+        if entry is None:
+            return {"origin": None, "modified": False}
+        return {"origin": {"id": entry.id, "name": entry.saved.name}, "modified": bench.modified()}
+
+    def _known_inventory(self) -> Optional[Any]:
+        """The inventory, or the last one asked for once the session has ended (None if never)."""
+        if self.session_ended:
+            return self._inventory_cache[2] if self._inventory_cache is not None else None
+        return self.current_inventory()
+
+    def bench_open_saved(self, entry_id: str, pixels: Optional[Tuple[int, int]]) -> None:
+        """Load the saved view `entry_id` into the workbench, which then counts it as its origin.
+
+        A script's view brings its own data (Edit in workbench), so nothing is
+        fetched. A recipe is fetched as the inventory's entry for it says, from
+        the data the workbench still holds when that is the same.
+        """
+        with self._bench_lock:
+            entry = self.registry.entry(entry_id)
+            if entry is None:
+                raise EModeError(f"no saved view {entry_id}")
+            if entry.session_only:
+                raise EModeError(
+                    "This plot shows data the script holds, which EMode cannot fetch again, "
+                    "so it cannot be edited on the workbench."
+                )
+            bench, saved, view = self.registry.bench, entry.saved, entry.view
+            if view is None and self.session_ended:
+                raise EModeError(
+                    f"This EMode session has ended, so the saved view {saved.name!r} cannot be fetched. "
+                    "The plots the script showed still open."
+                )
+            inventory = self._known_inventory()
+            entries = {d.id: d for d in inventory.datasets} if inventory is not None else {}
+            dataset = saved.dataset if saved.dataset in entries else None
+            if dataset is None:
+                source = view if view is not None else saved
+                dataset = dataset_for(source.kind, source.arguments, entries)
+            target = entries.get(dataset) if dataset is not None else None
+            if target is None:
+                raise EModeError(f"The workbench lists no data that the saved view {saved.name!r} shows.")
+            if view is not None and view.data is not None:
+                bench.show(target.id, target.category, replace(view, id=BENCH, arguments=dict(view.arguments), fetched=True))
+            else:
+                if not target.available:
+                    raise EModeError(target.reason or f"{target.label} is not available")
+                held = bench.held.get(target.id)
+                if (
+                    held is not None
+                    and held.data is not None
+                    and plain(held.arguments) == plain(saved.arguments)
+                    and not self._bench_stale(target, held)
+                ):
+                    held.options = options_of(saved.options)
+                    bench.show(target.id, target.category, held)
+                else:
+                    recipe = View(
+                        id=BENCH,
+                        kind=saved.kind if saved.kind in KINDS else target.kind,
+                        title=saved.name,
+                        data=None,
+                        arguments=dict(saved.arguments),
+                        options=options_of(saved.options),
+                        pixels=tuple(pixels or (1200, 750)),
+                    )
+                    bench.show(target.id, target.category, self._bench_load(target, recipe, pixels))
+            bench.origin = entry.id
+            bench.origin_key = bench.key()
+
+    def saved_action(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """The tab's Save, Save as, Rename and Remove, each kept in the simulation file before the sidebar changes.
+
+        ``save`` writes the workbench back to the saved view it came from,
+        ``save_as`` keeps it under a new ``name``, ``rename`` gives the entry
+        ``id`` the ``name``, and ``remove`` drops it. A view of the script's own
+        data is renamed and removed for this session only.
+        """
+        action = body.get("action")
+        with self._bench_lock:
+            bench = self.registry.bench
+            if action == "save":
+                entry = self.registry.entry(bench.origin) if bench.origin is not None else None
+                if entry is None:
+                    raise EModeError("This workbench did not come from a saved view: use Save as, with a name.")
+                recipe = bench.recipe(entry.saved.name)
+                if recipe is None or bench.view is None:
+                    raise EModeError("The workbench shows nothing to save yet.")
+                self._post(recipe)
+                shown = None
+                if entry.view is not None:
+                    # the script's entry shows what was saved from now on
+                    shown = replace(bench.view, id=entry.id, arguments=dict(bench.view.arguments), fetched=True)
+                self.registry.save(recipe, entry.id, shown)
+                bench.origin_key = bench.key()
+            elif action == "save_as":
+                name = self._new_name(body.get("name"))
+                recipe = bench.recipe(name)
+                if recipe is None:
+                    raise EModeError("The workbench shows nothing to save yet.")
+                self._post(recipe)
+                entry = self.registry.save(recipe)
+                bench.origin, bench.origin_key = entry.id, bench.key()
+            elif action in ("rename", "remove"):
+                entry = self.registry.entry(str(body.get("id")))
+                if entry is None:
+                    raise EModeError(f"no saved view {body.get('id')}")
+                if action == "rename":
+                    name = self._new_name(body.get("name"), entry.id)
+                    if not entry.session_only:
+                        self._delete(entry.saved.name)
+                        self._post(entry.saved.model_copy(update={"name": name}))
+                    self.registry.rename(entry.id, name)
+                else:
+                    if not entry.session_only:
+                        self._delete(entry.saved.name)
+                    self.registry.remove(entry.id)
+            else:
+                raise EModeError(f"no saved-view action {action!r}")
+        self.publish("saved-changed", {"id": entry.id})
+        return {"ok": True, "id": entry.id, "views": self.registry.summaries()}
+
+    def _new_name(self, name: Any, entry_id: Optional[str] = None) -> str:
+        """`name` as a saved view's name: not blank, and no other saved view's."""
+        text = str(name or "").strip()
+        if not text:
+            raise EModeError("A saved view needs a name.")
+        other = self.registry.by_name(text)
+        if other is not None and other.id != entry_id:
+            raise EModeError(f"A saved view named {text!r} exists already: choose another name, or open it and Save.")
+        return text
+
+    def _post(self, recipe: Any) -> None:
+        if self.post_saved is not None:
+            self.post_saved(recipe)
+
+    def _delete(self, name: str) -> None:
+        if self.delete_saved is not None:
+            self.delete_saved(name)
 
     def bench_open(self, name: str) -> Dict[str, Any]:
         """The View menu's schematic or GDS view on the workbench: it switches the data, keeping the field (#146)."""
@@ -421,7 +577,7 @@ class UIServer:
         return {
             "id": BENCH,
             "error": message,
-            "bench": _bench_menus(inventory, category or bench.category, bench.dataset),
+            "bench": {**_bench_menus(inventory, category or bench.category, bench.dataset), **self._origin()},
         }
 
     # ---------------------------------------------------------------- a view's data
@@ -830,6 +986,36 @@ def _first(inventory: Any, category: Optional[str]) -> Optional[str]:
     return None
 
 
+def dataset_for(kind: str, arguments: Dict[str, Any], entries: Dict[str, Any]) -> Optional[str]:
+    """The workbench's data entry (an id of `entries`, the inventory's datasets) a plot of `kind` shows.
+
+    A field plot is its free-space field, its profile, the device, or else the
+    first field that draws. The schematic, the GDS layers and the S-matrix are
+    their own entries, a material its own index or the database.
+    """
+    if kind == "plot":
+        excitation = arguments.get("excitation")
+        profile = arguments.get("profile")
+        candidates = [
+            f"excitation:{excitation}" if excitation else None,
+            f"profile:{profile}" if profile and profile != "EME" else None,
+            "device",
+        ]
+        for candidate in candidates:
+            if candidate in entries and entries[candidate].available:
+                return candidate
+        return next((d.id for d in entries.values() if d.kind == "plot" and d.available), None)
+    if kind in ("schematic", "gds", "smatrix"):
+        return kind if kind in entries else None
+    if kind == "material":
+        material = arguments.get("material")
+        return f"material:{material}" if f"material:{material}" in entries else ("material" if "material" in entries else None)
+    if kind == "monitor":
+        name = f"monitor:{arguments.get('name')}"
+        return name if name in entries else None
+    return None
+
+
 def _bench_menus(inventory: Any, category: str, dataset: Optional[str]) -> Dict[str, Any]:
     """The workbench's own menus: Field or Trend, and the data of the category, each with why it is greyed."""
     fields = {"id", "kind", "label", "available", "reason", "summary"}
@@ -1090,6 +1276,11 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True})
         if path.startswith("/api/login/"):
             return self._login("POST", path)
+        if path == "/api/saved":
+            try:
+                return self._json(200, self.ui.saved_action(self._body()))
+            except EModeError as exc:
+                return self._json(200, {"error": str(exc)})
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[:3] == ["api", "views", BENCH] and parts[3] in ("data", "open", "fetched"):
             return self._bench(parts[3])

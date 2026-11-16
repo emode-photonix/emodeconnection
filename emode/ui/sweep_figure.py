@@ -58,7 +58,7 @@ INDEX_COMPONENTS = ["real", "imag"]
 INDEX_RESULTS = {"effective_index", "n_eff", "group_index", "n_g", "n_eff_tilde"}
 
 #: Real results that are powers or power fractions, drawn linear or in dB (10 log10 of the value).
-POWER_RESULTS = {"monitor_coupling", "power_through_plane", "conversion"}
+POWER_RESULTS = {"monitor_coupling", "power_through_plane", "conversion", "output_power", "input_power"}
 
 #: The parts of a power result.
 POWER_COMPONENTS = ["linear", "dB"]
@@ -79,6 +79,8 @@ RESULT_LABELS = {
     "power_through_plane": "Power through plane",
     "overlap": "Overlap",
     "S_matrix": "S",
+    "output_power": "Output power (W)",
+    "input_power": "Input power (W)",
 }
 
 #: Swept properties measured in nm, shown with that unit.
@@ -86,7 +88,7 @@ NM_KEYS = {
     "wavelength", "wav", "width", "height", "length", "thickness", "radius", "bend_radius",
     "gap", "mask", "etch_depth", "window_width", "window_height", "x_resolution",
     "y_resolution", "mode_field_diameter", "center", "position", "offset", "period", "depth",
-    "x", "y", "trapezoid_angle_offset", "pml_depth",
+    "x", "y", "z", "trapezoid_angle_offset", "pml_depth",
 }
 
 #: Swept properties in degrees.
@@ -103,7 +105,7 @@ MARKS = {
 
 #: Swept keys whose values are a count, not a continuum: a profile's mode number. Their results
 #: are drawn as markers only, on integer ticks, decided from the key and never from a label.
-DISCRETE_KEYS = frozenset({"mode"})
+DISCRETE_KEYS = frozenset({"mode", "port_mode"})
 
 
 @dataclass(frozen=True)
