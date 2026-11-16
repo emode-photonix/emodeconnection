@@ -525,25 +525,62 @@ function numberBox(label, value, onchange) {
   return wrap;
 }
 
+// On a phone the per-kind controls fold into a Settings section, closed by default, so the
+// plot is not pushed below the fold (#196). Its state is kept per browser, where storage allows.
+const SETTINGS_KEY = "emode.settingsOpen";
+
+function storedSettingsOpen() {
+  try {
+    return localStorage.getItem(SETTINGS_KEY) === "open";
+  } catch (err) {
+    return false;
+  }
+}
+
+function settingsFold(box) {
+  const details = document.createElement("details");
+  details.className = "settings";
+  details.open = storedSettingsOpen();
+  const summary = document.createElement("summary");
+  summary.textContent = "Settings";
+  const body = document.createElement("div");
+  details.append(summary, body);
+  details.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(SETTINGS_KEY, details.open ? "open" : "closed");
+    } catch (err) {
+      // the choice is only a convenience
+    }
+  });
+  box.append(details);
+  return body;
+}
+
 function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
   if (reply.bench) buildBenchControls(box, reply.bench);
   const kind = reply.kind || "plot";
   buildLayerPanel(reply);
-  if (kind === "smatrix") buildSMatrixControls(box, reply);
-  else if (kind === "material") buildMaterialControls(box, reply);
-  else if (kind === "farfield") buildFarFieldControls(box, reply);
-  else if (kind === "gds") buildGDSControls(box, reply);
-  else if (kind === "sweep") buildSweepControls(box, reply);
-  else buildPlotControls(box, reply);
-  if (kind === "schematic") box.append(componentMenu(reply));
-  if (kind !== "gds") box.append(aspectControl(reply));
-  if (kind !== "gds" && kind !== "schematic") box.append(extentsPanel(reply));
+  const bar = narrowQuery.matches ? settingsFold(box) : box;
+  if (kind === "smatrix") buildSMatrixControls(bar, reply);
+  else if (kind === "material") buildMaterialControls(bar, reply);
+  else if (kind === "farfield") buildFarFieldControls(bar, reply);
+  else if (kind === "gds") buildGDSControls(bar, reply);
+  else if (kind === "sweep") buildSweepControls(bar, reply);
+  else buildPlotControls(bar, reply);
+  if (kind === "schematic") bar.append(componentMenu(reply));
+  if (kind !== "gds") bar.append(aspectControl(reply));
+  if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
   box.append(renderPanel());
   box.append(exportPanel(reply));
   markRender();
 }
+
+// crossing the breakpoint (a rotated phone) rebuilds the bar in the other layout
+narrowQuery.addEventListener("change", () => {
+  if (state.reply && state.current) buildControls(state.reply);
+});
 
 // ------------------------------------------------------------ the aspect ratio (#189)
 //
