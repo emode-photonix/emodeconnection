@@ -101,6 +101,11 @@ MARKS = {
 }
 
 
+#: Swept keys whose values are a count, not a continuum: a profile's mode number. Their results
+#: are drawn as markers only, on integer ticks, decided from the key and never from a label.
+DISCRETE_KEYS = frozenset({"mode"})
+
+
 @dataclass(frozen=True)
 class SweepPanel:
     """A sweep-shaped result and what is selected in it: what the plot and the tab draw."""
@@ -602,6 +607,10 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
     x = x[order]
     curves, ylabel = _curves(source, selected)
     lines = [_trace(x, y[order], i, label) for i, (label, y) in enumerate(curves)]
+    discrete = key in DISCRETE_KEYS
+    if discrete:
+        # mode number is discrete: a marker per mode, no line between them
+        lines = [replace(ln, width=0.0, marker="circle", marker_size=6.0) for ln in lines]
     shown = [y for _, y in curves]
     if selected.get("component") == "dB":
         # a null entry is -3000 dB: the axis spans the 60 dB below the peak at most
@@ -636,7 +645,7 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
             text += f", {int(nodes)} nodes"
         texts.append(TextSpec(text, 0.02, 0.98, "axes", "left", "top", "#000000", options.font_size - 1, "residual"))
     spec = _figure(options, key_label(key, unit), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
-    return replace(spec, axes=replace(spec.axes, y_nonnegative=floor)) if floor else spec
+    return replace(spec, axes=replace(spec.axes, y_nonnegative=floor, integer_xticks=discrete))
 
 
 def _sweep_marks(source: Any) -> List[Tuple[str, Any]]:

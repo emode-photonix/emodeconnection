@@ -26,7 +26,7 @@ const SETTINGS = [
   ["Blend slices", "blend_slices"],
 ];
 
-const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null };
+const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null, benchTimer: null };
 
 function api(path, body) {
   const options = body === undefined
@@ -107,22 +107,31 @@ document.addEventListener("keydown", (ev) => {
 
 // ------------------------------------------------------------ the plots list
 
+// #/plots alone is the workbench (emode#1701), the tab's default plot
 function routeId() {
   const m = location.hash.match(/^#\/plots\/([\w-]+)/);
-  return m ? m[1] : null;
+  return m ? m[1] : "bench";
 }
 
 async function loadList() {
   state.views = await api("views");
   const ol = document.getElementById("views");
   ol.replaceChildren();
-  for (const v of [...state.views].reverse()) {
+  // the workbench is pinned first, the script's plots follow, newest first
+  const bench = state.views.filter((v) => v.kind === "bench");
+  const plots = state.views.filter((v) => v.kind !== "bench").reverse();
+  for (const v of [...bench, ...plots]) {
     const li = document.createElement("li");
     li.dataset.id = v.id;
     li.textContent = v.title || v.id;
     const when = document.createElement("span");
     when.className = "when";
-    when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
+    if (v.kind === "bench") {
+      li.classList.add("pinned");
+      when.textContent = "any data of this session";
+    } else {
+      when.textContent = v.id + ", " + new Date(v.created * 1000).toLocaleTimeString();
+    }
     li.appendChild(when);
     li.addEventListener("click", () => { closeDrawer(); location.hash = "#/plots/" + v.id; });
     ol.appendChild(li);
@@ -178,6 +187,9 @@ async function show(id, controls) {
   }
   if (reply.error) {
     showMessage(reply.error);
+    // a refused choice on the workbench keeps its menus, so another can be chosen
+    if (reply.bench && (!state.reply || state.reply.id !== id)) benchRefused(reply);
+    else if (reply.bench) buildControls({ ...state.reply, bench: reply.bench });
     if (!state.reply || state.reply.id !== id) return;
   } else {
     // a notice: the plot could not be brought up to date with the session (#182)
@@ -554,6 +566,7 @@ function settingsFold(box) {
 function buildControls(reply) {
   const box = document.getElementById("controls");
   box.replaceChildren();
+  if (reply.bench) buildBenchControls(box, reply.bench);
   const kind = reply.kind || "plot";
   buildLayerPanel(reply);
   const bar = narrowQuery.matches ? settingsFold(box) : box;
@@ -633,6 +646,79 @@ function extentsPanel(reply) {
   }
   details.append(summary, list);
   return details;
+}
+
+// ------------------------------------------------------------ the workbench (emode#1701)
+//
+// The workbench's own menus come first: Field or Trend, then the data of that
+// kind the session holds, from EMode's inventory. An entry the session cannot
+// show yet is listed greyed with its reason ("run EME() first"). The chosen
+// data's own controls follow, the bar the tab draws for its kind.
+
+const CATEGORY_NAMES = { field: "Field", trend: "Trend" };
+
+function optionSelect(label, options, selected, onchange) {
+  const wrap = document.createElement("label");
+  if (label) wrap.append(label + ":");
+  const s = document.createElement("select");
+  for (const opt of options) {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.text;
+    if (opt.disabled) o.disabled = true;
+    if (opt.title) o.title = opt.title;
+    if (String(opt.value) === String(selected)) o.selected = true;
+    s.appendChild(o);
+  }
+  s.addEventListener("change", () => onchange(s.value));
+  wrap.appendChild(s);
+  return wrap;
+}
+
+function datasetText(d) {
+  const text = d.label + (d.summary ? ": " + d.summary : "");
+  return d.available ? text : text + " (" + (d.reason || "not available") + ")";
+}
+
+// Choosing what the workbench shows draws it at once, even with Auto render off (#183):
+// the changes kept for Render were the old data's, so they are dropped.
+function benchChoose(controls) {
+  if (!state.current) return;
+  pending.controls = {};
+  markRender();
+  return show(state.current, controls);
+}
+
+function buildBenchControls(box, bench) {
+  const row = document.createElement("span");
+  row.className = "bench-menus";
+  row.append(optionSelect("Plot",
+    (bench.categories || []).map((c) => ({ value: c, text: CATEGORY_NAMES[c] || c })),
+    bench.category, (v) => benchChoose({ category: v })));
+  const data = (bench.datasets || []).map((d) => ({
+    value: d.id, text: datasetText(d), disabled: !d.available, title: d.available ? "" : d.reason,
+  }));
+  if (!data.length) data.push({ value: "", text: "nothing yet", disabled: true });
+  row.append(optionSelect("Data", data, bench.dataset, (v) => benchChoose({ dataset: v })));
+  box.append(row);
+}
+
+// a refused choice with nothing shown yet: the workbench's menus alone
+function benchRefused(reply) {
+  const box = document.getElementById("controls");
+  box.replaceChildren();
+  buildBenchControls(box, reply.bench);
+}
+
+// The session changed (a solve, a label, a sweep): the workbench asks again what it can
+// plot, once per two seconds at most and only while it is shown, so a script's loop of
+// solves queues nothing behind the call lock.
+function benchChanged() {
+  if (state.current !== "bench" || state.benchTimer) return;
+  state.benchTimer = setTimeout(() => {
+    state.benchTimer = null;
+    if (document.visibilityState === "visible" && state.current === "bench") show("bench", {});
+  }, 2000);
 }
 
 // ------------------------------------------------------------ a component's details (#159)
@@ -1306,6 +1392,8 @@ async function openView(name) {
     return showMessage(String(err));
   }
   if (reply.error) return showMessage(reply.error);
+  // on the workbench the View menu switches its data, so the plot is shown again in place
+  if (reply.id === id) return show(id, {});
   await loadList();
   location.hash = "#/plots/" + reply.id;
 }
@@ -1590,6 +1678,8 @@ async function onEvent(event, data) {
   if (event === "view-added") {
     await loadList();
     if (!EMBED && !location.hash.startsWith("#/session") && !(onAccount() && account.state !== "logged_in")) location.hash = "#/plots/" + data.id;
+  } else if (event === "session-changed") {
+    benchChanged();
   } else if (event === "login-changed") {
     if (onAccount()) loadAccount();
   } else if (event === "session-closed") {
@@ -1631,7 +1721,7 @@ function route() {
     }, 5000);
     return;
   }
-  const id = routeId() || (state.views.length ? state.views[state.views.length - 1].id : null);
+  const id = routeId();
   if (id && id !== state.current) show(id);
   else if (id && state.reply) fitFigure();
 }

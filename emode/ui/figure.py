@@ -238,6 +238,8 @@ class AxesSpec:
     visible: bool = True
     grid: bool = False
     integer_ticks: bool = False
+    #: Integer ticks on the x axis only: its values are a discrete count, such as a mode number.
+    integer_xticks: bool = False
     #: A second y axis on the right (``Panel.twin()``): its label and range, None without one.
     y2label: Optional[str] = None
     y2range: Optional[Tuple[float, float]] = None
@@ -413,6 +415,8 @@ def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
         return _compose_farfield(view, options)
     if isinstance(view, FarFieldPanel):
         return _compose_farfield(view.farfield, options, view.panel)
+    if isinstance(view, MonitorPanel):
+        return _compose_monitor(view, options)
     from .sweep_figure import SweepPanel, compose_sweep
 
     if isinstance(view, SweepPanel):
@@ -1044,6 +1048,68 @@ def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity")
         texts=texts if options.text_display else (),
         colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or bar_label, tick_format="%.3g"),
         title=options.title or f"far field, {view.wavelength:g} nm",
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
+    )
+
+
+@dataclass(frozen=True)
+class MonitorPanel:
+    """A monitor's ``PlaneField`` and what is shown of it: a component (or the flux ``Sn``) and its part."""
+
+    field: Any
+    data: str = "Ex"
+    part: str = "abs"
+
+    #: What the Data menu offers.
+    DATA = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "Sn")
+    #: What the part menu offers.
+    PARTS = ("abs", "abs^2", "real", "imag")
+
+    def with_selection(self, data: Optional[str], part: Optional[str]) -> "MonitorPanel":
+        data = data if data in self.DATA else self.data
+        part = part if part in self.PARTS else self.part
+        return MonitorPanel(self.field, data, part)
+
+
+def _compose_monitor(view: MonitorPanel, options: PlotOptions) -> FigureSpec:
+    """The field on a monitor's plane: across it (x) against along it (s), both in μm."""
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    plane = view.field
+    values = np.asarray(plane.Sn if view.data == "Sn" else plane.fields[view.data])
+    part = {"abs": np.abs, "abs^2": lambda v: np.abs(v) ** 2, "real": np.real, "imag": np.imag}[view.part]
+    z = np.asarray(part(values), float)
+    signed = view.part in ("real", "imag") or (view.data == "Sn" and np.nanmin(z) < 0)
+    peak = float(np.nanmax(np.abs(z))) if z.size else 1.0
+    peak = peak or 1.0
+    vmin = (-peak if signed else 0.0) if options.vmin is None else float(options.vmin)
+    vmax = peak if options.vmax is None else float(options.vmax)
+    cmap = _cmap("diverging" if signed else "sequential", options)
+    x = np.asarray(plane.s, float) / 1000
+    y = np.asarray(plane.x, float) / 1000
+    raster = RasterSpec(x=x, y=y, z=z, colormap=cmap, vmin=vmin, vmax=vmax)
+    axes = AxesSpec(
+        xlabel=options.xlabel or "s, along the plane (μm)",
+        ylabel=options.ylabel or "x (μm)",
+        xrange=(float(x.min()), float(x.max())),
+        yrange=(float(y.min()), float(y.max())),
+        equal_aspect=True,
+    )
+    texts = (
+        TextSpec(
+            f"{plane.power_through_plane:.3g} W through the plane of {plane.power_in:g} W launched",
+            0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+        ),
+    )
+    label = "Sn (W/m²)" if view.data == "Sn" else view.data
+    return FigureSpec(
+        axes=axes,
+        rasters=(raster,),
+        texts=texts if options.text_display else (),
+        colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or f"{label} {view.part}", tick_format="%.3g"),
+        title=options.title or f"monitor {plane.name}, {plane.wavelength:g} nm",
         width_mm=float(width),
         height_mm=float(height),
         font_size=options.font_size,
