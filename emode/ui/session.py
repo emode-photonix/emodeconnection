@@ -376,7 +376,6 @@ def list_file_views(em: "EMode") -> None:
     Nothing is asked under ``EMODE_NONINTERACTIVE=1`` or of an EMode that keeps
     no saved views.
     """
-    from ..plotting import SavedView
 
     registry = em._views
     if registry.file_listed:
@@ -385,7 +384,22 @@ def list_file_views(em: "EMode") -> None:
         registry.file_listed = True
         return
     views = em.call("EM_saved_views")
-    registry.list_file([v for v in views or [] if isinstance(v, SavedView)])
+    registry.list_file([v for v in (as_saved_view(v) for v in views or []) if v is not None])
+
+
+def as_saved_view(value: Any) -> Any:
+    """`value` as a ``SavedView``, or None.
+
+    EMode answers ``saved_views()`` with a list, and a list reply goes out
+    without the protocol's stamp, so the client hands it back as it decoded
+    it: each view a tagged dict, not yet a ``SavedView``.
+    """
+    from ..plotting import SavedView
+    from ..types import reconstruct
+
+    if isinstance(value, dict) and value.get("__data_type__") == "SavedView":
+        value = reconstruct(value)
+    return value if isinstance(value, SavedView) else None
 
 
 def post_saved(em: "EMode", view: Any) -> None:
