@@ -407,14 +407,29 @@ def test_bounds_written_as_a_list_of_mins_and_a_list_of_maxes_get_a_clear_messag
 
 
 def test_a_list_x0_for_a_key_that_takes_one_value_says_how_to_parameterize_it() -> None:
-    mask = "shape, out_taper_end, core, mask"
-    result = _optimize_with({"key": mask, "x0": [900, 900], "bounds": [600, 1000]})
+    width = "shape, out_taper_end, core, width"
+    result = _optimize_with({"key": width, "x0": [900, 900], "bounds": [600, 1000]})
     assert result.is_error
     text = _text(result)
-    assert mask in text
+    assert width in text
     assert "domain_lengths" in text  # the keys that do take a list
-    assert "its own shape" in text  # how to vary each arm instead
+    assert "mask" in text
     assert not _optimize_ran()
+
+
+@pytest.mark.parametrize(
+    "mask", ["shape, out_taper_end, core, mask", "shape, core, mask_offset"]
+)
+def test_a_list_x0_for_a_mask_reaches_optimize_as_a_vector_parameter(mask: str) -> None:
+    """Each opening of a multi-opening mask is an entry (emodeconnection#107)."""
+    result = _optimize_with(
+        {"key": mask, "x0": [1000, 1000], "bounds": [[600, 1200], [700, 1300]]}
+    )
+    assert not result.is_error, _text(result)
+    (sent,) = last_call("optimize")["parameters"]
+    assert sent == Parameter(
+        mask, x0=[1000, 1000], shape=(2,), bounds=[(600, 1200), (700, 1300)]
+    )
 
 
 def test_a_one_entry_list_x0_is_its_one_value() -> None:
@@ -564,6 +579,23 @@ def test_client_warnings_during_a_call_reach_the_agent() -> None:
     assert "the client says careful" in result.structured_content["warnings"]
 
 
+def test_the_solver_s_warnings_during_a_call_reach_the_agent() -> None:
+    """What EMode logged during the tool's calls, read with warnings() (#95)."""
+    FakeEMode.returns["warnings"] = lambda **kwargs: ["the solver says careful"]
+    result = run("emode_sweep", {"key": "wavelength", "values": [1550]})
+    assert not result.is_error
+    assert "the solver says careful" in result.structured_content["warnings"]
+
+
+def test_a_failed_warnings_read_does_not_fail_the_tool() -> None:
+    def refuse(**kwargs: Any) -> list[str]:
+        raise EModeError("'EM_warnings' is not an EMode function")
+
+    FakeEMode.returns["warnings"] = refuse
+    result = run("emode_sweep", {"key": "wavelength", "values": [1550]})
+    assert not result.is_error
+
+
 # schemas and the public method list
 
 
@@ -619,6 +651,9 @@ OMITTED = {
     "copy_section": "a later tool",
     "check_layout": "a later tool",
     "to_gds": "a later tool",
+    # their curves and registered transforms have no JSON form in the tool specs yet
+    "coupler_section": "a later tool",
+    "transformed_section": "a later tool",
     "free_space_field": "a later tool",
     "free_space_field_diagnostics": "a later tool",
     "monitor": "a later tool",
@@ -792,10 +827,10 @@ def test_the_optimize_tool_says_how_to_bound_and_parameterize_a_list() -> None:
     schema = json.dumps(tool.input_schema)
     assert "one [min, max] pair per entry" in schema
     assert "domain_lengths" in tool.description
-    assert "its own shape" in tool.description
+    assert "mask with several openings" in tool.description
     skill = (Path(__file__).parents[1] / "emode" / "mcp" / "SKILL.md").read_text()
     assert "one\n  `[min, max]` pair per entry" in skill
-    assert "its own shape" in skill
+    assert "mask with several openings" in skill
 
 
 def test_a_conversion_objective_and_a_poling_period_reach_optimize() -> None:

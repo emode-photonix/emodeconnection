@@ -38,9 +38,11 @@ TYPE_SINCE: dict[str, str] = {
     "ConvergenceStage": "1.0.7",
     "ConvergenceStep": "1.0.7",
     "Evaluation": "1.0.7",
+    "DatasetEntry": "1.0.9",
     "FarField": "1.0.8",
     "GDSLayer": "1.0.9",
     "GDSView": "1.0.9",
+    "KindEntry": "1.0.9",
     "Label": "1.0.9",
     "LegendEntry": "1.0.9",
     "MaterialView": "1.0.9",
@@ -50,6 +52,7 @@ TYPE_SINCE: dict[str, str] = {
     "OptimizationResult": "1.0.7",
     "Parameter": "1.0.7",
     "PlotImage": "1.0.7",
+    "PlotInventory": "1.0.9",
     "PlotView": "1.0.9",
     "Polyline": "1.0.9",
     "PulseFit": "1.0.7",
@@ -58,6 +61,7 @@ TYPE_SINCE: dict[str, str] = {
     "Raster": "1.0.9",
     "Region": "1.0.9",
     "ScaleInfo": "1.0.9",
+    "SavedView": "1.0.9",
     "Schematic": "1.0.9",
     "Screen": "1.0.8",
     "ScreenField": "1.0.8",
@@ -66,11 +70,27 @@ TYPE_SINCE: dict[str, str] = {
     "SMatrixView": "1.0.9",
     "Slider": "1.0.9",
     "Stub": "1.0.9",
+    "DetailRow": "1.0.9",
+    "ComponentDetails": "1.0.9",
     "SweepResult": "1.0.9",
+}
+
+# Wire types an EMode reads once it lists a capability under ``version()['views']``,
+# whatever its release says: a development EMode reports the last release's version
+# until the next one is tagged, so the capability, not the version, says it reads
+# the type. An EMode that does not list the capability is checked by release as usual.
+CAPABILITY_TYPES: dict[str, str] = {
+    "SavedView": "saved",
 }
 
 # The first EMode release that reads each field added after EMode 1.0.6.
 FIELD_SINCE: dict[tuple[str, str], str] = {
+    ("Bounds", "boundary_condition"): "1.0.9",
+    ("Bounds", "expansion_resolution"): "1.0.9",
+    ("Bounds", "expansion_size"): "1.0.9",
+    ("Bounds", "num_pml_layers"): "1.0.9",
+    ("Bounds", "pml_NSEW_bool"): "1.0.9",
+    ("Bounds", "pml_thickness"): "1.0.9",
     ("MaterialProperties", "beta_3"): "1.0.8",
     ("MaterialProperties", "beta_4"): "1.0.8",
     ("MaterialSpec", "reference"): "1.0.8",
@@ -89,6 +109,9 @@ FIELD_SINCE: dict[tuple[str, str], str] = {
     ("SMatrix", "mode_power"): "1.0.7",
 }
 
+
+# The first EMode release that keeps a call's warnings for `EMode.warnings()`.
+WARNINGS_SINCE = "1.0.9"
 
 # The first EMode release that reads an array argument sent as `__ndarray__`.
 NDARRAY_REQUEST_SINCE = "1.0.8"
@@ -177,17 +200,24 @@ def required_versions(arguments: dict[str, Any]) -> dict[str, list[tuple[str, st
 
 
 def check_emode_version(
-    needs: dict[str, list[tuple[str, str]]], emode_version: str | None, function: str
+    needs: dict[str, list[tuple[str, str]]],
+    emode_version: str | None,
+    function: str,
+    capabilities: "set[str] | frozenset[str] | None" = None,
 ) -> None:
     """Raise `ArgumentError` for the first need the EMode cannot read.
 
     `emode_version` is None for an EMode older than `FIRST_REPORTING_EMODE`,
     which cannot be told apart further, so only needs from that release on are
-    refused there.
+    refused there. `capabilities` are what the EMode lists under ``version()``'s
+    ``'views'``: a type of `CAPABILITY_TYPES` whose capability is listed passes
+    whatever the version says.
     """
     name = function[3:] if function.startswith("EM_") else function
     for argument, found in needs.items():
         for what, since in found:
+            if CAPABILITY_TYPES.get(what) in (capabilities or ()):
+                continue  # the EMode says it reads this type (CAPABILITY_TYPES)
             if emode_version is None:
                 too_old = parse_version(since) >= parse_version(FIRST_REPORTING_EMODE)
                 this_emode = f"older than {FIRST_REPORTING_EMODE}"

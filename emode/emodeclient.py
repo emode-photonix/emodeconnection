@@ -215,14 +215,21 @@ class EModeClient:
         return o
 
     def send(self, data):
-        logger.debug(f"sending {data=}")
+        # a request's password (the account page's sign-in) never reaches a log line
+        secret = isinstance(data, dict) and "password" in data
+        if not secret:
+            logger.debug(f"sending {data=}")
+        else:
+            logger.debug(f"sending {data.get('function')} (its arguments hold a password, not logged)")
         data = serialize(data, ndarray=self.ndarray_wire)
-        logger.debug(f"serialized {data=}")
+        if not secret:
+            logger.debug(f"serialized {data=}")
         sendjson = json.dumps(data)
-        self._send_raw(sendjson)
+        self._send_raw(sendjson, log=not secret)
 
-    def _send_raw(self, data: str):
-        logger.debug(f"sending raw data: {data}")
+    def _send_raw(self, data: str, log: bool = True):
+        if log:
+            logger.debug(f"sending raw data: {data}")
         msg = bytes(data, encoding="utf-8")
         msg = struct.pack(">I", len(msg)) + msg
         self.sock.sendall(msg)

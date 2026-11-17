@@ -62,12 +62,21 @@ class TwinAxis:
         self.items.append(("hline", dict(at=y, style=style, label=label, color=color)))
         return self
 
-    def set(self, ylabel: Optional[str] = None, ylim: Range = None) -> "TwinAxis":
-        """The right axis's label and range. The x axis is the panel's own."""
-        for name, value in dict(ylabel=ylabel, ylim=ylim).items():
+    def set(self, ylabel: Optional[str] = None, ylim: Range = None, ynonnegative: Optional[bool] = None) -> "TwinAxis":
+        """The right axis's label and range. The x axis is the panel's own.
+
+        ``ynonnegative=True`` marks the axis as one that cannot go below 0: its range starts at 0."""
+        for name, value in dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative)).items():
             if value is not None:
                 self.settings[name] = value
         return self
+
+
+def _flag(value: Any) -> Optional[bool]:
+    """`value` if it is a bool or None, else an ArgumentError."""
+    if value is not None and not isinstance(value, bool):
+        raise ArgumentError(f"ynonnegative is True or False, not {value!r}", "Panel.set", "ynonnegative")
+    return None if value is None else bool(value)
 
 
 class Panel:
@@ -131,9 +140,15 @@ class Panel:
         title: Optional[str] = None,
         xlim: Range = None,
         ylim: Range = None,
+        ynonnegative: Optional[bool] = None,
     ) -> "Panel":
-        """The panel's axis labels, title and ranges. What is not given keeps its default."""
-        for name, value in dict(xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim).items():
+        """The panel's axis labels, title and ranges. What is not given keeps its default.
+
+        ``ynonnegative=True`` marks the y axis as one that cannot go below 0 (a transmission, a
+        power): its range starts at 0, in the tab and in the saved image. A sweep drawn with
+        ``sweep()`` is marked from its data already."""
+        settings = dict(xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative))
+        for name, value in settings.items():
             if value is not None:
                 self.settings[name] = value
         return self

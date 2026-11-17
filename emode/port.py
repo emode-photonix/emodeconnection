@@ -13,19 +13,40 @@ from pydantic import ConfigDict
 from .types import TaggedModel, register_type
 
 
+# The boundary conditions a window can take: a pair of wall conditions, 0 (none),
+# A (antisymmetric), S (symmetric) or P (periodic), or a TE or TM fold.
+WindowBoundaryCondition = Literal[
+    "00", "0A", "0S", "0P", "A0", "AA", "AS", "AP",
+    "S0", "SA", "SS", "SP", "P0", "PA", "PS", "PP",
+    "TE", "TE-h", "TE-v", "TM", "TM-h", "TM-v",
+]  # fmt: skip
+
+
 @register_type
 class Bounds(TaggedModel):
     """A rectangular sub-window of a port's full cross-section.
 
-    `offset` is `(x_center, y_min)` — the window is centered on `x_center`
-    horizontally and starts at `y_min` vertically, matching the existing
-    `offset` convention used elsewhere for section port windows.
+    `offset` is `(x_center, y_min)`: the window is centered on `x_center`
+    horizontally and starts at `y_min` vertically, matching the `offset`
+    convention used elsewhere for section port windows.
+
+    The other fields give the window a boundary of its own where EMode solves
+    it on its own (an unconnected port's window). Each is the `settings()`
+    field of the same name, and None, the default, keeps the section's value.
+    A connected port's window is a view of the solved section, so it takes no
+    boundary of its own.
     """
     model_config = ConfigDict(frozen=True)
 
     window_width: float
     window_height: float
     offset: tuple[float, float] = (0.0, 0.0)
+    boundary_condition: WindowBoundaryCondition | None = None
+    pml_NSEW_bool: tuple[bool, bool, bool, bool] | None = None
+    num_pml_layers: tuple[int, int, int, int] | None = None
+    pml_thickness: tuple[float, float, float, float] | None = None
+    expansion_size: tuple[float, float, float, float] | None = None
+    expansion_resolution: tuple[float, float, float, float] | None = None
 
 
 @register_type
