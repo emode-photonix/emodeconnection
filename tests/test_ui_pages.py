@@ -65,7 +65,9 @@ def _json(reply) -> Dict[str, Any]:
 
 
 def test_the_views_route_lists_every_kind_in_order_with_its_title(pages):
-    views = _json(request(pages, "GET", "/api/views"))
+    # the workbench is pinned first (emode#1701)
+    bench, *views = _json(request(pages, "GET", "/api/views"))
+    assert bench["kind"] == "bench"
     assert [(v["id"], v["kind"]) for v in views] == [
         ("p1", "plot"), ("x2", "smatrix"), ("m3", "material"), ("f4", "farfield")
     ]

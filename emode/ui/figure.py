@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import textwrap
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -32,6 +32,11 @@ UNIT_SCALE = {"nm": 1.0, "um": 1000.0}
 #: A plot's size by default: 80 mm wide, 80 / sqrt(2) mm high, as the window was.
 DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 
+#: sqrt(2), the root-2 rectangle of ISO 216 paper and the old plot window: every
+#: plot but the S-matrix is this much wider than tall by default, an x-y cross
+#: section included (emodeconnection#160, Eric 2026-11-15).
+PLOT_RATIO = math.sqrt(2)
+
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
 
@@ -45,6 +50,7 @@ LINE_STYLES: Dict[str, Tuple[float, Optional[str], float]] = {
     "connection": (1.0, None, 1.0),
     "loop": (1.0, None, 1.0),
     "stub": (1.0, None, 1.0),
+    "slice": (LW * 2, "dash", 1.0),
 }
 
 
@@ -66,6 +72,7 @@ DATA_ARGUMENTS = (
     "profile",
     "wavelength",
     "slice_position",
+    "z_position",
     "forward_only",
     "blend_slices",
     "resolution",
@@ -103,6 +110,11 @@ class PlotOptions:
     aspect_ratio: Union[str, float, None] = None
     vmin: Optional[float] = None
     vmax: Optional[float] = None
+    #: Each axis's ends, None for automatic (#191).
+    xmin: Optional[float] = None
+    xmax: Optional[float] = None
+    ymin: Optional[float] = None
+    ymax: Optional[float] = None
 
     @classmethod
     def from_arguments(cls, arguments: Dict[str, Any]) -> "PlotOptions":
@@ -115,7 +127,20 @@ class PlotOptions:
             raise ArgumentError("figure_size is (width, height) in mm", "plot", "figure_size")
         if "colormap" in arguments and arguments["colormap"] is not None:
             colormaps.check_colormap(arguments["colormap"])
+        ratio = options.aspect_ratio
+        if isinstance(ratio, (int, float)) and not isinstance(ratio, bool):
+            if not ASPECT_BOUNDS[0] <= ratio <= ASPECT_BOUNDS[1]:
+                raise ArgumentError(
+                    f"aspect_ratio is the plot box's height over its width, from {ASPECT_BOUNDS[0]:g} "
+                    f"to {ASPECT_BOUNDS[1]:g}, got {ratio:g}",
+                    "plot",
+                    "aspect_ratio",
+                )
         return options
+
+
+#: The plot box's height over its width that `aspect_ratio` may give: past these a figure degenerates (#189).
+ASPECT_BOUNDS = (0.001, 1000.0)
 
 
 # ------------------------------------------------------------------ the spec
@@ -134,6 +159,13 @@ class RasterSpec:
     mask: Optional[np.ndarray] = None
     interpolation: str = "nearest"
     contour_levels: Tuple[float, ...] = ()
+    #: The columns' edges, ``x.size + 1`` of them, when the image joins slices of
+    #: different spacings (a z panel), so each keeps its own boundaries. None:
+    #: the edges are halfway between the centers.
+    x_edges: Optional[np.ndarray] = None
+    #: What a click on the image opens in the tab (``'mode:<label>'`` for a panel of
+    #: the All modes view), None for nothing.
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +183,8 @@ class LineSpec:
     label: Optional[str] = None
     #: The y axis the line is read against: the panel's own ('left') or its twin ('right').
     axis: str = "left"
+    #: The schematic component a click on the line opens, None for none (#159).
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -164,6 +198,8 @@ class FillSpec:
     hatch: Optional[str] = None
     alpha: float = 1.0
     width: float = 0.0
+    #: The schematic component a click on the fill opens, None for none (#159).
+    target: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -202,12 +238,21 @@ class AxesSpec:
     visible: bool = True
     grid: bool = False
     integer_ticks: bool = False
+    #: Integer ticks on the x axis only: its values are a discrete count, such as a mode number.
+    integer_xticks: bool = False
     #: A second y axis on the right (``Panel.twin()``): its label and range, None without one.
     y2label: Optional[str] = None
     y2range: Optional[Tuple[float, float]] = None
     #: Each y axis's label and tick color, None for the default black.
     ylabel_color: Optional[str] = None
     y2label_color: Optional[str] = None
+    #: Whether each axis labels its ticks: a grid's inner panels do not (#184).
+    show_xticklabels: bool = True
+    show_yticklabels: bool = True
+    #: The y values cannot be negative (|S|, a power): the automatic range starts at 0 (#191).
+    y_nonnegative: bool = False
+    #: The same for the twin's right axis, marked by the script.
+    y2_nonnegative: bool = False
     #: Each axis's scale, ``'linear'`` or ``'log'`` (the ranges are then positive, in data units).
     xscale: str = "linear"
     yscale: str = "linear"
@@ -227,6 +272,8 @@ class ColorbarSpec:
     tick_labels: Optional[Tuple[str, ...]] = None
     label: Optional[str] = None
     tick_format: str = "%3.1f"
+    #: The contour levels drawn on the panel, marked by a line across the colorbar.
+    lines: Tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -296,12 +343,72 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
 
     `view` is a ``PlotView``, a ``Schematic``, an ``SMatrixView``, a
     ``MaterialView``, a ``FarField`` or a sweep's ``SweepPanel``.
+
+    The plot box's height over its width (``AxesSpec.box_aspect``) is 1 for the
+    S-matrix and 1 / ``PLOT_RATIO`` for every other plot, an x-y cross section
+    included, unless ``aspect_ratio`` gives one: a number, or ``'real'``
+    for the limits' own ratio (emodeconnection#160).
     """
+    options = options or PlotOptions()
+    spec = _compose(view, options)
+    if spec.panels:
+        chosen = options.aspect_ratio
+        if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+            # every panel takes a chosen ratio, and the figure's aspect follows (#189)
+            panels = tuple(replace(p, axes=replace(p.axes, box_aspect=float(chosen))) for p in spec.panels)
+            spec = replace(spec, panels=panels)
+        return _extents(spec, options)
+    spec = replace(spec, axes=replace(spec.axes, box_aspect=_default_aspect(view, spec, options)))
+    return _extents(spec, options)
+
+
+def _extents(spec: FigureSpec, options: PlotOptions) -> FigureSpec:
+    """`spec` with the axis ends `options` sets (#191), each panel's for a figure of panels."""
+    ends = (options.xmin, options.xmax, options.ymin, options.ymax)
+    if all(v is None for v in ends):
+        return spec
+    if spec.panels:
+        return replace(spec, panels=tuple(_extents(p, options) for p in spec.panels))
+    (x0, x1), (y0, y1) = spec.axes.xrange, spec.axes.yrange
+    pick = lambda v, auto: auto if v is None else float(v)  # noqa: E731
+    axes = replace(
+        spec.axes,
+        xrange=(pick(options.xmin, x0), pick(options.xmax, x1)),
+        yrange=(pick(options.ymin, y0), pick(options.ymax, y1)),
+    )
+    return replace(spec, axes=axes)
+
+
+def _default_aspect(view: Drawable, spec: FigureSpec, options: PlotOptions) -> float:
+    """The plot box's height over its width for `view` (emodeconnection#160)."""
+    (x0, x1), (y0, y1) = spec.axes.xrange, spec.axes.yrange
+    limits = abs(y1 - y0) / abs(x1 - x0) if x1 != x0 else 1.0
+    chosen = options.aspect_ratio
+    if isinstance(chosen, (int, float)) and not isinstance(chosen, bool) and chosen > 0:
+        return float(chosen)
+    if isinstance(chosen, str) and chosen.lower() == "real":
+        return limits
+    if isinstance(view, SMatrixView):
+        return 1.0
+    return 1 / PLOT_RATIO
+
+
+def figure_aspect(spec: FigureSpec) -> float:
+    """The plot box's height over its width, which the tab sizes the plot to."""
+    if spec.panels:
+        rows, cols = spec.panel_grid
+        each = spec.panels[0].axes.box_aspect
+        return rows / cols * (float(each) if each else 1 / PLOT_RATIO)
+    if spec.axes.box_aspect is not None:
+        return float(spec.axes.box_aspect)
+    return 1 / PLOT_RATIO
+
+
+def _compose(view: Drawable, options: PlotOptions) -> FigureSpec:
     from ..free_space import FarField
     from ..gds import GDSView
     from .gds import GDSPanel, compose_gds
 
-    options = options or PlotOptions()
     if isinstance(view, GDSView):
         view = GDSPanel.from_view(view)
     if isinstance(view, GDSPanel):
@@ -316,13 +423,22 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
         return _compose_farfield(view, options)
     if isinstance(view, FarFieldPanel):
         return _compose_farfield(view.farfield, options, view.panel)
+    if isinstance(view, MonitorPanel):
+        return _compose_monitor(view, options)
     from .sweep_figure import SweepPanel, compose_sweep
 
     if isinstance(view, SweepPanel):
         return compose_sweep(view, options)
     from ..figures import Figure
+    from .modes import ModesPanel, compose_modes
     from .panels import compose_figure
 
+    if isinstance(view, ModesPanel):
+        return compose_modes(view, options)
+    from .cut import CutPanel, compose_cut
+
+    if isinstance(view, CutPanel):
+        return compose_cut(view, options)
     if isinstance(view, Figure):
         return compose_figure(view, options)
     if not isinstance(view, PlotView):
@@ -331,6 +447,71 @@ def compose(view: Drawable, options: Optional[PlotOptions] = None) -> FigureSpec
             f"not {type(view).__name__}"
         )
     return _compose_view(view, options)
+
+
+def column_edges(centers: np.ndarray) -> np.ndarray:
+    """Cell edges around monotonic centers: halfway between them, the outer ones half a cell out."""
+    c = np.asarray(centers, float)
+    if c.size == 1:
+        return np.array([c[0] - 0.5, c[0] + 0.5])
+    mid = (c[1:] + c[:-1]) / 2
+    return np.concatenate([[c[0] - (mid[0] - c[0])], mid, [c[-1] + (c[-1] - mid[-1])]])
+
+
+def _joinable(a: RasterSpec, b: RasterSpec, a_edges: np.ndarray, b_edges: np.ndarray) -> bool:
+    """Whether slice `b` continues slice `a`: the same rows and look, and b starting where a ends."""
+    same_rows = np.asarray(a.y).shape == np.asarray(b.y).shape and np.allclose(a.y, b.y)
+    same_look = (a.colormap, a.vmin, a.vmax, a.interpolation, a.contour_levels) == (
+        b.colormap, b.vmin, b.vmax, b.interpolation, b.contour_levels
+    )
+    if not (same_rows and same_look) or (a.mask is None) != (b.mask is None):
+        return False
+    widths = np.concatenate([np.diff(a_edges), np.diff(b_edges)])
+    return bool(abs(b_edges[0] - a_edges[-1]) <= 1e-3 * float(np.min(np.abs(widths))))
+
+
+def join_slices(rasters: List[RasterSpec]) -> List[RasterSpec]:
+    """A z panel's slices as few images as possible: each run of slices that meet on one grid, joined.
+
+    Each slice was drawn as its own image, antialiased on its own, which left
+    a hairline seam at every slice boundary. A joined image keeps every
+    slice's own cell edges (``x_edges``) and values, so only the drawing
+    changes. Slices on different transverse grids, or with a gap between them,
+    stay apart.
+    """
+    out: List[RasterSpec] = []
+    run: List[Tuple[RasterSpec, np.ndarray]] = []
+
+    def flush() -> None:
+        if not run:
+            return
+        if len(run) == 1:
+            out.append(run[0][0])
+        else:
+            first = run[0][0]
+            edges = np.concatenate([run[0][1]] + [e[1:] for _, e in run[1:]])
+            mask = None if first.mask is None else np.concatenate([np.asarray(r.mask) for r, _ in run], axis=1)
+            out.append(
+                replace(
+                    first,
+                    x=np.concatenate([np.asarray(r.x) for r, _ in run]),
+                    z=np.concatenate([np.asarray(r.z) for r, _ in run], axis=1),
+                    mask=mask,
+                    x_edges=edges,
+                )
+            )
+        run.clear()
+
+    for r in rasters:
+        edges = np.asarray(r.x_edges) if r.x_edges is not None else column_edges(r.x)
+        if run and not _joinable(run[-1][0], r, run[-1][1], edges):
+            flush()
+        if run:
+            # the joined edge is the previous slice's own end
+            edges = np.concatenate([[run[-1][1][-1]], edges[1:]])
+        run.append((r, edges))
+    flush()
+    return out
 
 
 def _cmap(kind: str, options: PlotOptions) -> str:
@@ -361,11 +542,23 @@ def _axis_label(name: str, unit: str) -> str:
     return f"{name} ({UNIT_SYMBOL[unit]})"
 
 
+def effective_contours(data: Any, options: PlotOptions) -> Optional[bool]:
+    """Whether `data`'s contour lines are drawn under `options`, None when `data` has none.
+
+    ``options.contours`` None is the default: on for the x-y plane, off for
+    the z planes. The tab's Contours checkbox shows this, never the raw None.
+    """
+    if not isinstance(data, PlotView):
+        return None
+    if options.contours is not None:
+        return options.contours
+    return data.plane not in ("z-x", "z-y")
+
+
 def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     xu, yu = _units(view, options)
     sx, sy = UNIT_SCALE[xu], UNIT_SCALE[yu]
-    z_plane = view.plane in ("z-x", "z-y")
-    contours = options.contours if options.contours is not None else not z_plane
+    contours = bool(effective_contours(view, options))
     rasters = []
     for r in view.rasters:
         cmap = _cmap(r.kind, options)
@@ -385,6 +578,9 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                 contour_levels=levels,
             )
         )
+
+    if view.plane in ("z-x", "z-y"):
+        rasters = join_slices(rasters)
 
     fills = [
         FillSpec(
@@ -435,6 +631,10 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
         for line in view.outlines:
             add("outline", line.x, line.y)
 
+    if view.slice_marker is not None:
+        # the z of the x-y cut, on a z panel, whatever the toggles (emode#1625)
+        add("slice", view.slice_marker.x, view.slice_marker.y)
+
     segments = []
     if options.mesh_display:
         for s in view.mesh:
@@ -460,6 +660,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
             tick_labels=None if view.scale.tick_labels is None else tuple(view.scale.tick_labels),
             label=options.colorbar_label,
             tick_format=view.scale.tick_format,
+            lines=_reached(rasters),
         )
 
     legend: Tuple[LegendEntrySpec, ...] = ()
@@ -469,8 +670,6 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     background = _color(view.background, None, options)
     width, height = options.figure_size or DEFAULT_SIZE_MM
     box_aspect = view.axes.box_aspect
-    if options.aspect_ratio is not None and not view.axes.equal_aspect:
-        box_aspect = _box_aspect(options.aspect_ratio, view)
     x0, x1 = view.axes.xlim
     y0, y1 = view.axes.ylim
     if options.window_display and view.axes.xlim_window and view.axes.ylim_window:
@@ -503,6 +702,29 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     )
 
 
+def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
+    """The contour levels the field reaches, which the colorbar marks (#178).
+
+    A level outside the shown values has no line on the field (an EME x-y cut
+    normalized to the launched field can peak well below the top levels), so
+    marking it on the bar would mark a line that is not there.
+    """
+    if not rasters or not rasters[0].contour_levels:
+        return ()
+    shown = []
+    for r in rasters:
+        z = np.asarray(r.z, np.float64)
+        keep = np.isfinite(z)
+        if r.mask is not None:
+            keep &= ~np.asarray(r.mask, bool)
+        if keep.any():
+            shown.append((float(z[keep].min()), float(z[keep].max())))
+    if not shown:
+        return ()
+    lo, hi = min(a for a, _ in shown), max(b for _, b in shown)
+    return tuple(v for v in rasters[0].contour_levels if lo < v < hi)
+
+
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
     color = line_style(kind)[0]
     x, y = line.label_at
@@ -510,14 +732,6 @@ def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions
         line.label, x / sx, y / sy, "data", line.align, "bottom", color, options.font_size, kind
     )
 
-
-def _box_aspect(aspect_ratio: Union[str, float], view: PlotView) -> Optional[float]:
-    if isinstance(aspect_ratio, (int, float)):
-        return float(aspect_ratio)
-    if str(aspect_ratio).lower() == "real":
-        (x0, x1), (y0, y1) = view.axes.xlim, view.axes.ylim
-        return abs(y1 - y0) / abs(x1 - x0) if x1 != x0 else None
-    return view.axes.box_aspect
 
 
 # ------------------------------------------------------------------ the schematic
@@ -542,11 +756,16 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 color=face,
                 edgecolor=launch if selected else edge,
                 width=2.4 if selected else 1.2,
+                target=b.id,
             )
         )
         texts.append(TextSpec(b.label, b.x, b.y, "data", "center", "center", text, 6.5, "label"))
     for s in view.stubs:
-        lines.append(LineSpec(np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0))
+        lines.append(
+            LineSpec(
+                np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0, target=s.id
+            )
+        )
         if s.label:
             out = 1.0 if s.side == "right" else -1.0
             launched = view.launch is not None and view.launch.label == s.label
@@ -566,9 +785,10 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                         "right" if s.side == "right" else "left", "bottom", text, 5.5, "port",
                     )
                 )
-    for c in view.connections:
+    ids = list(view.connection_ids) + [None] * (len(view.connections) - len(view.connection_ids))
+    for c, target in zip(view.connections, ids):
         color, width, dash, alpha = line_style(c.kind)
-        lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha))
+        lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha, target=target))
     if view.launch is not None:
         marker = "triangle-right" if view.launch.side == "left" else "triangle-left"
         lines.append(
@@ -668,7 +888,6 @@ def _compose_smatrix(view: SMatrixView, options: PlotOptions) -> FigureSpec:
         ylabel=options.ylabel or "Output mode",
         xrange=(-0.5, n_in - 0.5),
         yrange=(-0.5, n_out - 0.5),
-        equal_aspect=True,
         integer_ticks=True,
     )
     return FigureSpec(
@@ -837,6 +1056,68 @@ def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity")
         texts=texts if options.text_display else (),
         colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or bar_label, tick_format="%.3g"),
         title=options.title or f"far field, {view.wavelength:g} nm",
+        width_mm=float(width),
+        height_mm=float(height),
+        font_size=options.font_size,
+        dpi=options.dpi,
+    )
+
+
+@dataclass(frozen=True)
+class MonitorPanel:
+    """A monitor's ``PlaneField`` and what is shown of it: a component (or the flux ``Sn``) and its part."""
+
+    field: Any
+    data: str = "Ex"
+    part: str = "abs"
+
+    #: What the Data menu offers.
+    DATA = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "Sn")
+    #: What the part menu offers.
+    PARTS = ("abs", "abs^2", "real", "imag")
+
+    def with_selection(self, data: Optional[str], part: Optional[str]) -> "MonitorPanel":
+        data = data if data in self.DATA else self.data
+        part = part if part in self.PARTS else self.part
+        return MonitorPanel(self.field, data, part)
+
+
+def _compose_monitor(view: MonitorPanel, options: PlotOptions) -> FigureSpec:
+    """The field on a monitor's plane: across it (x) against along it (s), both in μm."""
+    width, height = options.figure_size or DEFAULT_SIZE_MM
+    plane = view.field
+    values = np.asarray(plane.Sn if view.data == "Sn" else plane.fields[view.data])
+    part = {"abs": np.abs, "abs^2": lambda v: np.abs(v) ** 2, "real": np.real, "imag": np.imag}[view.part]
+    z = np.asarray(part(values), float)
+    signed = view.part in ("real", "imag") or (view.data == "Sn" and np.nanmin(z) < 0)
+    peak = float(np.nanmax(np.abs(z))) if z.size else 1.0
+    peak = peak or 1.0
+    vmin = (-peak if signed else 0.0) if options.vmin is None else float(options.vmin)
+    vmax = peak if options.vmax is None else float(options.vmax)
+    cmap = _cmap("diverging" if signed else "sequential", options)
+    x = np.asarray(plane.s, float) / 1000
+    y = np.asarray(plane.x, float) / 1000
+    raster = RasterSpec(x=x, y=y, z=z, colormap=cmap, vmin=vmin, vmax=vmax)
+    axes = AxesSpec(
+        xlabel=options.xlabel or "s, along the plane (μm)",
+        ylabel=options.ylabel or "x (μm)",
+        xrange=(float(x.min()), float(x.max())),
+        yrange=(float(y.min()), float(y.max())),
+        equal_aspect=True,
+    )
+    texts = (
+        TextSpec(
+            f"{plane.power_through_plane:.3g} W through the plane of {plane.power_in:g} W launched",
+            0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+        ),
+    )
+    label = "Sn (W/m²)" if view.data == "Sn" else view.data
+    return FigureSpec(
+        axes=axes,
+        rasters=(raster,),
+        texts=texts if options.text_display else (),
+        colorbar=ColorbarSpec(cmap, vmin, vmax, label=options.colorbar_label or f"{label} {view.part}", tick_format="%.3g"),
+        title=options.title or f"monitor {plane.name}, {plane.wavelength:g} nm",
         width_mm=float(width),
         height_mm=float(height),
         font_size=options.font_size,

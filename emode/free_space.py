@@ -164,6 +164,14 @@ class FarField(TaggedModel):
       plane along the direction of travel (negative: behind the plane).
     - `centroid`: the near field's intensity centroid (x, y in nm).
     - `screen`: the field on the `Screen` given to ``farfield()``, if any.
+    - `radiated_from`: what radiates, ``'E'`` (the transverse E alone, exact
+      for a field already in the uniform medium) or ``'E and H'`` (the mean of
+      the far fields of the transverse E and of the transverse H, the
+      equivalence principle, which a mode far above its background needs).
+    - `monitor`: the monitor whose plane radiates, if any. The far field's
+      axis is then the plane's normal, `ux` runs along the plane (toward the
+      chain's far end) and `uy` along x, and `port` and `mode` are the
+      launched ones.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -173,6 +181,8 @@ class FarField(TaggedModel):
     port: Optional[str] = None
     profile: Optional[str] = None
     mode: int = 0
+    radiated_from: str = "E"
+    monitor: Optional[str] = None
     ux: np.ndarray
     uy: np.ndarray
     fields: Dict[str, np.ndarray]

@@ -39,7 +39,8 @@ def _traces(figure: dict, kind: str) -> list:
 def test_a_raster_is_a_heatmap_with_its_values_as_typed_arrays():
     spec = compose(xy_view())
     (heatmap,) = _traces(to_plotly(spec), "heatmap")
-    np.testing.assert_array_equal(_decode(heatmap["z"]), spec.rasters[0].z)
+    # the values go rounded to 4 significant digits (a relative step under 1e-4)
+    np.testing.assert_allclose(_decode(heatmap["z"]), spec.rasters[0].z, rtol=1e-4)
     np.testing.assert_array_equal(_decode(heatmap["x"]), spec.rasters[0].x)
     assert (heatmap["zmin"], heatmap["zmax"]) == (-1.0, 1.0)
     assert heatmap["zsmooth"] == "best"
@@ -54,11 +55,30 @@ def test_the_colorscale_is_the_rasters_kind():
     assert first["colorscale"] == plotly_colorscale("sequential")
 
 
+def _contour_lines(figure):
+    return [t for t in figure["data"] if t.get("meta") == "contour"]
+
+
 def test_contours_are_drawn_when_on_and_not_when_off():
+    on = _contour_lines(to_plotly(compose(xy_view())))
+    assert on and all(t["type"] == "scatter" for t in on)
+    assert not _contour_lines(to_plotly(compose(xy_view(), PlotOptions(contours=False))))
+
+
+def test_without_contourpy_the_contours_are_plotly_contours_one_per_level(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_contourpy(name, *args, **kwargs):
+        if name == "contourpy":
+            raise ImportError(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_contourpy)
     levels = xy_view().rasters[0].contour_levels
     on = _traces(to_plotly(compose(xy_view())), "contour")
     assert [t["contours"]["start"] for t in on] == pytest.approx(list(levels))
-    assert not _traces(to_plotly(compose(xy_view(), PlotOptions(contours=False))), "contour")
 
 
 def test_one_scatter_per_overlay_styled_by_its_kind():
@@ -170,8 +190,9 @@ def test_the_two_renderers_agree_on_one_spec(make):
     heatmaps = _traces(figure, "heatmap")
     assert len(heatmaps) == len(ax.images) == len(spec.rasters)
     for heatmap, image in zip(heatmaps, ax.images):
-        np.testing.assert_array_equal(
-            np.ma.filled(np.asarray(image.get_array(), float), np.nan), _decode(heatmap["z"]).astype(float)
+        # the tab's values are rounded to 4 significant digits, a saved file's are not
+        np.testing.assert_allclose(
+            np.ma.filled(np.asarray(image.get_array(), float), np.nan), _decode(heatmap["z"]).astype(float), rtol=1e-4
         )
     plotted = [t for t in _traces(figure, "scatter") if t.get("name") in {line.kind for line in spec.lines}]
     assert len(plotted) == len(ax.lines) == len(spec.lines)
@@ -195,6 +216,18 @@ def test_a_png_render_has_the_requested_resolution():
     assert width <= spec.width_mm / 25.4 * 150 * 1.5 and height > 50
 
 
+@pytest.mark.parametrize("file_type", ["png", "pdf", "svg"])
+def test_a_saved_figure_of_each_file_type_raises_no_warning(file_type):
+    """The PDF backend warned 'Unknown infodict keyword' about a metadata key it does not take (#1115)."""
+    import warnings
+
+    spec = compose(xy_view())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        data = mpl_renderer.render(spec, file_type, dpi=50)
+    assert data[:4] == {"png": b"\x89PNG", "pdf": b"%PDF", "svg": data[:4]}[file_type]
+
+
 def test_without_matplotlib_a_save_names_the_install_command_and_plotly_still_works(monkeypatch):
     real_import = builtins.__import__
 
@@ -210,3 +243,33 @@ def test_without_matplotlib_a_save_names_the_install_command_and_plotly_still_wo
     assert to_plotly(spec)["data"]
     with pytest.raises(EModeError, match="pip install matplotlib"):
         mpl_renderer.render(spec)
+
+
+# ------------------------------------------------------------------ contour levels on the colorbar
+
+
+def test_the_colorbar_carries_the_contour_levels_when_contours_are_drawn():
+    levels = xy_view().rasters[0].contour_levels
+    assert compose(xy_view()).colorbar.lines == tuple(float(v) for v in levels)
+    assert compose(xy_view(), PlotOptions(contours=False)).colorbar.lines == ()
+    assert compose(zx_view()).colorbar.lines == ()
+
+
+def test_plotly_draws_a_line_across_the_colorbar_at_each_level():
+    # the marks are the ticks of a clear colorbar laid over the shown one (#186): a layout
+    # shape is drawn under every colorbar, which Plotly puts on its top layer
+    spec = compose(xy_view())
+    cb = spec.colorbar
+    figure = to_plotly(spec)
+    (marks,) = [t for t in figure["data"] if t.get("meta") == "colorbar_levels"]
+    assert marks["marker"]["colorbar"]["tickvals"] == pytest.approx(list(cb.lines))
+    assert not [s for s in figure["layout"].get("shapes", []) if s.get("name") == "colorbar_level"]
+    off = to_plotly(compose(xy_view(), PlotOptions(contours=False)))
+    assert not [t for t in off["data"] if t.get("meta") == "colorbar_levels"]
+
+
+def test_matplotlib_draws_the_levels_on_the_colorbar():
+    levels = xy_view().rasters[0].contour_levels
+    cbar_ax = mpl_renderer.to_figure(compose(xy_view())).axes[-1]
+    segments = [s for c in cbar_ax.collections if hasattr(c, "get_segments") for s in c.get_segments()]
+    assert len(segments) == len(levels)

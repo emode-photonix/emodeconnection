@@ -160,3 +160,8 @@ def test_a_panel_without_a_secondary_x_axis_is_unchanged():
     a = compose(fig).panels[0].axes
     assert a.x2label is None and a.x2ticks == ()
     assert "xaxis2" not in to_plotly(compose(fig))["layout"]
+
+
+def test_a_nonnegative_flag_does_not_put_zero_on_a_log_axis():
+    fig, _ = _fig(yscale="log", ynonnegative=True)
+    assert compose(fig).panels[0].axes.yrange[0] > 0

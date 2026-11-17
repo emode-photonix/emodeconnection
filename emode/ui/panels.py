@@ -94,11 +94,22 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
     y2scale = twin.settings.get("yscale", "linear") if twin is not None else "linear"
     xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0, xscale == "log"))
     yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys, 0.05, yscale == "log"))
+    # a sweep's magnitude keeps its floor at 0 while the script's curves stay above it (#191)
+    floor = bool(base and base.axes.y_nonnegative) and all(bool((y[np.isfinite(y)] >= 0).all()) for y in ys)
+    floor = (floor or bool(settings.get("ynonnegative"))) and yscale != "log"
+    if floor and yrange is not None and not settings.get("ylim"):
+        yrange = (0.0, max(yrange[1], 0.0))
     xrange = tuple(float(v) for v in (xrange or (0.0, 1.0)))
     yrange = tuple(float(v) for v in (yrange or (0.0, 1.0)))
     y2range: Optional[Tuple[float, float]] = None
+    y2floor = False
     if twin is not None:
-        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s, 0.05, y2scale == "log") or (0.0, 1.0)))
+        y2range = tuple(
+            float(v) for v in (twin.settings.get("ylim") or _span(y2s, 0.05, y2scale == "log") or (0.0, 1.0))
+        )
+        y2floor = bool(twin.settings.get("ynonnegative")) and y2scale != "log"
+        if y2floor and not twin.settings.get("ylim"):
+            y2range = (0.0, max(y2range[1], 0.0))
         for kind, item in twin.items:
             if kind == "hline":
                 _marker, dash, _ = parse_style(item["style"])
@@ -144,6 +155,8 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         y2range=y2range,
         ylabel_color=_one_color(lines, "left") if twin is not None else None,
         y2label_color=_one_color(lines, "right") if twin is not None else None,
+        y_nonnegative=floor,
+        y2_nonnegative=y2floor,
     )
     return FigureSpec(
         axes=axes,

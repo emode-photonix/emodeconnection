@@ -77,13 +77,24 @@ class TwinAxis:
         self.items.append(("hline", dict(at=y, style=style, label=label, color=color)))
         return self
 
-    def set(self, ylabel: Optional[str] = None, ylim: Range = None, yscale: Optional[str] = None) -> "TwinAxis":
-        """The right axis's label, range and scale (``'linear'`` or ``'log'``). The x axis is the panel's own."""
+    def set(
+        self, ylabel: Optional[str] = None, ylim: Range = None, ynonnegative: Optional[bool] = None, yscale: Optional[str] = None
+    ) -> "TwinAxis":
+        """The right axis's label, range and scale (``'linear'`` or ``'log'``). The x axis is the panel's own.
+
+        ``ynonnegative=True`` marks the axis as one that cannot go below 0: its range starts at 0."""
         _check_scale("TwinAxis.set", "yscale", yscale)
-        for name, value in dict(ylabel=ylabel, ylim=ylim, yscale=yscale).items():
+        for name, value in dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative), yscale=yscale).items():
             if value is not None:
                 self.settings[name] = value
         return self
+
+
+def _flag(value: Any) -> Optional[bool]:
+    """`value` if it is a bool or None, else an ArgumentError."""
+    if value is not None and not isinstance(value, bool):
+        raise ArgumentError(f"ynonnegative is True or False, not {value!r}", "Panel.set", "ynonnegative")
+    return None if value is None else bool(value)
 
 
 class Panel:
@@ -168,18 +179,24 @@ class Panel:
         title: Optional[str] = None,
         xlim: Range = None,
         ylim: Range = None,
+        ynonnegative: Optional[bool] = None,
         xscale: Optional[str] = None,
         yscale: Optional[str] = None,
     ) -> "Panel":
         """The panel's axis labels, title, ranges and scales (``'linear'`` or ``'log'``).
 
         What is not given keeps its default. A log axis needs positive data and ranges.
-        """
+
+        ``ynonnegative=True`` marks the y axis as one that cannot go below 0 (a transmission, a
+        power): its range starts at 0, in the tab and in the saved image. A sweep drawn with
+        ``sweep()`` is marked from its data already."""
         _check_scale("Panel.set", "xscale", xscale)
         _check_scale("Panel.set", "yscale", yscale)
-        for name, value in dict(
-            xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, xscale=xscale, yscale=yscale
-        ).items():
+        settings = dict(
+            xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative),
+            xscale=xscale, yscale=yscale,
+        )
+        for name, value in settings.items():
             if value is not None:
                 self.settings[name] = value
         return self
