@@ -31,9 +31,10 @@ from plot_standin import VERSION_1_0_9, session
 
 @pytest.fixture(autouse=True)
 def plot_environment(monkeypatch):
-    """A plot opens a tab unless the environment says otherwise, whatever the suite runs under."""
+    """A desktop with a display and no plot switch set, whatever the suite runs under (headless, no DISPLAY)."""
     for name in ("EMODE_HEADLESS", "EMODE_NONINTERACTIVE", "EMODE_PLOT_INLINE", "EMODE_UI_EXIT_WAIT", "EMODE_UI_URL"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
 
 
 mpl = pytest.importorskip("matplotlib")
