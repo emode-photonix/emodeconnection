@@ -37,6 +37,18 @@ DEFAULT_SIZE_MM = (80.0, 80.0 / math.sqrt(2))
 #: section included (emodeconnection#160, Eric 2026-11-15).
 PLOT_RATIO = math.sqrt(2)
 
+def log_ticks(lo: float, hi: float) -> List[float]:
+    """Round tick values across [lo, hi] for a log axis: 1, 2, 5 and finer steps when the span is narrow."""
+    lo, hi = min(lo, hi), max(lo, hi)
+    if not (lo > 0 and np.isfinite(hi)):
+        return []
+    decades = math.log10(hi / lo)
+    subs = (1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8) if decades <= 1.2 else (1, 2, 5) if decades <= 2.5 else (1,)
+    first, last = math.floor(math.log10(lo)), math.ceil(math.log10(hi))
+    values = [round(m * 10.0**k, 12) for k in range(first, last + 1) for m in subs]
+    return [v for v in values if lo * (1 - 1e-9) <= v <= hi * (1 + 1e-9)]
+
+
 #: The window's line width (points), from which every overlay's width is taken.
 LW = 0.5
 

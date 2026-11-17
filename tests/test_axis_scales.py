@@ -165,3 +165,19 @@ def test_a_panel_without_a_secondary_x_axis_is_unchanged():
 def test_a_nonnegative_flag_does_not_put_zero_on_a_log_axis():
     fig, _ = _fig(yscale="log", ynonnegative=True)
     assert compose(fig).panels[0].axes.yrange[0] > 0
+
+
+def test_log_ticks_are_round_and_denser_for_a_narrow_span():
+    from emode.ui.figure import log_ticks
+
+    assert log_ticks(800.0, 2500.0) == [800.0, 1000.0, 1200.0, 1500.0, 2000.0, 2500.0]
+    assert log_ticks(1.0, 100.0) == [1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0]
+    assert log_ticks(1.0, 1e5) == [1.0, 10.0, 100.0, 1e3, 1e4, 1e5]
+
+
+def test_the_secondary_ticks_of_a_log_axis_are_log_spaced_round_values():
+    fig, p = _fig(xscale="log")
+    p.set(xlim=(800.0, 2500.0))
+    p.secondary_x(lambda nm: C / nm, label="THz")
+    texts = [t for _, t in compose(fig).panels[0].axes.x2ticks]
+    assert texts == ["150", "200", "250", "300"]

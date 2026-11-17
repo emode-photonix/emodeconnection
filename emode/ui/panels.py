@@ -13,7 +13,7 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 
 from .. import colormaps
-from .figure import DEFAULT_SIZE_MM, LW, AxesSpec, FigureSpec, FillSpec, LineSpec, PlotOptions
+from .figure import DEFAULT_SIZE_MM, LW, AxesSpec, FigureSpec, FillSpec, LineSpec, PlotOptions, log_ticks
 
 #: A style string's markers, as the spec names them.
 MARKERS = {"o": "circle", "s": "square", "^": "triangle-up", "D": "diamond", "d": "diamond",
@@ -195,7 +195,8 @@ def _secondary_ticks(
     s = np.asarray(function(x), float)
     values = secondary["ticks"]
     if values is None:
-        values = _nice_ticks(float(np.nanmin(s)), float(np.nanmax(s)))
+        lo, hi = float(np.nanmin(s)), float(np.nanmax(s))
+        values = log_ticks(lo, hi) if log and lo > 0 else _nice_ticks(lo, hi)
     values = np.asarray(values, float)
     if inverse is not None:
         positions = np.asarray(inverse(values), float)

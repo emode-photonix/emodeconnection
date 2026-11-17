@@ -18,7 +18,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ...types import EModeError
-from ..figure import FigureSpec
+from ..figure import FigureSpec, log_ticks
 
 #: The resolution of the PNG a headless ``plot()`` returns.
 INLINE_DPI = 150
@@ -190,10 +190,10 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         ax.set_box_aspect(a.box_aspect)
     if a.xscale == "log":
         ax.set_xscale("log")
-        _plain_log_labels(ax.xaxis, spec.font_size)
+        _plain_log_labels(ax.xaxis, spec.font_size, *a.xrange)
     if a.yscale == "log":
         ax.set_yscale("log")
-        _plain_log_labels(ax.yaxis, spec.font_size)
+        _plain_log_labels(ax.yaxis, spec.font_size, *a.yrange)
     if a.grid:
         ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
     if a.integer_xticks and not a.integer_ticks:
@@ -239,7 +239,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if twin is not None:
         if a.y2scale == "log":
             twin.set_yscale("log")
-            _plain_log_labels(twin.yaxis, spec.font_size)
+            _plain_log_labels(twin.yaxis, spec.font_size, *a.y2range)
         twin.set_ylim(*a.y2range)
         twin.set_ylabel(a.y2label or "", fontsize=spec.font_size)
         twin.tick_params(axis="y", direction="out", labelsize=spec.font_size, length=3, width=0.75)
@@ -314,14 +314,13 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     return fig
 
 
-def _plain_log_labels(axis: Any, size: float) -> None:
-    """A log axis's ticks as plain numbers, minor ticks labeled too, so a narrow span still has labels."""
-    from matplotlib.ticker import ScalarFormatter
+def _plain_log_labels(axis: Any, size: float, lo: float, hi: float) -> None:
+    """A log axis's ticks as plain numbers at 1, 2, 5 and finer steps, so a narrow span still has labels."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
 
-    axis.set_major_formatter(ScalarFormatter())
-    minor = ScalarFormatter()
-    minor.set_scientific(False)
-    axis.set_minor_formatter(minor)
+    axis.set_major_locator(FixedLocator(log_ticks(lo, hi)))
+    axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    axis.set_minor_locator(NullLocator())
     axis.set_tick_params(which="both", labelsize=size)
 
 
