@@ -611,16 +611,17 @@ def plot(
     file_name: Optional[str] = None,
     file_type: str = "png",
     name: Optional[str] = None,
+    tags: Any = None,
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     if arguments.get("view") == "gds":
         # the GDS layer view: its layer panel's arguments stay in this client
         data_args, figure_args = _split(arguments, DATA_ARGUMENTS + GDS_ARGUMENTS, "plot")
-        return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type, name)
+        return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type, name, tags)
     arguments = _physical_space(arguments)
     check_figure_arguments(arguments)
     data_args, figure_args = split_arguments(arguments)
-    return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type, name)
+    return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
 
 def _physical_space(arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -646,6 +647,24 @@ def _physical_space(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _tags_argument(tags: Any) -> Optional[List[str]]:
+    """``tags=`` of a plot call as the saved view keeps them: None (not given) stays None.
+
+    A list of strings or one string separated by commas, trimmed, without blanks
+    or repeats, as the tab's Save sheet keeps them (emode#1704).
+    """
+    if tags is None:
+        return None
+    from ..types import ArgumentError
+    from .views import clean_tags
+
+    if not isinstance(tags, str) and (
+        not isinstance(tags, (list, tuple)) or not all(isinstance(t, str) for t in tags)
+    ):
+        raise ArgumentError("tags are a list of strings, or one string separated by commas", "plot", "tags")
+    return clean_tags(tags)
+
+
 def show_call(
     em: "EMode",
     kind: str,
@@ -656,11 +675,14 @@ def show_call(
     file_name: Optional[str] = None,
     file_type: str = "png",
     name: Optional[str] = None,
+    tags: Any = None,
 ) -> Union["PlotHandle", PlotImage, None]:
     """Fetch a view of `kind` from EMode and show it: in the tab, or as a static image.
 
-    `name` names its saved view (emode#1703), replacing one of that name.
+    `name` names its saved view (emode#1703), replacing one of that name, and
+    `tags` tags it (emode#1704).
     """
+    tags = _tags_argument(tags)
     options = PlotOptions.from_arguments(figure_args)
     if inline not in (None, "png"):
         raise EModeError("inline is 'png' or None")
@@ -673,7 +695,7 @@ def show_call(
     if isinstance(data, GDSPanel):
         # the view keeps the panel's resolved state, which a fetch again reapplies
         data_args = state_arguments(data_args, data)
-    return present(em, data, data_args, options, block, inline, file_name, file_type, name=name)
+    return present(em, data, data_args, options, block, inline, file_name, file_type, name=name, tags=tags)
 
 
 def present(
@@ -688,6 +710,7 @@ def present(
     name: Optional[str] = None,
     session_only: bool = False,
     dataset: Optional[str] = None,
+    tags: Optional[List[str]] = None,
 ) -> Union["PlotHandle", PlotImage, None]:
     """Show `data` (a view's data the client holds): register it with the tab, or draw it here.
 
@@ -722,6 +745,7 @@ def present(
         name=name.strip() if name is not None else None,
         session_only=session_only,
         dataset=dataset,
+        tags=tags,
     )
     handle = PlotHandle(em, view)
     if recipe is not None:
@@ -753,8 +777,9 @@ def plot_S_matrix(
 ) -> Union["PlotHandle", PlotImage, None]:
     """``EMode.plot_S_matrix``: the S-matrix's block from `input` to `output`, as a view."""
     name = arguments.pop("name", None)
+    tags = arguments.pop("tags", None)
     data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "plot_S_matrix")
-    return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type, name)
+    return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
 
 def material_explorer(
@@ -767,10 +792,11 @@ def material_explorer(
 ) -> Union["PlotHandle", PlotImage, None]:
     """``EMode.material_explorer``: a material's refractive index against wavelength, as a view."""
     name = arguments.pop("name", None)
+    tags = arguments.pop("tags", None)
     data_args, figure_args = _split(
         arguments, ("material", "wavelengths", "step", "x", "component"), "material_explorer"
     )
-    return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type, name)
+    return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
 
 def _split(arguments: Dict[str, Any], data: Sequence[str], function: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -800,6 +826,7 @@ def show_data(
     file_name: Optional[str] = None,
     file_type: str = "png",
     name: Optional[str] = None,
+    tags: Any = None,
     **arguments: Any,
 ) -> Union["PlotHandle", PlotImage, None]:
     """``FarField.show()``, ``SMatrix.show()`` and a sweep's ``plot()``: data this client holds, shown with no EMode call.
@@ -808,7 +835,9 @@ def show_data(
     this process that is still running. `name` names its entry in the
     sidebar, which is listed for this session only: no recipe can fetch the
     client's own data again, so it is not kept in the simulation file.
+    `tags` tag that entry (emode#1704).
     """
+    tags = _tags_argument(tags)
     from ..free_space import FarField
     from ..smatrix import SMatrix
     from .sweep_figure import SWEEP_CONTROLS, is_sweep_shaped, sweep_panel
@@ -842,7 +871,9 @@ def show_data(
             "show() opens the plot in an EMode session's browser tab. Start one with "
             "em = emode.EMode(), or pass em=, file_name= or inline='png'."
         )
-    return present(em, view_data, data_args, options, block, inline, file_name, file_type, name=name, session_only=True)
+    return present(
+        em, view_data, data_args, options, block, inline, file_name, file_type, name=name, session_only=True, tags=tags
+    )
 
 
 def smatrix_view(smatrix: Any) -> SMatrixView:

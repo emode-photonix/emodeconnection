@@ -426,6 +426,7 @@ class ViewRegistry:
         name: Optional[str] = None,
         session_only: bool = False,
         dataset: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> Tuple[View, Optional[SavedView]]:
         """Register a script call's `data` as a saved view: ``(view, the recipe to post or None)``.
 
@@ -435,6 +436,10 @@ class ViewRegistry:
         by its title, numbered when another view has that title. Nothing is
         posted for a recipe EMode already holds, or for `session_only` data.
         `dataset` is the workbench data entry a replayed saved view names.
+
+        `tags` (already cleaned, ``clean_tags``) are the saved view's tags. None
+        keeps the tags of a saved view this call replaces or shows again, and a
+        list, ``[]`` included, replaces them (emode#1704).
         """
         with self._lock:
             kind = kind_of(data)
@@ -451,7 +456,9 @@ class ViewRegistry:
                     self._drop(entry)
                 view = self._new_view(data, arguments, options, pixels, generation)
                 self._views[view.id] = view
-                recipe = self._recipe(view, name if name is not None else self.unique_name(view.title), dataset)
+                recipe = self._recipe(
+                    view, name if name is not None else self.unique_name(view.title), dataset, tags
+                )
                 self._entries[view.id] = Entry(view.id, recipe, view, session_only)
                 return view, None if session_only else recipe
             same = key_of(entry.saved) == key
@@ -463,10 +470,11 @@ class ViewRegistry:
             view.kind, view.data, view.arguments, view.options = kind, data, dict(arguments), options
             view.title, view.pixels, view.generation = title_of(data, arguments), tuple(pixels), generation
             view.fetched = False
-            if same:
+            kept = list(entry.saved.tags) if tags is None else list(tags)
+            if same and kept == list(entry.saved.tags):
                 return view, None
-            # a new recipe under the same name keeps the saved view's tags (GUI-M4d)
-            entry.saved = self._recipe(view, entry.saved.name, dataset, entry.saved.tags)
+            # a new recipe under the same name keeps the saved view's tags unless the call gives them
+            entry.saved = self._recipe(view, entry.saved.name, dataset, kept)
             return view, None if session_only else entry.saved
 
     @staticmethod

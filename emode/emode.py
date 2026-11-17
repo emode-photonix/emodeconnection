@@ -509,7 +509,13 @@ class EMode:
         title, or by ``name`` (which replaces a saved view of that name), and
         EMode keeps it in the simulation file, so ``save()`` writes it and a
         file opened later lists it again (``saved_views()``). The same plot
-        again is listed once.
+        again is listed once. ``tags`` (a list of strings, or one string
+        separated by commas) tags the saved view, and the tab's sidebar groups
+        the saved views by their first tag. Replacing a saved view by name keeps
+        its tags when ``tags`` is not given, and replaces them when it is
+        (``tags=[]`` clears them). ``plot_S_matrix()``, ``material_explorer()``
+        and the ``show()`` and ``plot()`` of a result take ``name`` and ``tags``
+        too.
 
         With ``file_name`` the figure is saved under ``EM_figures/`` as
         ``file_type`` ('png', 'pdf' or 'svg'), and with ``EMODE_HEADLESS=1``, on
