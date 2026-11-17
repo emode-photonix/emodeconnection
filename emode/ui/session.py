@@ -189,7 +189,62 @@ def fetch_dataset(
         if not isinstance(value, PlaneField):
             raise EModeError("EMode answered monitor_field() with something this client cannot draw.")
         return MonitorPanel(value)
+    if kind == "farfield":
+        from ..free_space import FarField
+
+        value = em.call("EM_farfield", **arguments)
+        if not isinstance(value, FarField):
+            raise EModeError("EMode answered farfield() with something this client cannot draw.")
+        return FarFieldPanel(value)
+    if kind == "convergence":
+        return sweep_panel(convergence_trend(em.call("EM_get", **arguments)))
     raise EModeError(f"This client cannot draw EMode's {kind!r} data. Update it with pip install -U emode.")
+
+
+def convergence_trend(report: Any) -> Dict[str, Any]:
+    """A convergence report a profile holds, as a sweep-shaped result (emode#1766).
+
+    A ``converge()`` record (``get('convergence')``) is a trend over its
+    solves: the target quantity of the watched mode, its change from the solve
+    before and its estimated error, against the solve's number. The report of
+    ``x_resolution='converge'`` or ``fem_max_refinements='converge'``
+    (``get('resolution_report')``) is a trend over the grid spacing: each
+    mode's effective index, the grid's cells (or the FEM's unknowns) and the
+    seconds each grid took.
+    """
+    from collections.abc import Mapping
+
+    if not isinstance(report, Mapping) or not isinstance(report.get("history"), list):
+        raise EModeError("EMode answered with something this client cannot draw as a convergence report.")
+    history = [step for step in report["history"] if isinstance(step, Mapping)]
+    if not history:
+        raise EModeError("This convergence report has no steps to plot.")
+
+    def column(name: str) -> np.ndarray:
+        return np.asarray([np.nan if step.get(name) is None else step[name] for step in history], float)
+
+    if "target" in report:
+        # a converge() record: one row per solve
+        out: Dict[str, Any] = {"key": "solve", "values": np.arange(1, len(history) + 1)}
+        out[str(report["target"])] = column("quantity")
+        out["change"] = column("change")
+        out["estimated_error"] = column("estimated_error")
+        out["seconds"] = column("seconds")
+        return out
+    out = {"key": "resolution (nm)", "values": column("resolution")}
+    rows = [np.atleast_1d(np.asarray(step.get("effective_index", []))) for step in history]
+    width = max(len(row) for row in rows)
+    if width:
+        dtype = complex if any(row.dtype.kind == "c" for row in rows) else float
+        grid = np.full((len(rows), width), np.nan, dtype=dtype)
+        for i, row in enumerate(rows):
+            grid[i, : len(row)] = row
+        out["effective_index"] = grid
+    for name in ("cells", "unknowns", "elements"):
+        if all(name in step for step in history):
+            out[name] = np.asarray([step[name] for step in history])
+    out["seconds"] = column("seconds")
+    return out
 
 
 def _numeric(value: Any) -> Optional[np.ndarray]:

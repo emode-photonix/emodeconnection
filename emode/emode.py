@@ -556,11 +556,12 @@ class EMode:
 
         The workbench lists every piece of data the session holds, under Field
         (the device's field, each profile's modes, a free-space field, a
-        monitor's plane, the schematic, the GDS layers) or Trend (the stored
-        sweep, the pulse response, the S-matrix, each profile's mode results, a
-        profile set against wavelength, a material's index), and plots any of
-        them with that data's own controls. It asks EMode for nothing until the
-        tab shows it.
+        monitor's plane, a far field ``farfield()`` computed, the schematic,
+        the GDS layers) or Trend (the stored sweep, the pulse response, the
+        operating point, the S-matrix, each profile's mode results, a profile
+        set against wavelength, a convergence report, a material's index), and
+        plots any of them with that data's own controls. It asks EMode for
+        nothing until the tab shows it.
         """
         from .ui import session as ui
 
@@ -570,7 +571,8 @@ class EMode:
         """The saved views of this session's plot tab: its simulation file's, then this session's.
 
         Each is a ``SavedView``, a recipe for a plot (its ``name``, ``kind``,
-        ``arguments`` and ``options``), with ``show()`` to plot it again and
+        ``arguments``, ``options`` and the ``tags`` the tab's Save sheet gave
+        it), with ``show()`` to plot it again and
         ``delete()`` to remove it. A script's ``plot()`` saves one named by its
         title, or by ``name=``, and the workbench saves its state with Save or
         Save as. EMode keeps them in the simulation file, so ``save()`` writes

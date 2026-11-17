@@ -115,21 +115,57 @@ function routeId() {
 
 async function loadList() {
   state.views = await api("views");
+  renderList();
+}
+
+// The saved views (newest first) grouped by their first tag (GUI-M4d, emode#1704): the tags'
+// groups in alphabetical order, then the untagged views. With no tags at all, one group.
+// `filter` keeps the views whose name or a tag contains it, ignoring case.
+function groupViews(saved, filter) {
+  const text = (filter || "").trim().toLowerCase();
+  const kept = saved.filter((v) => !text || [v.title || "", ...(v.tags || [])].some((t) => t.toLowerCase().includes(text)));
+  const tagged = saved.some((v) => (v.tags || []).length);
+  if (!tagged) return kept.length ? [["Saved views", kept]] : [];
+  const groups = new Map();
+  for (const v of kept) {
+    const tag = (v.tags || [])[0] || "";
+    if (!groups.has(tag)) groups.set(tag, []);
+    groups.get(tag).push(v);
+  }
+  const names = [...groups.keys()].filter((t) => t).sort((a, b) => a.localeCompare(b));
+  const out = names.map((t) => [t, groups.get(t)]);
+  if (groups.has("")) out.push(["Untagged", groups.get("")]);
+  return out;
+}
+
+function renderList() {
   const ol = document.getElementById("views");
   ol.replaceChildren();
   // the workbench is pinned first, the saved views follow, newest first
-  const bench = state.views.filter((v) => v.kind === "bench");
-  const saved = state.views.filter((v) => v.kind !== "bench").reverse();
+  const views = state.views || [];
+  const bench = views.filter((v) => v.kind === "bench");
+  const saved = views.filter((v) => v.kind !== "bench").reverse();
   for (const v of bench) ol.appendChild(sidebarEntry(v));
-  if (saved.length) {
+  const box = document.getElementById("views-filter");
+  box.hidden = !saved.length;
+  const groups = groupViews(saved, box.value);
+  for (const [name, members] of groups) {
     const head = document.createElement("li");
     head.className = "group";
-    head.textContent = "Saved views";
+    head.textContent = name;
     ol.appendChild(head);
+    for (const v of members) ol.appendChild(sidebarEntry(v));
   }
-  for (const v of saved) ol.appendChild(sidebarEntry(v));
+  if (saved.length && !groups.length) {
+    const none = document.createElement("li");
+    none.className = "empty";
+    none.textContent = "No saved view matches “" + box.value.trim() + "”";
+    ol.appendChild(none);
+  }
   markSelected();
 }
+
+document.getElementById("views-filter").addEventListener("input", renderList);
 
 // One entry of the sidebar (emode#1703). A script's view shows its own data, a saved
 // recipe opens on the workbench, and the entry's menu edits it on the workbench,
@@ -151,6 +187,12 @@ function sidebarEntry(v) {
     const time = new Date(v.created * 1000).toLocaleTimeString();
     when.textContent = v.session_only ? "this session, " + time : (v.script ? "script, " + time : "saved view");
     li.appendChild(when);
+    if ((v.tags || []).length) {
+      const tags = document.createElement("span");
+      tags.className = "tags";
+      tags.textContent = v.tags.join(", ");
+      li.appendChild(tags);
+    }
     const menu = document.createElement("button");
     menu.type = "button";
     menu.className = "entry-menu";
@@ -173,7 +215,7 @@ function sidebarEntry(v) {
       actions.appendChild(b);
     };
     if (!v.session_only) action("Edit in workbench", () => editInWorkbench(v.id));
-    action("Rename", () => openSaveSheet({ mode: "rename", id: v.id, name: v.title || "" }));
+    action("Rename", () => openSaveSheet({ mode: "rename", id: v.id, name: v.title || "", tags: v.tags || [] }));
     action("Remove", () => removeSaved(v));
     menu.addEventListener("click", (ev) => {
       if (ev && ev.stopPropagation) ev.stopPropagation();
@@ -678,6 +720,7 @@ function saveBar(reply) {
     button.title = "Keep these settings in the sidebar's saved views and in the simulation file";
     button.addEventListener("click", () => openSaveSheet({
       mode: "save", origin: origin, name: origin ? origin.name : (reply.title || ""),
+      tags: origin ? origin.tags || [] : [],
     }));
     wrap.append(mark, button);
     return wrap;
@@ -708,15 +751,28 @@ function onClick(id, run) {
 
 let sheetOpener = null;
 
+// Tags typed in the sheet, comma separated: trimmed, without blanks or repeats (GUI-M4d).
+function sheetTags() {
+  const seen = [];
+  for (const t of document.getElementById("sheet-tags").value.split(",")) {
+    const tag = t.trim();
+    if (tag && !seen.includes(tag)) seen.push(tag);
+  }
+  return seen;
+}
+
 function openSaveSheet(how) {
   const sheet = document.getElementById("save-sheet");
   const name = document.getElementById("sheet-name");
   const rename = how.mode === "rename";
-  document.getElementById("sheet-title").textContent = rename ? "Rename the saved view" : "Save view";
+  document.getElementById("sheet-title").textContent = rename ? "Rename or tag the saved view" : "Save view";
   name.value = how.name || "";
-  onClick("sheet-save", () => postSaved({ action: "save" })).hidden = rename || !how.origin;
-  onClick("sheet-save-as", () => postSaved({ action: "save_as", name: name.value })).hidden = rename;
-  onClick("sheet-rename", () => postSaved({ action: "rename", id: how.id, name: name.value })).hidden = !rename;
+  const tags = document.getElementById("sheet-tags");
+  tags.value = (how.tags || []).join(", ");
+  tags.hidden = false;
+  onClick("sheet-save", () => postSaved({ action: "save", tags: sheetTags() })).hidden = rename || !how.origin;
+  onClick("sheet-save-as", () => postSaved({ action: "save_as", name: name.value, tags: sheetTags() })).hidden = rename;
+  onClick("sheet-rename", () => postSaved({ action: "rename", id: how.id, name: name.value, tags: sheetTags() })).hidden = !rename;
   onClick("sheet-cancel", closeSaveSheet);
   const save = document.getElementById("sheet-save");
   save.textContent = how.origin ? "Save to “" + how.origin.name + "”" : "Save";
@@ -1423,8 +1479,11 @@ function saveFigure(id, format, options) {
 
 // ------------------------------------------------------------ the session page
 
+// Each row reads EMode's SessionInfo, except Holds, which the client draws from the plot
+// inventory (GUI-M4d): `p` is the whole page, `e` its `emode` part.
 const SESSION_ROWS = [
   ["EMode", (e) => e.version],
+  ["Holds", (e, p) => p.holds],
   ["License", (e) => e.license_type],
   ["Account", (e) => e.account],
   ["Started", (e) => e.started && (new Date(e.started).toLocaleString() + ", " + since(e.started))],
@@ -1462,10 +1521,10 @@ function since(iso) {
   return "running " + (h ? h + " h " : "") + m + " min";
 }
 
-function rows(table, spec, data) {
+function rows(table, spec, data, page) {
   for (const [label, get] of spec) {
     let value = null;
-    try { value = data ? get(data) : null; } catch (err) { value = null; }
+    try { value = data ? get(data, page || {}) : null; } catch (err) { value = null; }
     if (value == null || value === "") continue;
     const tr = document.createElement("tr");
     const th = document.createElement("th");
@@ -1484,10 +1543,14 @@ async function loadSession() {
   } catch (err) {
     return showSessionMessage(String(err));
   }
+  showSession(page);
+}
+
+function showSession(page) {
   const table = document.getElementById("session-table");
   table.replaceChildren();
-  rows(table, SESSION_ROWS, page.emode);
-  rows(table, CLIENT_ROWS, page.client);
+  rows(table, SESSION_ROWS, page.emode, page);
+  rows(table, CLIENT_ROWS, page.client, page);
   showSessionMessage(page.session_ended ? "The EMode session has ended." : (page.error || ""));
   if (page.client && page.client.docs) document.getElementById("docs").href = page.client.docs;
 }

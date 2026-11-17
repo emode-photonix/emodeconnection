@@ -93,10 +93,9 @@ def test_the_files_tagged_views_list_their_tags(em, file_views):
     assert listed == {"TE": ["modes"], "TM": []}
 
 
-def test_replaying_a_tagged_view_keeps_its_tags(em, file_views):
+def test_a_new_recipe_under_a_tagged_name_keeps_its_tags(em, file_views):
     file_views.views = [_recipe("TE", tags=["modes"])]
-    (saved,) = em.saved_views()
-    saved.show(em, plane="z-x")  # a new recipe under the same name: posted, and still tagged
+    em.plot(name="TE", plane="z-x")  # replaces the recipe of that name: posted, and still tagged
     assert _posted(em)[-1].name == "TE" and _posted(em)[-1].tags == ["modes"]
 
 
