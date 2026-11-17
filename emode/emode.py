@@ -509,7 +509,13 @@ class EMode:
         title, or by ``name`` (which replaces a saved view of that name), and
         EMode keeps it in the simulation file, so ``save()`` writes it and a
         file opened later lists it again (``saved_views()``). The same plot
-        again is listed once.
+        again is listed once. ``tags`` (a list of strings, or one string
+        separated by commas) tags the saved view, and the tab's sidebar groups
+        the saved views by their first tag. Replacing a saved view by name keeps
+        its tags when ``tags`` is not given, and replaces them when it is
+        (``tags=[]`` clears them). ``plot_S_matrix()``, ``material_explorer()``
+        and the ``show()`` and ``plot()`` of a result take ``name`` and ``tags``
+        too.
 
         With ``file_name`` the figure is saved under ``EM_figures/`` as
         ``file_type`` ('png', 'pdf' or 'svg'), and with ``EMODE_HEADLESS=1``, on
@@ -556,11 +562,12 @@ class EMode:
 
         The workbench lists every piece of data the session holds, under Field
         (the device's field, each profile's modes, a free-space field, a
-        monitor's plane, the schematic, the GDS layers) or Trend (the stored
-        sweep, the pulse response, the S-matrix, each profile's mode results, a
-        profile set against wavelength, a material's index), and plots any of
-        them with that data's own controls. It asks EMode for nothing until the
-        tab shows it.
+        monitor's plane, a far field ``farfield()`` computed, the schematic,
+        the GDS layers) or Trend (the stored sweep, the pulse response, the
+        operating point, the S-matrix, each profile's mode results, a profile
+        set against wavelength, a convergence report, a material's index), and
+        plots any of them with that data's own controls. It asks EMode for
+        nothing until the tab shows it.
         """
         from .ui import session as ui
 
@@ -570,7 +577,8 @@ class EMode:
         """The saved views of this session's plot tab: its simulation file's, then this session's.
 
         Each is a ``SavedView``, a recipe for a plot (its ``name``, ``kind``,
-        ``arguments`` and ``options``), with ``show()`` to plot it again and
+        ``arguments``, ``options`` and the ``tags`` the tab's Save sheet gave
+        it), with ``show()`` to plot it again and
         ``delete()`` to remove it. A script's ``plot()`` saves one named by its
         title, or by ``name=``, and the workbench saves its state with Save or
         Save as. EMode keeps them in the simulation file, so ``save()`` writes

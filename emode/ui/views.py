@@ -247,8 +247,8 @@ class Workbench:
             return None
         return recipe_key(view.kind, view.arguments, changed_options(view.options), self.dataset)
 
-    def recipe(self, name: str) -> Optional[SavedView]:
-        """What the workbench shows, as a saved view named `name`."""
+    def recipe(self, name: str, tags: Optional[List[str]] = None) -> Optional[SavedView]:
+        """What the workbench shows, as a saved view named `name` with `tags`."""
         view = self.view
         if view is None:
             return None
@@ -258,6 +258,7 @@ class Workbench:
             arguments=plain(view.arguments),
             options=changed_options(view.options),
             dataset=self.dataset,
+            tags=list(tags or []),
             created=now_iso(),
         )
 
@@ -318,6 +319,19 @@ def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def clean_tags(tags: Any) -> List[str]:
+    """`tags` as a saved view keeps them: a list, or text separated by commas, trimmed, without blanks or repeats."""
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        tags = tags.split(",")
+    if not isinstance(tags, (list, tuple)):
+        from ..types import ArgumentError
+
+        raise ArgumentError("tags are a list of strings, or one string separated by commas", "save_view", "tags")
+    return list(dict.fromkeys(t for t in (str(tag).strip() for tag in tags) if t))
+
+
 @dataclass
 class Entry:
     """One saved view of the sidebar: its recipe and, for a script's call, the view holding its data.
@@ -344,6 +358,7 @@ class Entry:
             "fetched": view.fetched if view is not None else True,
             "script": view is not None and not self.session_only,
             "session_only": self.session_only,
+            "tags": list(self.saved.tags),
             # a script's view shows its own data, a recipe opens on the workbench
             "opens": "view" if view is not None else "bench",
         }
@@ -411,6 +426,7 @@ class ViewRegistry:
         name: Optional[str] = None,
         session_only: bool = False,
         dataset: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> Tuple[View, Optional[SavedView]]:
         """Register a script call's `data` as a saved view: ``(view, the recipe to post or None)``.
 
@@ -420,6 +436,10 @@ class ViewRegistry:
         by its title, numbered when another view has that title. Nothing is
         posted for a recipe EMode already holds, or for `session_only` data.
         `dataset` is the workbench data entry a replayed saved view names.
+
+        `tags` (already cleaned, ``clean_tags``) are the saved view's tags. None
+        keeps the tags of a saved view this call replaces or shows again, and a
+        list, ``[]`` included, replaces them (emode#1704).
         """
         with self._lock:
             kind = kind_of(data)
@@ -436,7 +456,9 @@ class ViewRegistry:
                     self._drop(entry)
                 view = self._new_view(data, arguments, options, pixels, generation)
                 self._views[view.id] = view
-                recipe = self._recipe(view, name if name is not None else self.unique_name(view.title), dataset)
+                recipe = self._recipe(
+                    view, name if name is not None else self.unique_name(view.title), dataset, tags
+                )
                 self._entries[view.id] = Entry(view.id, recipe, view, session_only)
                 return view, None if session_only else recipe
             same = key_of(entry.saved) == key
@@ -448,19 +470,24 @@ class ViewRegistry:
             view.kind, view.data, view.arguments, view.options = kind, data, dict(arguments), options
             view.title, view.pixels, view.generation = title_of(data, arguments), tuple(pixels), generation
             view.fetched = False
-            if same:
+            kept = list(entry.saved.tags) if tags is None else list(tags)
+            if same and kept == list(entry.saved.tags):
                 return view, None
-            entry.saved = self._recipe(view, entry.saved.name, dataset)
+            # a new recipe under the same name keeps the saved view's tags unless the call gives them
+            entry.saved = self._recipe(view, entry.saved.name, dataset, kept)
             return view, None if session_only else entry.saved
 
     @staticmethod
-    def _recipe(view: View, name: str, dataset: Optional[str] = None) -> SavedView:
+    def _recipe(
+        view: View, name: str, dataset: Optional[str] = None, tags: Optional[List[str]] = None
+    ) -> SavedView:
         return SavedView(
             name=name,
             kind=view.kind,
             arguments=plain(view.arguments),
             options=changed_options(view.options),
             dataset=dataset,
+            tags=list(tags or []),
             created=now_iso(),
         )
 
@@ -521,10 +548,14 @@ class ViewRegistry:
                 entry.view = view
             return entry
 
-    def rename(self, entry_id: str, name: str) -> Entry:
+    def rename(self, entry_id: str, name: str, tags: Optional[List[str]] = None) -> Entry:
+        """Give the entry `entry_id` the name `name` and, unless None, the `tags`."""
         with self._lock:
             entry = self._entries[entry_id]
-            entry.saved = entry.saved.model_copy(update={"name": name})
+            update: Dict[str, Any] = {"name": name}
+            if tags is not None:
+                update["tags"] = list(tags)
+            entry.saved = entry.saved.model_copy(update=update)
             return entry
 
     def remove(self, entry_id: str) -> Optional[Entry]:

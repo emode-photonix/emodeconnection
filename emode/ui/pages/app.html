@@ -20,7 +20,10 @@
   <span id="status" role="status"></span>
 </header>
 <main id="app">
-  <aside id="list" aria-label="Plots of this session"><ol id="views"></ol></aside>
+  <aside id="list" aria-label="Plots of this session">
+    <input id="views-filter" type="search" placeholder="Filter by name or tag" aria-label="Filter the saved views by name or tag" autocomplete="off" spellcheck="false" hidden>
+    <ol id="views"></ol>
+  </aside>
   <section id="panel">
     <div id="controls"></div>
     <div id="message" role="alert" hidden></div>
@@ -40,6 +43,8 @@
     <h2 id="sheet-title">Save view</h2>
     <label for="sheet-name">Name</label>
     <input id="sheet-name" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <label for="sheet-tags">Tags, separated by commas</label>
+    <input id="sheet-tags" type="text" placeholder="modes, C band" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="sheet-error" role="alert" hidden></div>
     <div class="sheet-buttons">
       <button id="sheet-save" type="button" class="primary">Save</button>
