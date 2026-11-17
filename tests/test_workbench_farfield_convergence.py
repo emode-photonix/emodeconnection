@@ -180,7 +180,8 @@ def test_the_workbench_draws_a_convergence_report_as_a_trend(em, dataset, key):
     assert reply["kind"] == "sweep"
     assert reply["bench"]["category"] == "trend"
     assert any(t.get("meta") == "trace" for t in reply["figure"]["data"])
-    assert reply["extra"]["sweep_menus"]
+    menus = {m["name"]: m for m in reply["extra"]["menus"]}
+    assert "effective_index" in menus["result"]["options"]
 
 
 def test_holds_counts_far_fields_and_convergence_reports():
