@@ -1003,6 +1003,17 @@ class FarFieldPanel:
         return ["intensity", "screen"] if self.farfield.screen is not None else ["intensity"]
 
 
+def _image_corner(x: np.ndarray, y: np.ndarray, inset: float = 0.02) -> Tuple[float, float]:
+    """The top left corner of an image sampled at ``x`` and ``y``, ``inset`` of its size inside.
+
+    The image reaches half a cell past its first and last samples and the axis ranges end at
+    those samples, so the corner is taken within the samples: on the drawn image, whatever
+    the plot box's shape does to the ranges."""
+    x0, x1 = float(np.min(x)), float(np.max(x))
+    y0, y1 = float(np.min(y)), float(np.max(y))
+    return x0 + inset * (x1 - x0), y1 - inset * (y1 - y0)
+
+
 def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity") -> FigureSpec:
     width, height = options.figure_size or DEFAULT_SIZE_MM
     if panel == "screen" and view.screen is not None:
@@ -1011,25 +1022,22 @@ def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity")
         x = np.asarray(screen.s, float) / 1000
         y = np.asarray(screen.t, float) / 1000
         labels = ("u (μm)", "v (μm)")
-        texts = (
-            TextSpec(
-                f"screen at {screen.screen.distance / 1000:g} μm, {screen.power_through_screen:.3g} W",
-                0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
-            ),
-        )
+        note = f"screen at {screen.screen.distance / 1000:g} μm, {screen.power_through_screen:.3g} W"
         bar_label = "flux (W/m²)"
     else:
         z = np.asarray(view.intensity, float).T
         x, y = np.asarray(view.ux, float), np.asarray(view.uy, float)
         labels = ("u_x = sin θx", "u_y = sin θy")
-        texts = (
-            TextSpec(
-                f"divergence {view.divergence[0]:.2f}°, {view.divergence[1]:.2f}°\n"
-                f"M² {view.m_squared[0]:.3f}, {view.m_squared[1]:.3f}",
-                0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
-            ),
+        note = (
+            f"divergence {view.divergence[0]:.2f}°, {view.divergence[1]:.2f}°\n"
+            f"M² {view.m_squared[0]:.3f}, {view.m_squared[1]:.3f}"
         )
         bar_label = "intensity (W/sr)"
+    # white text on the image's top left corner, placed from the image itself: the equal aspect
+    # widens one axis range past the image, so an axes fraction can fall on the white
+    # background beside it (#209)
+    left, top = _image_corner(x, y)
+    texts = (TextSpec(note, left, top, "data", "left", "top", "#ffffff", options.font_size, "annotation"),)
     vmax = float(np.nanmax(z)) if z.size else 1.0
     vmin = 0.0 if options.vmin is None else float(options.vmin)
     vmax = vmax if options.vmax is None else float(options.vmax)
