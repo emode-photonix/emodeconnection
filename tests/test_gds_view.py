@@ -28,6 +28,14 @@ from emode.ui.views import ViewRegistry, kind_of, title_of
 from gds_fixtures import LYP, gds_view
 from plot_standin import VERSION_1_0_9, session
 
+
+@pytest.fixture(autouse=True)
+def plot_environment(monkeypatch):
+    """A plot opens a tab unless the environment says otherwise, whatever the suite runs under."""
+    for name in ("EMODE_HEADLESS", "EMODE_NONINTERACTIVE", "EMODE_PLOT_INLINE", "EMODE_UI_EXIT_WAIT", "EMODE_UI_URL"):
+        monkeypatch.delenv(name, raising=False)
+
+
 mpl = pytest.importorskip("matplotlib")
 from emode.ui.renderers import mpl as mpl_renderer  # noqa: E402
 
