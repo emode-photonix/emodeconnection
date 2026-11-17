@@ -23,6 +23,13 @@ on the same x axis::
     right.line(z, signal_uW, style='--', label='signal')
     right.set(ylabel='Signal (uW)')
 
+A panel's axes can be logarithmic with ``set(xscale='log', yscale='log')``,
+and ``secondary_x()`` draws a second x axis on top whose ticks are a function of
+x, the same wavelengths as frequencies for example::
+
+    p.set(xlabel='Wavelength (nm)', xscale='log')
+    p.secondary_x(lambda nm: 299792.458 / nm, label='Frequency (THz)')
+
 A panel's ``style`` is a short string as in matplotlib: ``'-'`` (solid),
 ``'--'`` (dashed), ``':'`` (dotted), a marker (``'o'``, ``'s'``, ``'^'``,
 ``'D'``, ``'>'``, ``'<'``), or both (``'o-'``). ``color`` is an index into
@@ -30,11 +37,19 @@ EMode's line palette or a color (``'#3634A3'``, ``'gray'``).
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 from .types import ArgumentError
 
 Range = Optional[Tuple[float, float]]
+
+#: The scales an axis can have.
+SCALES = ("linear", "log")
+
+
+def _check_scale(function: str, name: str, value: Optional[str]) -> None:
+    if value is not None and value not in SCALES:
+        raise ArgumentError(f"{name} must be 'linear' or 'log', not {value!r}", function, name)
 
 
 class TwinAxis:
@@ -62,11 +77,14 @@ class TwinAxis:
         self.items.append(("hline", dict(at=y, style=style, label=label, color=color)))
         return self
 
-    def set(self, ylabel: Optional[str] = None, ylim: Range = None, ynonnegative: Optional[bool] = None) -> "TwinAxis":
-        """The right axis's label and range. The x axis is the panel's own.
+    def set(
+        self, ylabel: Optional[str] = None, ylim: Range = None, ynonnegative: Optional[bool] = None, yscale: Optional[str] = None
+    ) -> "TwinAxis":
+        """The right axis's label, range and scale (``'linear'`` or ``'log'``). The x axis is the panel's own.
 
         ``ynonnegative=True`` marks the axis as one that cannot go below 0: its range starts at 0."""
-        for name, value in dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative)).items():
+        _check_scale("TwinAxis.set", "yscale", yscale)
+        for name, value in dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative), yscale=yscale).items():
             if value is not None:
                 self.settings[name] = value
         return self
@@ -88,12 +106,33 @@ class Panel:
         self.items: List[Tuple[str, dict]] = []
         self.settings: dict = {}
         self.right: Optional[TwinAxis] = None
+        self.secondary: Optional[dict] = None
 
     def twin(self) -> TwinAxis:
         """The panel's second y axis, on its right, made on the first call."""
         if self.right is None:
             self.right = TwinAxis()
         return self.right
+
+    def secondary_x(
+        self,
+        function: Callable[[Any], Any],
+        label: Optional[str] = None,
+        inverse: Optional[Callable[[Any], Any]] = None,
+        ticks: Optional[Sequence[float]] = None,
+    ) -> "Panel":
+        """A second x axis on top whose values are ``function(x)``, for the same data in other units.
+
+        ``function`` takes and returns arrays, for example wavelength in nm to
+        frequency in THz, ``lambda x: 299792.458 / x``. Its ticks are round
+        values of the second axis, placed where `inverse` (found from
+        ``function`` when it is monotonic and none is given) maps them back
+        to x. ``ticks`` fixes them.
+        """
+        if not callable(function) or (inverse is not None and not callable(inverse)):
+            raise ArgumentError("function and inverse must be callable", "Panel.secondary_x", "function")
+        self.secondary = dict(function=function, label=label, inverse=inverse, ticks=ticks)
+        return self
 
     def sweep(self, result: Any, **selection: Any) -> "Panel":
         """Draw `result` here as its own plot draws it: a sweep's result, an ``OptimizationResult``
@@ -141,13 +180,22 @@ class Panel:
         xlim: Range = None,
         ylim: Range = None,
         ynonnegative: Optional[bool] = None,
+        xscale: Optional[str] = None,
+        yscale: Optional[str] = None,
     ) -> "Panel":
-        """The panel's axis labels, title and ranges. What is not given keeps its default.
+        """The panel's axis labels, title, ranges and scales (``'linear'`` or ``'log'``).
+
+        What is not given keeps its default. A log axis needs positive data and ranges.
 
         ``ynonnegative=True`` marks the y axis as one that cannot go below 0 (a transmission, a
         power): its range starts at 0, in the tab and in the saved image. A sweep drawn with
         ``sweep()`` is marked from its data already."""
-        settings = dict(xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative))
+        _check_scale("Panel.set", "xscale", xscale)
+        _check_scale("Panel.set", "yscale", yscale)
+        settings = dict(
+            xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative),
+            xscale=xscale, yscale=yscale,
+        )
         for name, value in settings.items():
             if value is not None:
                 self.settings[name] = value

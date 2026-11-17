@@ -18,7 +18,7 @@ from typing import Any, Optional
 import numpy as np
 
 from ...types import EModeError
-from ..figure import FigureSpec
+from ..figure import FigureSpec, log_ticks
 
 #: The resolution of the PNG a headless ``plot()`` returns.
 INLINE_DPI = 150
@@ -188,6 +188,12 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         ax.set_aspect("equal", adjustable="datalim" if a.box_aspect is not None else "box")
     if a.box_aspect is not None:
         ax.set_box_aspect(a.box_aspect)
+    if a.xscale == "log":
+        ax.set_xscale("log")
+        _plain_log_labels(ax.xaxis, spec.font_size, *a.xrange)
+    if a.yscale == "log":
+        ax.set_yscale("log")
+        _plain_log_labels(ax.yaxis, spec.font_size, *a.yrange)
     if a.grid:
         ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
     if a.integer_xticks and not a.integer_ticks:
@@ -218,7 +224,22 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         if a.ylabel_color:
             ax.yaxis.label.set_color(a.ylabel_color)
             ax.tick_params(axis="y", colors=a.ylabel_color)
+    if a.x2label is not None and a.visible:
+        top = ax.twiny()
+        if a.xscale == "log":
+            top.set_xscale("log")
+        top.set_xlim(*a.xrange)
+        top.set_xticks([x for x, _ in a.x2ticks])
+        top.set_xticklabels([t for _, t in a.x2ticks])
+        top.minorticks_off()
+        top.set_xlabel(a.x2label, fontsize=spec.font_size)
+        top.tick_params(axis="x", direction="in", labelsize=spec.font_size, length=3, width=0.5)
+        for side in ("top", "bottom", "left", "right"):
+            top.spines[side].set_linewidth(0.5)
     if twin is not None:
+        if a.y2scale == "log":
+            twin.set_yscale("log")
+            _plain_log_labels(twin.yaxis, spec.font_size, *a.y2range)
         twin.set_ylim(*a.y2range)
         twin.set_ylabel(a.y2label or "", fontsize=spec.font_size)
         twin.tick_params(axis="y", direction="out", labelsize=spec.font_size, length=3, width=0.75)
@@ -232,11 +253,17 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         # axes' lines only, so the left curves stand in there, transparent and
         # mapped onto the right axis's scale.
         (y0, y1), (r0, r1) = a.yrange, a.y2range
-        scale = (r1 - r0) / (y1 - y0) if y1 != y0 else 1.0
+        def to_right(y: Any) -> Any:
+            y = np.asarray(y, float)
+            if a.yscale == "log" or a.y2scale == "log":
+                f = (np.log10(y) - np.log10(y0)) / (np.log10(y1) - np.log10(y0)) if a.yscale == "log" else (y - y0) / (y1 - y0)
+                return 10 ** (np.log10(r0) + f * (np.log10(r1) - np.log10(r0))) if a.y2scale == "log" else r0 + f * (r1 - r0)
+            return r0 + (y - y0) * ((r1 - r0) / (y1 - y0) if y1 != y0 else 1.0)
+
         for line in spec.lines:
             if line.axis == "left" and line.kind in ("user", "trace"):
                 twin.plot(
-                    line.x, r0 + (np.asarray(line.y, float) - y0) * scale,
+                    line.x, to_right(line.y),
                     alpha=0.0, label="_nolegend_", gid="legend_avoid",
                 )
         twin.set_ylim(*a.y2range)
@@ -285,6 +312,16 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
     return fig
+
+
+def _plain_log_labels(axis: Any, size: float, lo: float, hi: float) -> None:
+    """A log axis's ticks as plain numbers at 1, 2, 5 and finer steps, so a narrow span still has labels."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+
+    axis.set_major_locator(FixedLocator(log_ticks(lo, hi)))
+    axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    axis.set_minor_locator(NullLocator())
+    axis.set_tick_params(which="both", labelsize=size)
 
 
 def _draw_contours(ax: Any, r: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
