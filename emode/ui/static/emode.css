@@ -9,6 +9,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
 body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
 #nav { display: flex; align-items: center; gap: 16px; padding: 6px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
 #nav .brand { font-weight: 700; color: var(--accent); }
@@ -17,19 +18,45 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #status { margin-left: auto; color: var(--muted); }
 #status.busy { color: var(--warn); }
 #app { display: flex; height: calc(100vh - 38px); }
-#list { width: 220px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
+#list { width: 220px; flex: none; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); transition: width 0.2s, visibility 0.2s; }
+#app.sidebar-collapsed #list { width: 0; border-right-width: 0; visibility: hidden; }
+#sidebar-toggle { font: inherit; font-size: 16px; line-height: 1; padding: 3px 8px; background: transparent; border: 1px solid var(--line); border-radius: 3px; color: var(--text); cursor: pointer; }
+#sidebar-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views { list-style: none; margin: 0; padding: 0; }
 #views li { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
 #views li.selected { background: #e8f0fb; }
 #views li .when { display: block; color: var(--muted); font-size: 11px; }
+#views li.pinned { font-weight: 600; border-bottom: 2px solid var(--line); }
+/* saved views (emode#1703): a group heading, and each entry's menu of actions */
+#views li { position: relative; }
+#views li.group { cursor: default; padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+#views li .title { display: block; padding-right: 30px; overflow-wrap: anywhere; }
+#views li .entry-menu { position: absolute; top: 4px; right: 4px; min-width: 28px; min-height: 28px; font: inherit; font-size: 16px; line-height: 1; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--muted); cursor: pointer; }
+#views li .entry-menu:hover, #views li .entry-menu[aria-expanded="true"] { border-color: var(--line); color: var(--text); }
+#views li .entry-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }
+#views li .entry-actions button { font: inherit; font-size: 12px; padding: 4px 8px; }
+#controls .save-view-bar { display: inline-flex; gap: 8px; align-items: center; }
+#controls .save-view-bar .modified { color: var(--warn); font-style: italic; }
+#controls button.primary, #save-sheet button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+#save-sheet { position: fixed; top: 52px; right: 16px; z-index: 40; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); padding: 12px 14px; display: grid; gap: 6px; }
+#save-sheet h2 { font-size: 14px; margin: 0 0 2px; }
+#save-sheet input { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; width: 100%; }
+#save-sheet .sheet-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+#save-sheet .sheet-buttons button { font: inherit; min-height: 36px; padding: 4px 12px; }
+#sheet-error { color: var(--warn); }
+.bench-menus { display: inline-flex; flex-wrap: wrap; gap: 8px; padding-right: 8px; margin-right: 4px; border-right: 1px solid var(--line); }
+.bench-menus option:disabled { color: var(--muted); }
 #panel { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 8px 12px; }
 #controls { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; padding-bottom: 6px; }
 #controls label { display: inline-flex; gap: 4px; align-items: center; }
 #controls select, #controls input[type=text] { font: inherit; padding: 1px 3px; }
+#controls .slider { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+#controls .slider input[type=range] { width: 240px; max-width: 70vw; height: 28px; accent-color: var(--accent); }
 #controls details { position: relative; }
 #controls details > div { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); padding: 6px 10px; display: grid; gap: 3px; white-space: nowrap; }
-#stage { flex: 1; display: flex; min-height: 0; }
-#figure { flex: 1; min-height: 300px; min-width: 0; }
+#stage { flex: 1; display: flex; min-height: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; }
+#figure { flex: 1 1 auto; width: 100%; min-width: 0; max-width: 100%; overflow: hidden; }
 #layer-panel { width: 330px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 6px 8px; }
 #layer-panel .layer-head { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding-bottom: 6px; }
 #layer-panel table { border-collapse: collapse; width: 100%; }
@@ -38,10 +65,22 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #layer-panel input[type=range] { width: 60px; }
 #layer-panel button, #layer-panel select { font: inherit; padding: 0 4px; }
 #layer-panel .note { color: var(--muted); font-size: 11px; }
+#details { width: 340px; flex: none; max-height: 100%; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 6px 10px; }
+#details .details-head { display: flex; align-items: center; gap: 8px; position: sticky; top: 0; background: var(--panel); }
+#details h2 { font-size: 14px; margin: 4px 0; flex: 1; }
+#details-close { font: inherit; font-size: 20px; line-height: 1; min-width: 36px; min-height: 36px; background: transparent; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+#details-close:focus-visible, #details:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#details table { border-collapse: collapse; width: 100%; margin-bottom: 8px; }
+#details caption { text-align: left; font-weight: 600; color: var(--muted); padding: 6px 0 2px; }
+#details th, #details td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+#details th { font-weight: 400; color: var(--muted); white-space: nowrap; }
+#details td { word-break: break-word; }
 #message { color: var(--warn); padding: 4px 0; }
 body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
 #controls button { font: inherit; padding: 1px 8px; }
+#controls .render { display: inline-flex; gap: 6px; align-items: center; }
+#controls #render.pending { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; }
 #controls details.export { margin-left: auto; }
 #controls details.export > div { right: 0; }
 #controls details.export details > div { position: static; border: 0; padding: 4px 0 4px 10px; }
@@ -52,4 +91,84 @@ body.embed #app { height: 100vh; }
 #session-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
 #session-table td { word-break: break-all; }
 #session-message { color: var(--warn); padding-bottom: 8px; }
+#account { padding: 14px 20px 32px; overflow-y: auto; height: calc(100vh - 38px); }
+#account .account-head { display: flex; align-items: baseline; gap: 10px; max-width: 980px; margin: 0 auto 12px; }
+#account.form-view .account-head, #account.form-view #account-message { max-width: 400px; }
+#account .account-brand { font-size: 18px; font-weight: 700; color: var(--accent); }
+#account-version { color: var(--muted); }
+#account-message, #login-error { color: var(--warn); padding: 4px 0; }
+#account-message { max-width: 980px; margin: 0 auto; }
+#account .card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+#account h2 { font-size: 16px; margin: 0 0 12px; }
+#account h3 { font-size: 13px; margin: 14px 0 6px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+#account h3:first-child { margin-top: 0; }
+#account .note { color: var(--muted); font-size: 12px; margin: 6px 0; }
+#account button, #account select, #account input { font: inherit; }
+#account button { padding: 5px 12px; min-height: 32px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--text); cursor: pointer; }
+#account button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+#account button.wide { width: 100%; min-height: 38px; }
+#account button:focus-visible, #account input:focus-visible, #account select:focus-visible, #account a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#account a { color: var(--accent); }
+.login-card { max-width: 400px; margin: 0 auto; }
+#login-form { display: grid; gap: 6px; }
+#login-form label { font-weight: 600; margin-top: 6px; }
+#login-form input { width: 100%; padding: 7px 8px; border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
+#login-form .password-row { display: flex; gap: 6px; }
+#login-form .password-row input { flex: 1; }
+#forgot-password { justify-self: start; font-size: 12px; }
+#login-submit { margin-top: 8px; }
+#account .divider { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin: 14px 0 6px; }
+#account .divider::before, #account .divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+#device-panel { border: 1px dashed var(--line); border-radius: 4px; padding: 8px 12px; margin-top: 10px; }
+#device-panel p { margin: 4px 0; }
+.device-code { font: 600 24px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.12em; }
+#signed-in { max-width: 980px; margin: 0 auto; display: grid; gap: 12px; }
+#account .account-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+#account .account-bar strong { word-break: break-all; }
+#account .bar-links { display: flex; align-items: center; gap: 14px; }
+#account .notice { border-color: var(--accent); background: #eef3fb; white-space: pre-line; }
+#account .account-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2.4fr); gap: 12px; align-items: start; }
+#account .counts { display: flex; gap: 20px; font-size: 15px; margin: 4px 0 8px; }
+#account .check { display: inline-flex; gap: 6px; align-items: center; }
+#account .table-wrap { overflow-x: auto; max-width: 100%; }
+#account table { border-collapse: collapse; width: 100%; }
+#account th, #account td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+#account th { color: var(--muted); font-weight: 600; }
+#account tr.shared td { background: #f0f0fa; }
+#account .sessions-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-top: 16px; }
+#account .sessions-head h3 { margin: 0; }
+#account .session-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#account button.clear-row { min-width: 32px; padding: 2px 6px; color: var(--warn); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 800px) {
+  #app { position: relative; }
+  #list { position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: 220px; max-width: 85vw; box-shadow: 2px 0 8px rgba(0, 0, 0, 0.25); transition: transform 0.2s, visibility 0.2s; }
+  #app.sidebar-collapsed #list { width: 220px; border-right-width: 1px; transform: translateX(-105%); box-shadow: none; }
+  #panel { padding: 8px; }
+  #stage { flex-direction: column; }
+  /* the column stage must not shrink a tall plot (the All modes grid) to its own height: it scrolls it (#185) */
+  #figure { flex: 0 0 auto; }
+  #layer-panel { width: auto; max-width: 100%; max-height: 40vh; border-left: 0; border-top: 1px solid var(--line); }
+  #controls details > div { white-space: normal; max-width: calc(100vw - 16px); }
+  /* the Settings fold holds the per-kind controls in flow, not as a popover (#196) */
+  #controls details.settings { flex: 1 0 100%; }
+  #controls details.settings > div { position: static; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; border: 0; padding: 6px 0 2px; max-width: none; }
+  #controls details.settings > summary { font-weight: 600; }
+  /* the Save sheet is a bottom sheet on a phone, as the details panel is */
+  #save-sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 8px 8px 0 0; padding: 14px 16px 20px; }
+  #controls .save-view-bar button { min-height: 36px; }
+  #details { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 60vh; z-index: 30; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.25); }
+  #session { padding: 10px; }
+  #nav { gap: 10px; padding: 6px 10px; }
+  #account { padding: 10px 10px 24px; }
+  #account .account-grid { grid-template-columns: minmax(0, 1fr); }
+  #account thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #account table, #account tbody, #account tr, #account td { display: block; width: 100%; }
+  #account tr { position: relative; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; margin-bottom: 8px; }
+  #account td { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 8px; padding: 2px 0; border: 0; white-space: normal; word-break: break-word; }
+  #account td::before { content: attr(data-label); color: var(--muted); font-weight: 600; }
+  #account td.clear-cell { position: absolute; top: 4px; right: 6px; width: auto; display: block; }
+  #account td.clear-cell::before { content: none; }
+  #session-table { max-width: 100%; }
+}
 [hidden] { display: none !important; }

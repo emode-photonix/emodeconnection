@@ -9,9 +9,8 @@ solver is always started quiet: anything it printed there would corrupt the
 protocol.
 
 Every tool but ``emode_plot`` returns a ``ToolResult``. Its ``warnings`` hold
-what the client library logged at WARNING level during the call. A warning the
-solver itself writes goes to the solver's own stderr, which the client does not
-return, so it does not reach the agent.
+what the client library logged at WARNING level during the call, then what the
+solver itself logged, read with ``EMode.warnings()`` (EMode 1.0.9 and later).
 """
 
 from __future__ import annotations
@@ -73,6 +72,7 @@ WRAPPED_METHODS = frozenset(
         "inspect",
         "plot",
         "close",
+        "warnings",
     }
 )
 
@@ -214,8 +214,9 @@ class _ListHandler(logging.Handler):
 
 
 @contextmanager
-def _capture_warnings() -> Iterator[list[str]]:
-    """Collect what the client library logs at WARNING level while a tool runs."""
+def _capture_warnings(session: _Session) -> Iterator[list[str]]:
+    """Collect the warnings of a tool's calls: what the client library logs at
+    WARNING level, then what EMode itself logged (`EMode.warnings()`)."""
     messages: list[str] = []
     logger = logging.getLogger("emode")
     handler = _ListHandler(messages)
@@ -224,6 +225,18 @@ def _capture_warnings() -> Iterator[list[str]]:
         yield messages
     finally:
         logger.removeHandler(handler)
+        messages.extend(_solver_warnings(session))
+
+
+def _solver_warnings(session: _Session) -> list[str]:
+    """What EMode logged since it was last asked, nothing when it cannot say."""
+    if session.em is None:
+        return []
+    try:
+        found = session.em.warnings()
+    except EModeError:
+        return []
+    return [str(m) for m in found] if isinstance(found, list) else []
 
 
 class _Session:
@@ -289,9 +302,25 @@ async def _blocking(fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
 
 
 def _takes_a_list(key: str) -> bool:
-    """Whether ``optimize`` varies the key as a list: 'poling, <section>, domain_lengths'."""
+    """Whether ``optimize`` can vary the key as a list.
+
+    'poling, <section>, domain_lengths' always takes one, and a shape's
+    'mask' or 'mask_offset' takes one value per opening of its layer.
+    """
     parts = [p.strip() for p in key.split(",")]
-    return len(parts) == 3 and parts[0] == "poling" and parts[2] == "domain_lengths"
+    if len(parts) == 3 and parts[0] == "poling" and parts[2] == "domain_lengths":
+        return True
+    return _per_opening(key)
+
+
+def _per_opening(key: str) -> bool:
+    """Whether the key is a shape's 'mask' or 'mask_offset', one value per opening."""
+    parts = [p.strip() for p in key.split(",")]
+    return parts[0] == "shape" and len(parts) in (3, 4) and parts[-1] in _OPENING_KEYS
+
+
+# A shape's properties with one value per opening of an etched layer.
+_OPENING_KEYS = ("mask", "mask_offset")
 
 
 def _parameter(spec: ParameterSpec) -> Parameter:
@@ -301,7 +330,8 @@ def _parameter(spec: ParameterSpec) -> Parameter:
     A one-entry list for a key that takes one value is that value.
     """
     key, x0, bounds = spec.key, spec.x0, spec.bounds
-    if not _takes_a_list(key):
+    if not _takes_a_list(key) or _per_opening(key):
+        # a one-opening mask is one value, as on a key that takes one
         if isinstance(x0, list) and len(x0) == 1:
             x0 = x0[0]
         if isinstance(bounds, list) and len(bounds) == 1:
@@ -315,10 +345,8 @@ def _parameter(spec: ParameterSpec) -> Parameter:
     if not _takes_a_list(key):
         raise ToolError(
             f"'{key}' takes one value, so its x0 and bounds cannot be lists. "
-            "optimize varies a list only for 'poling, <section>, domain_lengths'. "
-            "To vary each entry of a mask on its own, such as the two output arms of "
-            "an MMI, draw each arm as its own shape and vary its scalar keys, such as "
-            "'shape, <profile>, <arm>, width' and 'shape, <profile>, <arm>, position'."
+            "optimize varies a list only for 'poling, <section>, domain_lengths' and "
+            "for a shape's 'mask' or 'mask_offset', one entry per opening of its layer."
         )
     if isinstance(bounds, list) and len(bounds) != size:
         raise ToolError(
@@ -462,7 +490,7 @@ def create_server(
             targets = [None, *session.labels]
         else:
             targets = [profile]
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             for target in targets:
                 await _blocking(em.settings, **applied, **_drop_none(profile=target))
         if profile is None:
@@ -479,7 +507,7 @@ def create_server(
         emode_profile, to change that one instead of the current cross-section.
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(
                 em.shape, **_set_kwargs(shape), **_drop_none(profile=profile)
             )
@@ -497,7 +525,7 @@ def create_server(
         optimization with the key 'shape, <profile>, <name>, <property>'.
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(em.label_profile, name=name)
         if name not in session.labels:
             session.labels.append(name)
@@ -521,7 +549,7 @@ def create_server(
         action 'index' returns the index of the named material at wavelength (nm).
         """
         em = session.require()
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if action == "add":
                 if not refractive_index_equation:
                     raise ToolError("action 'add' needs refractive_index_equation.")
@@ -554,7 +582,7 @@ def create_server(
         """
         em = session.require()
         overrides = _drop_none(wavelength=wavelength, num_modes=num_modes)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if overrides:
                 await _blocking(em.settings, **overrides)
             await _blocking(getattr(em, solver), verbose=False)
@@ -635,7 +663,7 @@ def create_server(
             raise ToolError(
                 f"A {kind} section ({method}) does not take {', '.join(extra)}."
             )
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(getattr(em, method), **given)
         return done({"section": name, "kind": kind}, warnings, len(store.written))
 
@@ -649,7 +677,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             await _blocking(em.EME, **({"warm_start": True} if warm_start else {}))
             s_matrix = await _blocking(em.get, "S_matrix")
         return done(s_matrix, warnings, before)
@@ -709,7 +737,7 @@ def create_server(
             tolerance=tolerance,
         )
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             data = await _blocking(em.sweep, **kwargs)
         return done(data, warnings, before)
 
@@ -745,7 +773,7 @@ def create_server(
             max_solves=max_solves, max_time=max_time, max_memory=max_memory, mode=mode,
             profile=profile,
         )  # fmt: skip
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             report = await _blocking(em.converge, **kwargs)
         data = report.to_json()
         data["table"] = str(report)
@@ -764,7 +792,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             data = await _blocking(em.evaluate, parameters=parameters, results=results)
         return done(data, warnings, before)
 
@@ -794,11 +822,12 @@ def create_server(
         form a weighted sum. The session is left solved at the best point.
 
         Each parameter takes one value, except 'poling, <section>,
-        domain_lengths', which takes a list x0 with one [min, max] pair per
-        entry in bounds (or one [min, max] for every entry). A mask with several
-        openings cannot be varied entry by entry: to vary the two output arms
-        of an MMI, draw each arm as its own shape and vary its width and
-        position keys.
+        domain_lengths' and a mask with several openings ('shape, <name>,
+        mask' or 'mask_offset' on a layer with two or more openings), which
+        take a list x0 with one entry per domain or opening and one [min, max]
+        pair per entry in bounds (or one [min, max] for every entry). A single
+        value for a mask with several openings is refused. Needs EMode 1.0.9
+        for a mask.
         """
         em = session.require()
         budget = max_evaluations if max_evaluations is not None else 100
@@ -836,7 +865,7 @@ def create_server(
             )
         )
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             report = await _blocking(em.optimize, **kwargs)
         data = report.to_json()
         data["history"] = [
@@ -861,7 +890,7 @@ def create_server(
         """
         em = session.require()
         before = len(store.written)
-        with _capture_warnings() as warnings:
+        with _capture_warnings(session) as warnings:
             if key is None:
                 data = await _blocking(em.inspect)
             else:

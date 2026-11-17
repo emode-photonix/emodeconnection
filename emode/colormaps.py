@@ -194,6 +194,7 @@ def overlay_colors() -> dict[str, str]:
         "port": "#00ff00",
         "facet": "#00bfbf",
         "monitor": "#bf00bf",
+        "slice": "#ff4040",
         "connection": _line(5),
         "loop": _line(5),
         "stub": _line(5),

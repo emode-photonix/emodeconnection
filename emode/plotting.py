@@ -23,7 +23,7 @@ shows the same choices for every session.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 from pydantic import ConfigDict, field_validator
@@ -221,9 +221,16 @@ class MenuState(TaggedModel):
     ``selected`` holds the resolved selection by control name (``'data'``,
     ``'component'``, ``'normalization'``, ``'mode'``, ``'plane'``, ``'port'``,
     ``'section'``, ``'profile'``, ``'z_resolution'``), so a label the client
-    sent is echoed back as EMode resolved it. ``settings`` holds the eight
-    settings as resolved, and ``active_settings`` those the panel lets the user
+    sent is echoed back as EMode resolved it. ``settings`` holds the
+    settings as resolved (Forward only and Blend slices only for an EME
+    result's plots), and ``active_settings`` those the panel lets the user
     change.
+
+    ``views`` lists the views of an EME device's plot (``'layout'``,
+    ``'simulation'``, ``'schematic'``, and ``'gds'`` with GDS sections), empty
+    for a mode solve's, with the shown one in ``selected['view']``. ``position``
+    is, on a z panel, the z of the x-y cut (``plot(z_position=...)``), which the
+    panel marks with ``PlotView.slice_marker``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -239,6 +246,8 @@ class MenuState(TaggedModel):
     wavelengths: List[float] = []
     z_resolutions: List[str] = []
     slider: Optional[Slider] = None
+    views: List[str] = []
+    position: Optional[Slider] = None
     settings: Dict[str, bool] = {}
     active_settings: List[str] = []
     selected: Dict[str, str] = {}
@@ -275,6 +284,7 @@ class PlotView(_Arrays):
     - ``sections``: the circuit's section names, ``selected_section`` the one
       the panel is zoomed to, ``arrows`` the way to its neighbors.
     - ``wavelength`` in nm, ``z_resolution_nm`` the z sampling used.
+    - ``slice_marker``: on a z panel, the line at the z of the x-y cut.
     """
 
     plane: Literal["x-y", "z-x", "z-y"]
@@ -299,6 +309,7 @@ class PlotView(_Arrays):
     arrows: List[Arrow] = []
     wavelength: Optional[float] = None
     z_resolution_nm: Optional[float] = None
+    slice_marker: Optional[Polyline] = None
 
 
 @register_type
@@ -313,6 +324,8 @@ class Block(TaggedModel):
     y: float
     width: float
     height: float
+    #: The component's id for ``EM_component_details`` (``'section:<name>'``), None from an older EMode.
+    id: Optional[str] = None
 
 
 @register_type
@@ -333,6 +346,9 @@ class Stub(TaggedModel):
     y1: float
     label: Optional[str] = None
     external: bool = False
+    #: ``'port:<name>'`` for a port of the circuit, the connection's junction id
+    #: for one inside it, None from an older EMode.
+    id: Optional[str] = None
 
 
 @register_type
@@ -358,6 +374,36 @@ class Schematic(_Arrays):
     neighbors: Dict[str, Dict[str, str]] = {}
     arrows: List[Arrow] = []
     menu: MenuState = MenuState()
+    #: One junction id per connection, ``'junction:<a>.<port>|<b>.<port>'``, empty from an older EMode.
+    connection_ids: List[Optional[str]] = []
+
+
+@register_type
+class DetailRow(TaggedModel):
+    """One setting or parameter of a component: its group (``'Section'``, ``'Profile wg'``), name and value as text."""
+
+    model_config = ConfigDict(frozen=True)
+
+    group: str
+    name: str
+    value: str
+
+
+@register_type
+class ComponentDetails(TaggedModel):
+    """Every setting and parameter of one schematic component, as EMode holds it (``EM_component_details``).
+
+    ``component`` is the id the schematic gave it, ``kind`` ``'section'``,
+    ``'port'`` or ``'junction'``, ``title`` its heading and ``rows`` its
+    settings in the order shown, grouped by ``DetailRow.group``.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    component: str
+    kind: Literal["section", "port", "junction"]
+    title: str
+    rows: List[DetailRow] = []
 
 
 @register_type
@@ -447,3 +493,119 @@ class SessionInfo(TaggedModel):
     solve_pool_workers: int = 0
     cache_entries: int = 0
     session_errors: int = 0
+
+
+@register_type
+class KindEntry(TaggedModel):
+    """One kind of view in the Plot menu, and whether the session can show it now.
+
+    ``kind`` is ``'plot'``, ``'schematic'``, ``'gds'``, ``'smatrix'``,
+    ``'sweep'``, ``'pulse'`` or ``'material'``. ``reason`` says why a kind is
+    unavailable, in the user's words (``'run EME() first'``), and ``summary``
+    is the text the menu shows after the kind's name (``''`` for none).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    available: bool
+    reason: Optional[str] = None
+    summary: str = ""
+
+
+@register_type
+class DatasetEntry(TaggedModel):
+    """One piece of data the plot workbench can show, and how the client fetches it.
+
+    ``category`` is ``'field'`` (spatial data: the device's field, a profile's
+    modes, a free-space field, a monitor's plane, the schematic, the GDS
+    layers) or ``'trend'`` (analysis data: the stored sweep, the pulse
+    response, the S-matrix, a profile's mode results, a profile set against
+    wavelength, a material's index). ``kind`` says which call fetches it
+    (``'plot'``, ``'schematic'``, ``'gds'``, ``'monitor'``, ``'sweep'``,
+    ``'pulse'``, ``'smatrix'``, ``'modes'``, ``'dispersion'``, ``'material'``)
+    and ``arguments`` what it is fetched with. ``id`` is unique in the
+    inventory (``'profile:wg'``), ``label`` the menu's text, ``reason`` why it
+    is unavailable, and ``summary`` the text after the label.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    category: Literal["field", "trend"]
+    kind: str
+    label: str
+    arguments: Dict[str, Any] = {}
+    available: bool = True
+    reason: Optional[str] = None
+    summary: str = ""
+
+
+@register_type
+class PlotInventory(TaggedModel):
+    """What a session can plot, from names and keys only (no mesh, no basis, no solve).
+
+    ``kinds`` has one ``KindEntry`` per kind of the Plot menu, in menu order.
+    ``profiles`` are the Profile menu's labels. ``device`` is ``'preview'``
+    when sections are declared and ``EME()`` has not run, ``'solved'`` after it,
+    and None with no sections. ``gds`` says a GDS section exists, ``sweep``
+    summarizes the stored sweep (``'width, 11 points: effective_index'``),
+    ``pulse_response`` says a pulsed ``EME()`` has stored its response, and
+    ``materials`` lists the shapes' materials in shape order without repeats.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kinds: List[KindEntry]
+    profiles: List[str] = []
+    device: Optional[Literal["preview", "solved"]] = None
+    gds: bool = False
+    sweep: Optional[str] = None
+    pulse_response: bool = False
+    materials: List[str] = []
+    #: Every piece of data the plot workbench can show, Field then Trend (GUI-M4b).
+    datasets: List["DatasetEntry"] = []
+
+
+@register_type
+class SavedView(TaggedModel):
+    """A saved view of the plot tab: a recipe for a plot, never its data (emode#1703).
+
+    The browser tab lists every saved view in its sidebar. A script's
+    ``plot()`` saves one named by its title (or by ``name=``), and the
+    workbench saves its state with Save or Save as. EMode keeps them in the
+    simulation file, so a file opened later lists them again.
+
+    ``kind`` is the kind of plot (``'plot'``, ``'schematic'``, ``'gds'``,
+    ``'smatrix'``, ``'material'``, ``'sweep'``, ``'monitor'``), ``arguments``
+    what it is fetched and selected with, and ``options`` the figure options
+    that differ from their defaults. ``dataset`` is the workbench's data entry
+    it was saved from (a ``DatasetEntry.id``, such as ``'profile:wg'``), or
+    None for a script's plot. ``created`` is an ISO time.
+
+    ``show()`` plots it again in the session's tab, and ``delete()`` removes it
+    from the session and its file. Both act on `em`, by default the newest
+    session of this process that is still running.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+    arguments: Dict[str, Any] = {}
+    options: Dict[str, Any] = {}
+    dataset: Optional[str] = None
+    tags: List[str] = []
+    created: str = ""
+
+    def show(self, em: Any = None, **arguments: Any) -> Any:
+        """Plot this view again in `em`'s browser tab, with the same arguments and options. Returns a ``PlotHandle``."""
+        from .ui.session import show_saved
+
+        return show_saved(self, em=em, **arguments)
+
+    def delete(self, em: Any = None) -> None:
+        """Remove this view from `em`'s sidebar and from its simulation file."""
+        from .ui.session import delete_saved
+
+        delete_saved(self.name, em=em)

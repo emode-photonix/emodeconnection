@@ -35,6 +35,11 @@ _MARKERS = {
 }
 _DASHES = {None: "-", "dash": "--", "dot": ":"}
 
+#: A contour line's width in points and its alpha. The colorbar's marks draw with the same two
+#: numbers, so the marks and the lines they stand for look alike (#199).
+CONTOUR_LINEWIDTH = 0.2
+CONTOUR_ALPHA = 0.7
+
 
 def _matplotlib() -> Any:
     try:
@@ -64,7 +69,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.cm import ScalarMappable
     from matplotlib.collections import LineCollection
-    from matplotlib.colors import Normalize
+    from matplotlib.colors import Normalize, to_rgba
     from matplotlib.figure import Figure
     from matplotlib.image import NonUniformImage
     from matplotlib.patches import Patch, PathPatch, Rectangle
@@ -82,8 +87,6 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     a = spec.axes
     if a.background:
         ax.set_facecolor(a.background)
-
-    from matplotlib.colors import to_rgba
 
     for f in spec.fills:
         rings = [np.column_stack([f.x, f.y])] + [np.asarray(h) for h in f.holes]
@@ -103,7 +106,6 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         )
 
     from matplotlib.collections import PolyCollection
-    from matplotlib.colors import to_rgba
 
     for layer in spec.layers:
         collection = PolyCollection(
@@ -126,7 +128,16 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             # off the panel: NaN, which the colormap leaves transparent
             z = np.where(np.asarray(r.mask, bool), np.nan, z)
         x, y = np.asarray(r.x, float), np.asarray(r.y, float)
-        x0, x1 = _edges(x)[[0, -1]]
+        if r.x_edges is not None and r.interpolation != "bilinear":
+            # joined slices: one mesh on every column's own edges, no seams between them
+            ax.pcolormesh(
+                np.asarray(r.x_edges, float), _edges(y), np.ma.masked_invalid(z),
+                cmap=cmap_of(r.colormap), norm=Normalize(vmin=r.vmin, vmax=r.vmax),
+                shading="flat", antialiased=False, linewidth=0, rasterized=True,
+            )
+            _draw_contours(ax, r, x, y, z)
+            continue
+        x0, x1 = _edges(x)[[0, -1]] if r.x_edges is None else np.asarray(r.x_edges, float)[[0, -1]]
         y0, y1 = _edges(y)[[0, -1]]
         im = NonUniformImage(
             ax,
@@ -141,12 +152,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         # clip the last slice drawn covered every other one.
         im.set_clip_path(Rectangle((x0, y0), x1 - x0, y1 - y0, transform=ax.transData))
         ax.add_image(im)
-        if r.contour_levels and min(z.shape) >= 2:
-            for level in r.contour_levels:
-                ax.contour(
-                    x, y, z, levels=[level], colors="k" if level >= 0 else "w",
-                    linewidths=0.2, alpha=0.7, linestyles="solid",
-                )
+        _draw_contours(ax, r, x, y, z)
 
     for s in spec.segments:
         ax.add_collection(
@@ -177,11 +183,16 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if a.invert_y and not ax.yaxis_inverted():
         ax.invert_yaxis()
     if a.equal_aspect:
-        ax.set_aspect("equal")
-    elif a.box_aspect is not None:
+        # one unit as long on both axes, the limits widened to fill the box
+        ax.set_aspect("equal", adjustable="datalim" if a.box_aspect is not None else "box")
+    if a.box_aspect is not None:
         ax.set_box_aspect(a.box_aspect)
     if a.grid:
         ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
+    if a.integer_xticks and not a.integer_ticks:
+        from matplotlib.ticker import MaxNLocator
+
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if a.integer_ticks:
         from matplotlib.ticker import MaxNLocator
 
@@ -192,18 +203,25 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     else:
         ax.set_xlabel(a.xlabel, fontsize=spec.font_size)
         ax.set_ylabel(a.ylabel, fontsize=spec.font_size)
+        # ticks outside the left and bottom axes (#190), no top line, and a right line only
+        # where an image fills the box or a twin axis has its own (#187)
         ax.tick_params(
-            axis="both", direction="in", labelsize=spec.font_size, top=True, right=twin is None, length=3, width=0.5
+            axis="both", direction="out", labelsize=spec.font_size, top=False, right=False, length=3, width=0.75
         )
+        ax.tick_params(axis="x", labelbottom=a.show_xticklabels)
+        ax.tick_params(axis="y", labelleft=a.show_yticklabels)
         for side in ("top", "bottom", "left", "right"):
             ax.spines[side].set_linewidth(0.5)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(bool(spec.rasters) or spec.colorbar is not None or twin is not None)
         if a.ylabel_color:
             ax.yaxis.label.set_color(a.ylabel_color)
             ax.tick_params(axis="y", colors=a.ylabel_color)
     if twin is not None:
         twin.set_ylim(*a.y2range)
         twin.set_ylabel(a.y2label or "", fontsize=spec.font_size)
-        twin.tick_params(axis="y", direction="in", labelsize=spec.font_size, length=3, width=0.5)
+        twin.tick_params(axis="y", direction="out", labelsize=spec.font_size, length=3, width=0.75)
+        twin.spines["top"].set_visible(False)
         for side in ("top", "bottom", "left", "right"):
             twin.spines[side].set_linewidth(0.5)
         if a.y2label_color:
@@ -233,6 +251,11 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             bar.set_ticks(list(cb.ticks))
             if cb.tick_labels is not None:
                 bar.set_ticklabels(list(cb.tick_labels))
+        if cb.lines:
+            # a line across the bar at each contour level drawn on the panel
+            bar.add_lines(
+                list(cb.lines), [to_rgba("k" if v >= 0 else "w", CONTOUR_ALPHA) for v in cb.lines], [CONTOUR_LINEWIDTH] * len(cb.lines)
+            )
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
@@ -261,6 +284,15 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if spec.title:
         ax.set_title(spec.title, fontsize=spec.font_size + 1)
     return fig
+
+
+def _draw_contours(ax: Any, r: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> None:
+    if r.contour_levels and min(z.shape) >= 2:
+        for level in r.contour_levels:
+            ax.contour(
+                x, y, z, levels=[level], colors="k" if level >= 0 else "w",
+                linewidths=CONTOUR_LINEWIDTH, alpha=CONTOUR_ALPHA, linestyles="solid",
+            )
 
 
 def _draw_line(ax: Any, line: Any) -> None:

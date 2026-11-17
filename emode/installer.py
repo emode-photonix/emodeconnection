@@ -7,7 +7,7 @@ emode-install --update                   # Re-download latest version
 emode-install --update --version 0.2.5   # Switch to a specific version
 emode-install --version 0.2.5            # Install a specific version
 emode-install --install-dir /opt/bin     # Custom install directory
-emode-install --variant rslab            # The lighter Linux build, without MKL
+emode-install --variant rslab            # The lighter Linux build, without MKL (before 1.0.9)
 emode-install --sha256 <hex>             # Refuse to install unless the download matches
 emode-install --list-versions            # Show available versions
 emode-install --uninstall                # Remove EMode
@@ -73,8 +73,19 @@ VARIANTS = ('default', 'rslab')
 VARIANT_PLATFORMS = {
     'rslab': {'os': 'Linux', 'key': 'linux-rslab', 'display': 'Linux-rslab'},
 }
+# From this release the one Linux zip carries no MKL and Linux-rslab is no longer built, so a
+# variant listed here installs the default build of that release (older releases keep theirs).
+VARIANT_MERGED_FROM = {'rslab': (1, 0, 9)}
 
 PLATFORM_DISPLAY = {'mac': 'Mac', 'linux': 'Linux', 'windows': 'Windows'}
+
+# The macOS a Mac installer needs, from the first release that needs it. A release takes the
+# newest entry at or below its own version, and a release below every entry runs on any macOS
+# this client installs on. From 1.0.9 the Mac installers need macOS 14 Sonoma, and the .pkg
+# refuses an older macOS.
+MAC_MINIMUMS: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...] = (
+    ((1, 0, 9), (14, 0)),
+)
 
 # File extensions per platform
 # Mac: .pkg (native macOS installer — double-click or headless via `installer`)
@@ -126,12 +137,60 @@ def find_installed(install_dir: Path, os_name: str, explicit: bool) -> Path:
     return user_exe if user_exe.exists() else exe_path
 
 
-def resolve_platform(os_name: str, variant: str = 'default') -> tuple[str, str]:
+def min_macos(version: str) -> Optional[tuple[int, ...]]:
+    """The macOS a Mac installer of `version` needs, or None when it has no minimum here."""
+    release = parse_version(version)
+    needed = None
+    for first, minimum in MAC_MINIMUMS:
+        if release >= first:
+            needed = minimum
+    return needed
+
+
+def _mac_release() -> tuple[int, ...]:
+    """The macOS this computer runs, as a tuple, or () when it cannot be read."""
+    return parse_version(platform.mac_ver()[0] or '')
+
+
+def check_macos(version: str, available: dict) -> None:
+    """Exit before any download when this Mac is older than `version` needs.
+
+    Names the newest listed release this macOS runs and the command that installs it.
+    """
+    needed = min_macos(version)
+    running = _mac_release()
+    if needed is None or not running or running >= needed:
+        return
+    shown = platform.mac_ver()[0]
+    print(f"Error: EMode {version} needs macOS {'.'.join(map(str, needed[:1]))} "
+          f"or later, and this Mac runs macOS {shown}.")
+    runnable = [v for v in available.get('versions', {})
+                if (min_macos(v) or ()) <= running]
+    if runnable:
+        last = max(runnable, key=parse_version)
+        print(f"The last EMode release that runs on macOS {shown} is {last}. Install it with:")
+        print(f"    emode-install --version {last}")
+    else:
+        print("No listed EMode release runs on this macOS.")
+    print("Nothing was downloaded.")
+    sys.exit(1)
+
+
+def variant_merged(variant: str, version: Optional[str]) -> bool:
+    """True when `version` no longer builds `variant` apart from the default build."""
+    merged_from = VARIANT_MERGED_FROM.get(variant)
+    return merged_from is not None and version is not None and parse_version(version) >= merged_from
+
+
+def resolve_platform(
+    os_name: str, variant: str = 'default', version: Optional[str] = None
+) -> tuple[str, str]:
     """The server's platform key and the platform part of the file name.
 
-    Exits with an error for a variant this OS has no build of.
+    Exits with an error for a variant this OS has no build of. A variant that
+    `version` has merged into the default build resolves like the default.
     """
-    if variant == 'default':
+    if variant == 'default' or variant_merged(variant, version):
         key = PLATFORM_KEYS[os_name]
         return key, PLATFORM_DISPLAY[key]
     spec = VARIANT_PLATFORMS[variant]
@@ -222,8 +281,7 @@ def resolve_version(
     Resolve the version to download and build the expected filename.
     Returns (version_string, filename).
     """
-    _, platform_display = resolve_platform(os_name, variant)
-    ext                 = FILE_EXTENSIONS[os_name]
+    ext = FILE_EXTENSIONS[os_name]
 
     data = get_versions()
 
@@ -240,6 +298,14 @@ def resolve_version(
             print(f"Available versions: {available}")
             sys.exit(1)
         version = requested
+
+    _, platform_display = resolve_platform(os_name, variant, version)
+    if variant != 'default' and variant_merged(variant, version):
+        print(f"Note: EMode {version} has no separate '{variant}' build. "
+              f"Its {platform_display} installer already runs without MKL.")
+
+    if os_name == 'Darwin':
+        check_macos(version, data)
 
     # Verify the requested platform is available for this version
     available_platforms = data['versions'].get(version, [])
@@ -781,6 +847,7 @@ def install(
 
     # Resolve version and build filename
     version, filename = resolve_version(version, os_name, variant)
+    platform_key, _ = resolve_platform(os_name, variant, version)
     expected = sha256 or published_sha256(get_versions(), filename)
 
     # EULA
@@ -1059,7 +1126,8 @@ Environment variables:
         choices=VARIANTS,
         default='default',
         help="Build to install. 'rslab' (Linux only) is the lighter Linux build "
-             "without MKL, whose sparse solver is rslab only (default: default).",
+             "without MKL, whose sparse solver is rslab only. From 1.0.9 the one Linux "
+             "build has no MKL and this installs it (default: default).",
     )
     parser.add_argument(
         '--sha256',
