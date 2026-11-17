@@ -180,4 +180,4 @@ def test_the_secondary_ticks_of_a_log_axis_are_log_spaced_round_values():
     p.set(xlim=(800.0, 2500.0))
     p.secondary_x(lambda nm: C / nm, label="THz")
     texts = [t for _, t in compose(fig).panels[0].axes.x2ticks]
-    assert texts == ["150", "200", "250", "300"]
+    assert texts == ["120", "150", "200", "250", "300"]
