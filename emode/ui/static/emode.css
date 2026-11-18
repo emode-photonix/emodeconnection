@@ -32,6 +32,11 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views li { position: relative; }
 #views li.group { cursor: default; padding: 8px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 #views li .title { display: block; padding-right: 30px; overflow-wrap: anywhere; }
+/* tags and the filter (GUI-M4d, emode#1704) */
+#views li .tags { display: block; color: var(--accent); font-size: 11px; overflow-wrap: anywhere; }
+#views li.empty { cursor: default; color: var(--muted); font-style: italic; }
+#views-filter { display: block; box-sizing: border-box; width: calc(100% - 16px); margin: 8px; font: inherit; font-size: 16px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; }
+#views-filter[hidden] { display: none; }
 #views li .entry-menu { position: absolute; top: 4px; right: 4px; min-width: 28px; min-height: 28px; font: inherit; font-size: 16px; line-height: 1; background: transparent; border: 1px solid transparent; border-radius: 3px; color: var(--muted); cursor: pointer; }
 #views li .entry-menu:hover, #views li .entry-menu[aria-expanded="true"] { border-color: var(--line); color: var(--text); }
 #views li .entry-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }

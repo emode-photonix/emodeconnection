@@ -58,7 +58,7 @@ from ..plotting import PlotView, Schematic
 from .cut import CutPanel, cut_arguments, held_xy, offers_cut
 from .cut import frozen as frozen_cut
 from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
-from .views import BENCH, KINDS, View, ViewRegistry, kind_of, menu_of, options_of, plain, title_of
+from .views import BENCH, KINDS, View, ViewRegistry, clean_tags, kind_of, menu_of, options_of, plain, title_of
 
 UI_DIR = Path(__file__).parent
 PAGES = UI_DIR / "pages"
@@ -83,6 +83,46 @@ FIGURE_OPTIONS = tuple(f.name for f in fields(PlotOptions))
 def _ui_url() -> Optional[str]:
     url = os.environ.get("EMODE_UI_URL")
     return url.rstrip("/") if url else None
+
+
+
+def _count(n: int, one: str, many: str) -> str:
+    return one if n == 1 else f"{n} {many}"
+
+
+def holds_text(inventory: Any) -> str:
+    """What the session holds, for the session page's Holds row (GUI-M4d): read from its ``PlotInventory``.
+
+    ``'3 profiles, an EME device (solved), a sweep over width (11 points)'``.
+    Each part comes from the inventory's own fields and its available
+    datasets, so the row says what the workbench can show.
+    """
+    import re
+
+    parts: List[str] = []
+    if inventory.profiles:
+        parts.append(_count(len(inventory.profiles), "1 profile", "profiles"))
+    if inventory.device is not None:
+        parts.append("an EME device (" + ("solved" if inventory.device == "solved" else "not solved") + ")")
+    if inventory.gds:
+        parts.append("a GDS section")
+    if inventory.sweep:
+        match = re.match(r"^(.*), ([\d x]+) points", inventory.sweep)
+        parts.append(f"a sweep over {match.group(1)} ({match.group(2)} points)" if match else "a sweep")
+    if inventory.pulse_response:
+        parts.append("a pulse response")
+    available = [d for d in inventory.datasets if d.available]
+    if any(d.kind == "response" for d in available):
+        parts.append("an operating point")
+    for kind, one, many in (
+        ("monitor", "a monitor", "monitors"),
+        ("farfield", "a far field", "far fields"),
+        ("convergence", "a convergence report", "convergence reports"),
+    ):
+        n = sum(d.kind == kind for d in available)
+        if n:
+            parts.append(_count(n, one, many))
+    return ", ".join(parts) if parts else "nothing to plot yet"
 
 
 class UIServer:
@@ -290,10 +330,21 @@ class UIServer:
         client["docs"] = f"{DOCS_URL}?version={version}" if version else DOCS_URL
         return {
             "emode": emode,
+            "holds": self._holds(),
             "error": error,
             "session_ended": self.session_ended,
             "client": client,
         }
+
+    def _holds(self) -> Optional[str]:
+        """The session page's Holds row, from the plot inventory: None when EMode cannot say (GUI-M4d)."""
+        if self.inventory is None:
+            return None
+        try:
+            inventory = self._known_inventory()
+        except EModeError:
+            return None
+        return holds_text(inventory) if inventory is not None else None
 
 
     # ---------------------------------------------------------------- the workbench (emode#1701)
@@ -386,7 +437,8 @@ class UIServer:
         entry = self.registry.entry(bench.origin) if bench.origin is not None else None
         if entry is None:
             return {"origin": None, "modified": False}
-        return {"origin": {"id": entry.id, "name": entry.saved.name}, "modified": bench.modified()}
+        origin = {"id": entry.id, "name": entry.saved.name, "tags": list(entry.saved.tags)}
+        return {"origin": origin, "modified": bench.modified()}
 
     def _known_inventory(self) -> Optional[Any]:
         """The inventory, or the last one asked for once the session has ended (None if never)."""
@@ -468,7 +520,8 @@ class UIServer:
                 entry = self.registry.entry(bench.origin) if bench.origin is not None else None
                 if entry is None:
                     raise EModeError("This workbench did not come from a saved view: use Save as, with a name.")
-                recipe = bench.recipe(entry.saved.name)
+                tags = entry.saved.tags if body.get("tags") is None else clean_tags(body["tags"])
+                recipe = bench.recipe(entry.saved.name, tags)
                 if recipe is None or bench.view is None:
                     raise EModeError("The workbench shows nothing to save yet.")
                 self._post(recipe)
@@ -480,7 +533,7 @@ class UIServer:
                 bench.origin_key = bench.key()
             elif action == "save_as":
                 name = self._new_name(body.get("name"))
-                recipe = bench.recipe(name)
+                recipe = bench.recipe(name, clean_tags(body.get("tags")))
                 if recipe is None:
                     raise EModeError("The workbench shows nothing to save yet.")
                 self._post(recipe)
@@ -492,10 +545,13 @@ class UIServer:
                     raise EModeError(f"no saved view {body.get('id')}")
                 if action == "rename":
                     name = self._new_name(body.get("name"), entry.id)
+                    tags = None if body.get("tags") is None else clean_tags(body["tags"])
                     if not entry.session_only:
-                        self._delete(entry.saved.name)
-                        self._post(entry.saved.model_copy(update={"name": name}))
-                    self.registry.rename(entry.id, name)
+                        update: Dict[str, Any] = {"name": name, **({} if tags is None else {"tags": tags})}
+                        if name != entry.saved.name:
+                            self._delete(entry.saved.name)
+                        self._post(entry.saved.model_copy(update=update))
+                    self.registry.rename(entry.id, name, tags)
                 else:
                     if not entry.session_only:
                         self._delete(entry.saved.name)

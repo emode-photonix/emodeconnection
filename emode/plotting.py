@@ -581,7 +581,9 @@ class SavedView(TaggedModel):
     what it is fetched and selected with, and ``options`` the figure options
     that differ from their defaults. ``dataset`` is the workbench's data entry
     it was saved from (a ``DatasetEntry.id``, such as ``'profile:wg'``), or
-    None for a script's plot. ``created`` is an ISO time.
+    None for a script's plot. ``tags`` are optional labels, which the tab's
+    sidebar groups the saved views by (the first tag) and filters on.
+    ``created`` is an ISO time.
 
     ``show()`` plots it again in the session's tab, and ``delete()`` removes it
     from the session and its file. Both act on `em`, by default the newest

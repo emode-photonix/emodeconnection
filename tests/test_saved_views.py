@@ -297,7 +297,7 @@ def test_opening_a_saved_entry_fetches_with_its_arguments_and_options(em, file_v
     (sent,) = _calls(em, "EM_plot")[plots:]
     assert sent["component"] == "Ey" and sent["profile"] == "wg" and sent["plane"] == "x-y"
     assert reply["bench"]["dataset"] == "profile:wg"
-    assert reply["bench"]["origin"] == {"id": entry["id"], "name": "Ey"}
+    assert reply["bench"]["origin"] == {"id": entry["id"], "name": "Ey", "tags": []}
     assert reply["bench"]["modified"] is False
     assert reply["controls"]["colormap"] == "magma"
     # the figure is a plot() with the same arguments
@@ -347,7 +347,7 @@ def test_edit_in_workbench_loads_a_script_views_settings(em):
     assert "error" not in reply, reply
     assert len(_calls(em, "EM_plot")) == plots  # the script's data, not fetched again
     assert reply["bench"]["dataset"] == "profile:wg"
-    assert reply["bench"]["origin"] == {"id": handle.id, "name": "x-y Ex real"}
+    assert reply["bench"]["origin"] == {"id": handle.id, "name": "x-y Ex real", "tags": []}
     assert reply["controls"]["component"] == "Ey" and reply["controls"]["colormap"] == "magma"
     assert reply["bench"]["modified"] is False
     # the script's own view is left as it was
@@ -607,7 +607,7 @@ return __posts.filter(function (p) { return p[0] === "api/saved"; }).map(functio
 """,
         origin='{id: "p1", name: "TE at 1550"}',
     )
-    assert got == [{"action": "save_as", "name": "phase"}, {"action": "save"}]
+    assert got == [{"action": "save_as", "name": "phase", "tags": []}, {"action": "save", "tags": []}]
 
 
 @needs_jsc
