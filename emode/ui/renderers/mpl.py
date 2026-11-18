@@ -179,6 +179,18 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
             bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#d1495b", "alpha": 0.85},
         )
 
+    ax.set_xscale(a.xscale)
+    ax.set_yscale(a.yscale)
+    if twin is not None:
+        twin.set_yscale(a.y2scale)
+    for axis, scale in ((ax.xaxis, a.xscale), (ax.yaxis, a.yscale), (twin.yaxis if twin is not None else None, a.y2scale)):
+        if axis is not None and scale == "log":
+            # plain numbers on the ticks, the minor ones too across less than a decade or two
+            from matplotlib.ticker import LogFormatter
+
+            axis.set_major_formatter(LogFormatter(labelOnlyBase=False, minor_thresholds=(2, 0.5)))
+            axis.set_minor_formatter(LogFormatter(labelOnlyBase=False, minor_thresholds=(2, 0.5)))
+            axis.set_tick_params(which="minor", labelsize=spec.font_size)
     ax.set_xlim(*a.xrange)
     ax.set_ylim(*a.yrange)
     if a.invert_y and not ax.yaxis_inverted():
@@ -232,15 +244,33 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         # axes' lines only, so the left curves stand in there, transparent and
         # mapped onto the right axis's scale.
         (y0, y1), (r0, r1) = a.yrange, a.y2range
+        logs = (a.yscale == "log", a.y2scale == "log")
+        (y0, y1), (r0, r1) = [tuple(np.log10(r) if log else r for r in rng) for rng, log in zip(((y0, y1), (r0, r1)), logs)]
         scale = (r1 - r0) / (y1 - y0) if y1 != y0 else 1.0
         for line in spec.lines:
             if line.axis == "left" and line.kind in ("user", "trace"):
+                ly = np.asarray(line.y, float)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    mapped = r0 + ((np.log10(ly) if logs[0] else ly) - y0) * scale
                 twin.plot(
-                    line.x, r0 + (np.asarray(line.y, float) - y0) * scale,
+                    line.x, 10.0**mapped if logs[1] else mapped,
                     alpha=0.0, label="_nolegend_", gid="legend_avoid",
                 )
         twin.set_ylim(*a.y2range)
         ax.set_xlim(*a.xrange)
+    if a.xsecondary is not None:
+        s2 = a.xsecondary
+        top = ax.twiny()
+        top.set_xscale(a.xscale)
+        top.set_xlim(*a.xrange)
+        top.set_xticks(list(s2.tickvals))
+        top.set_xticklabels(list(s2.ticklabels))
+        top.minorticks_off()
+        top.set_xlabel(s2.label, fontsize=spec.font_size)
+        top.tick_params(axis="x", direction="out", labelsize=spec.font_size, length=3, width=0.75)
+        for side in ("bottom", "left", "right"):
+            top.spines[side].set_visible(False)
+        top.spines["top"].set_linewidth(0.5)
 
     if spec.colorbar is not None:
         cb = spec.colorbar

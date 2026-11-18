@@ -13,7 +13,8 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 
 from .. import colormaps
-from .figure import DEFAULT_SIZE_MM, LW, AxesSpec, FigureSpec, FillSpec, LineSpec, PlotOptions
+from ..types import ArgumentError
+from .figure import DEFAULT_SIZE_MM, LW, AxesSpec, FigureSpec, FillSpec, LineSpec, PlotOptions, SecondaryXSpec
 
 #: A style string's markers, as the spec names them.
 MARKERS = {"o": "circle", "s": "square", "^": "triangle-up", "D": "diamond", "d": "diamond",
@@ -53,13 +54,17 @@ def _tint(color: str, white: float = 0.75) -> str:
     return to_hex(tuple(c + (1 - c) * white for c in (r, g, b)))
 
 
-def _span(values: List[np.ndarray], pad: float = 0.05) -> Optional[Tuple[float, float]]:
-    finite = [v[np.isfinite(v)] for v in values if v.size]
+def _span(values: List[np.ndarray], pad: float = 0.05, log: bool = False) -> Optional[Tuple[float, float]]:
+    """The span of the finite values, padded by `pad` of its width (of its decades on a log axis)."""
+    finite = [v[np.isfinite(v) & (v > 0 if log else True)] for v in values if v.size]
     finite = [v for v in finite if v.size]
     if not finite:
         return None
     lo = min(float(v.min()) for v in finite)
     hi = max(float(v.max()) for v in finite)
+    if log:
+        lo_p, hi_p = _span([np.log10(np.array([lo, hi]))], pad) or (0.0, 0.0)
+        return 10.0**lo_p, 10.0**hi_p
     width = hi - lo if hi > lo else (abs(hi) or 1.0)
     return lo - pad * width, hi + pad * width
 
@@ -86,7 +91,9 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
 
     settings = panel.settings
     xrange = settings.get("xlim") or _merge(base.axes.xrange if base else None, _span(xs, 0.0))
-    yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys))
+    xscale, yscale = settings.get("xscale", "linear"), settings.get("yscale", "linear")
+    y2scale = twin.settings.get("yscale", "linear") if twin is not None else "linear"
+    yrange = settings.get("ylim") or _merge(base.axes.yrange if base else None, _span(ys, log=yscale == "log"))
     # a sweep's magnitude keeps its floor at 0 while the script's curves stay above it (#191)
     floor = bool(base and base.axes.y_nonnegative) and all(bool((y[np.isfinite(y)] >= 0).all()) for y in ys)
     floor = floor or bool(settings.get("ynonnegative"))
@@ -97,7 +104,7 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
     y2range: Optional[Tuple[float, float]] = None
     y2floor = False
     if twin is not None:
-        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s) or (0.0, 1.0)))
+        y2range = tuple(float(v) for v in (twin.settings.get("ylim") or _span(y2s, log=y2scale == "log") or (0.0, 1.0)))
         y2floor = bool(twin.settings.get("ynonnegative"))
         if y2floor and not twin.settings.get("ylim"):
             y2range = (0.0, max(y2range[1], 0.0))
@@ -127,6 +134,10 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
                 # the band's legend entry, a wide line of its color
                 lines.append(LineSpec(np.array([np.nan]), np.array([np.nan]), "vspan", color, 6.0, label=item["label"]))
     lines.extend(right_lines)
+    for scale, name, span in ((xscale, "x", xrange), (yscale, "y", yrange), (y2scale, "right y", y2range)):
+        if scale == "log" and span is not None and not min(span) > 0:
+            raise ArgumentError(f"a log {name} axis needs a positive range, not {tuple(span)}", "Panel.set", "xscale" if name == "x" else "yscale")
+    secondary = _secondary_x(panel.secondary, xrange, xscale) if panel.secondary is not None else None
     axes = AxesSpec(
         xlabel=settings.get("xlabel") or (base.axes.xlabel if base else ""),
         ylabel=settings.get("ylabel") or (base.axes.ylabel if base else ""),
@@ -139,6 +150,10 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         y2label_color=_one_color(lines, "right") if twin is not None else None,
         y_nonnegative=floor,
         y2_nonnegative=y2floor,
+        xscale=xscale,
+        yscale=yscale,
+        y2scale=y2scale,
+        xsecondary=secondary,
     )
     return FigureSpec(
         axes=axes,
@@ -190,6 +205,38 @@ def _one_color(lines: List[LineSpec], axis: str) -> Optional[str]:
     """The color of every curve on `axis` when they share one, so its label can say which axis is whose."""
     colors = {line.color for line in lines if line.axis == axis and line.kind in ("user", "trace")}
     return colors.pop() if len(colors) == 1 else None
+
+
+def _nice_ticks(lo: float, hi: float) -> List[float]:
+    """Tick values within [lo, hi]: 1, 2 and 5 per decade across a decade or more, else a nice linear step."""
+    if lo > 0 and hi / lo >= 10:
+        decades = range(int(np.floor(np.log10(lo))), int(np.ceil(np.log10(hi))) + 1)
+        values = [m * 10.0**d for d in decades for m in (1, 2, 5)]
+    else:
+        raw = (hi - lo) / 5
+        mag = 10.0 ** np.floor(np.log10(raw))
+        step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw)
+        values = [float(k * step) for k in range(int(np.ceil(lo / step)), int(np.floor(hi / step)) + 1)]
+    return [v for v in values if lo <= v <= hi]
+
+
+def _secondary_x(secondary: Any, xrange: Tuple[float, float], xscale: str) -> SecondaryXSpec:
+    """The ticks of a second x axis: nice values of ``forward(x)``, each at the x it belongs to."""
+    forward, label = secondary
+    x0, x1 = float(xrange[0]), float(xrange[1])
+    grid = np.geomspace(x0, x1, 2001) if xscale == "log" else np.linspace(x0, x1, 2001)
+    f = np.asarray(forward(grid), float)
+    step = np.diff(f)
+    if f.shape != grid.shape or not np.isfinite(f).all() or not (np.all(step > 0) or np.all(step < 0)):
+        raise ArgumentError(
+            f"the secondary x axis's function must be finite and monotonic over {(x0, x1)}", "Panel.secondary_x", "forward"
+        )
+    order = np.argsort(f)
+    where = np.log(grid) if xscale == "log" else grid
+    ticks = _nice_ticks(float(f[order[0]]), float(f[order[-1]]))
+    pos = np.interp(ticks, f[order], where[order])
+    pos = np.exp(pos) if xscale == "log" else pos
+    return SecondaryXSpec(label or "", tuple(float(v) for v in pos), tuple(f"{v:g}" for v in ticks))
 
 
 def _merge(a: Optional[Tuple[float, float]], b: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:

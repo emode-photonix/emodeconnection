@@ -30,7 +30,7 @@ EMode's line palette or a color (``'#3634A3'``, ``'gray'``).
 """
 from __future__ import annotations
 
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 
 from .types import ArgumentError
 
@@ -62,11 +62,19 @@ class TwinAxis:
         self.items.append(("hline", dict(at=y, style=style, label=label, color=color)))
         return self
 
-    def set(self, ylabel: Optional[str] = None, ylim: Range = None, ynonnegative: Optional[bool] = None) -> "TwinAxis":
-        """The right axis's label and range. The x axis is the panel's own.
+    def set(
+        self,
+        ylabel: Optional[str] = None,
+        ylim: Range = None,
+        ynonnegative: Optional[bool] = None,
+        yscale: Optional[str] = None,
+    ) -> "TwinAxis":
+        """The right axis's label, range and scale. The x axis is the panel's own.
 
-        ``ynonnegative=True`` marks the axis as one that cannot go below 0: its range starts at 0."""
-        for name, value in dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative)).items():
+        ``ynonnegative=True`` marks the axis as one that cannot go below 0: its range starts at 0.
+        ``yscale`` is ``'linear'`` (the default) or ``'log'``."""
+        settings = dict(ylabel=ylabel, ylim=ylim, ynonnegative=_flag(ynonnegative), yscale=_scale(yscale, "yscale"))
+        for name, value in settings.items():
             if value is not None:
                 self.settings[name] = value
         return self
@@ -79,6 +87,13 @@ def _flag(value: Any) -> Optional[bool]:
     return None if value is None else bool(value)
 
 
+def _scale(value: Optional[str], name: str) -> Optional[str]:
+    """`value` if it is 'linear' or 'log' or None, else an ArgumentError."""
+    if value is not None and value not in ("linear", "log"):
+        raise ArgumentError(f"{name} is 'linear' or 'log', not {value!r}", "Panel.set", name)
+    return value
+
+
 class Panel:
     """One panel of a ``Figure``: what is drawn on it, and its labels and ranges."""
 
@@ -88,6 +103,13 @@ class Panel:
         self.items: List[Tuple[str, dict]] = []
         self.settings: dict = {}
         self.right: Optional[TwinAxis] = None
+        self.secondary: Optional[Tuple[Callable[[Any], Any], Optional[str]]] = None
+
+    def secondary_x(self, forward: Callable[[Any], Any], label: Optional[str] = None) -> "Panel":
+        """A second x axis along the top whose ticks are ``forward(x)``, such as the frequency of
+        each wavelength. `forward` takes a numpy array and must be monotonic over the x range."""
+        self.secondary = (forward, label)
+        return self
 
     def twin(self) -> TwinAxis:
         """The panel's second y axis, on its right, made on the first call."""
@@ -141,13 +163,19 @@ class Panel:
         xlim: Range = None,
         ylim: Range = None,
         ynonnegative: Optional[bool] = None,
+        xscale: Optional[str] = None,
+        yscale: Optional[str] = None,
     ) -> "Panel":
-        """The panel's axis labels, title and ranges. What is not given keeps its default.
+        """The panel's axis labels, title, ranges and scales. What is not given keeps its default.
+
+        ``xscale`` and ``yscale`` are ``'linear'`` (the default) or ``'log'``. A log axis needs
+        positive data and ranges.
 
         ``ynonnegative=True`` marks the y axis as one that cannot go below 0 (a transmission, a
         power): its range starts at 0, in the tab and in the saved image. A sweep drawn with
         ``sweep()`` is marked from its data already."""
-        settings = dict(xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative))
+        settings = dict(xlabel=xlabel, ylabel=ylabel, title=title, xlim=xlim, ylim=ylim, ynonnegative=_flag(ynonnegative),
+                        xscale=_scale(xscale, "xscale"), yscale=_scale(yscale, "yscale"))
         for name, value in settings.items():
             if value is not None:
                 self.settings[name] = value

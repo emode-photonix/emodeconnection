@@ -226,6 +226,16 @@ class TextSpec:
 
 
 @dataclass(frozen=True)
+class SecondaryXSpec:
+    """A second x axis along the top (``Panel.secondary_x``): its label, and its ticks as the
+    positions on the panel's own x axis with the label each carries."""
+
+    label: str
+    tickvals: Tuple[float, ...]
+    ticklabels: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class AxesSpec:
     xlabel: str
     ylabel: str
@@ -253,6 +263,12 @@ class AxesSpec:
     y_nonnegative: bool = False
     #: The same for the twin's right axis, marked by the script.
     y2_nonnegative: bool = False
+    #: Each axis's scale, 'linear' or 'log' (the twin's is y2scale).
+    xscale: str = "linear"
+    yscale: str = "linear"
+    y2scale: str = "linear"
+    #: A second x axis on top, None without one.
+    xsecondary: Optional[SecondaryXSpec] = None
 
 
 @dataclass(frozen=True)

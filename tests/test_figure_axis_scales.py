@@ -9,10 +9,11 @@ import numpy as np
 import pytest
 
 import emode
+from emode.types import ArgumentError
 from emode.ui.figure import compose
 from emode.ui.renderers.plotly import to_plotly
 
-C_THZ_UM = 299792.458  # c in um THz
+C_THZ_UM = 299.792458  # c in um THz
 
 
 def dispersion() -> "emode.Figure":
@@ -42,16 +43,16 @@ def test_a_panel_without_a_scale_is_linear():
 
 
 def test_a_scale_must_be_linear_or_log():
-    with pytest.raises(emode.ArgumentError):
+    with pytest.raises(ArgumentError):
         emode.Figure().panel(0).set(xscale="loga")
-    with pytest.raises(emode.ArgumentError):
+    with pytest.raises(ArgumentError):
         emode.Figure().panel(0).twin().set(yscale="sqrt")
 
 
 def test_a_log_axis_refuses_a_range_that_is_not_positive():
     fig = emode.Figure()
     fig.panel(0).line([0.0, 1.0], [1.0, 2.0]).set(xscale="log")
-    with pytest.raises(emode.ArgumentError):
+    with pytest.raises(ArgumentError):
         compose(fig)
 
 
@@ -71,7 +72,7 @@ def test_the_secondary_axis_ticks_are_frequencies_placed_at_their_wavelengths():
 def test_the_secondary_axis_refuses_a_function_that_is_not_monotonic():
     fig = emode.Figure()
     fig.panel(0).line([-1.0, 1.0], [0.0, 1.0]).secondary_x(lambda x: x * x)
-    with pytest.raises(emode.ArgumentError):
+    with pytest.raises(ArgumentError):
         compose(fig)
 
 

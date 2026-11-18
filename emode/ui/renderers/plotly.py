@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import html
+import math
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -574,6 +575,13 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
             trace["yaxis"] = "y2"
         data.append(trace)
 
+    if spec.axes.xsecondary is not None:
+        # an invisible point puts the top axis on the page, Plotly draws no axis without a trace
+        data.append(
+            {"type": "scatter", "mode": "markers", "x": [spec.axes.xrange[0]], "y": [spec.axes.yrange[0]],
+             "xaxis": "x2", "yaxis": "y", "marker": {"opacity": 0}, "showlegend": False,
+             "hoverinfo": "skip", "meta": "secondary_x"}
+        )
     if spec.colorbar is not None and not spec.rasters:
         # a panel of fills only (the index panel): an invisible trace carries the colorbar
         cb = spec.colorbar
@@ -625,7 +633,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     image = bool(spec.rasters) or spec.colorbar is not None
     xaxis: Dict[str, Any] = {
         "title": {"text": math_html(a.xlabel)},
-        "range": list(a.xrange),
+        "range": [math.log10(v) for v in a.xrange] if a.xscale == "log" else list(a.xrange),
         "showticklabels": a.show_xticklabels,
         **_TICKS,
         "mirror": False,
@@ -637,7 +645,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     }
     yaxis: Dict[str, Any] = {
         "title": {"text": math_html(a.ylabel)},
-        "range": yrange,
+        "range": [math.log10(v) for v in yrange] if a.yscale == "log" else yrange,
         "showticklabels": a.show_yticklabels,
         **_TICKS,
         "mirror": image,
@@ -647,6 +655,9 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "zeroline": False,
         "visible": a.visible,
     }
+    for axis, scale in ((xaxis, a.xscale), (yaxis, a.yscale)):
+        if scale == "log":
+            axis["type"] = "log"
     if a.y_nonnegative:
         # never ranged below 0, not even by Plotly's autorange on a double click (#191)
         yaxis["rangemode"] = "nonnegative"
@@ -657,7 +668,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         yaxis["mirror"] = False
         yaxis2 = {
             "title": {"text": math_html(a.y2label) or ""},
-            "range": list(a.y2range),
+            "range": [math.log10(v) for v in a.y2range] if a.y2scale == "log" else list(a.y2range),
+            **({"type": "log"} if a.y2scale == "log" else {}),
             "overlaying": "y",
             "side": "right",
             "anchor": "x",
@@ -737,9 +749,37 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
     if yaxis2 is not None:
         layout["yaxis2"] = yaxis2
         layout["margin"]["r"] = 60
+    if a.xsecondary is not None:
+        layout["xaxis2"] = _top_axis(a, xaxis)
+        layout["margin"]["t"] = 70
+        layout["legend"]["y"] = 1.16
     if spec.title:
         layout["title"] = {"text": math_html(spec.title)}
     return layout
+
+
+def _top_axis(a: Any, xaxis: Dict[str, Any]) -> Dict[str, Any]:
+    """The second x axis along the top: the panel's own range and scale, with the secondary ticks."""
+    s = a.xsecondary
+    top: Dict[str, Any] = {
+        "title": {"text": math_html(s.label) or ""},
+        "range": list(xaxis["range"]),
+        "overlaying": "x",
+        "side": "top",
+        "anchor": "y",
+        "tickmode": "array",
+        "tickvals": list(s.tickvals),
+        "ticktext": list(s.ticklabels),
+        **_TICKS,
+        "showline": True,
+        "linewidth": 0.5,
+        "showgrid": False,
+        "zeroline": False,
+        "visible": a.visible,
+    }
+    if a.xscale == "log":
+        top["type"] = "log"
+    return top
 
 
 def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
@@ -767,7 +807,8 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
         twin = str(len(spec.panels) + k)
         for trace in sub["data"]:
             on_twin = trace.get("yaxis") == "y2"
-            trace["xaxis"], trace["yaxis"] = f"x{suffix}", f"y{twin if on_twin else suffix}"
+            on_top = trace.get("xaxis") == "x2"
+            trace["xaxis"], trace["yaxis"] = f"x{twin if on_top else suffix}", f"y{twin if on_twin else suffix}"
             bar = _bar_of(trace)
             if bar is not None:
                 # right of the panel's own domain, as a single plot's sits right of its axes, and
@@ -784,6 +825,10 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
             right = dict(sub["layout"]["yaxis2"])
             right.update({"domain": yd, "anchor": f"x{suffix}", "overlaying": f"y{suffix}"})
             layout[f"yaxis{twin}"] = right
+        if "xaxis2" in sub["layout"]:
+            top = dict(sub["layout"]["xaxis2"])
+            top.update({"domain": xd, "anchor": f"y{suffix}", "overlaying": f"x{suffix}"})
+            layout[f"xaxis{twin}"] = top
         for note in sub["layout"].get("annotations", []):
             for ref in ("xref", "yref"):
                 axis = note.get(ref, "paper")
