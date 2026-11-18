@@ -24,6 +24,7 @@ from ..gds import GDSView, read_lyp
 from ..plotting import MenuState
 from ..types import ArgumentError
 from .figure import (
+    units_pair,
     DEFAULT_SIZE_MM,
     LW,
     UNIT_SCALE,
@@ -223,8 +224,7 @@ def _shape_rings(panel: GDSPanel) -> List[np.ndarray]:
 def compose_gds(panel: GDSPanel, options: PlotOptions) -> FigureSpec:
     """The figure of the GDS layer view: one layer spec per layer, then the shapes' outlines."""
     axes_info = panel.view.axes
-    xu = options.units or axes_info.x_unit
-    yu = options.units or axes_info.y_unit
+    xu, yu = units_pair(options) if options.units else (axes_info.x_unit, axes_info.y_unit)
     scale = np.array([UNIT_SCALE[xu], UNIT_SCALE[yu]])
     layers: List[LayerSpec] = []
     for layer in panel.view.layers:
