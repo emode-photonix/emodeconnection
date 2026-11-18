@@ -69,7 +69,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.cm import ScalarMappable
     from matplotlib.collections import LineCollection
-    from matplotlib.colors import Normalize
+    from matplotlib.colors import Normalize, to_rgba
     from matplotlib.figure import Figure
     from matplotlib.image import NonUniformImage
     from matplotlib.patches import Patch, PathPatch, Rectangle
@@ -97,7 +97,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         ax.add_patch(
             PathPatch(
                 MplPath(vertices, codes),
-                facecolor=f.color or "none",
+                facecolor=to_rgba(f.color, f.alpha) if f.color else "none",
                 edgecolor=f.edgecolor or "none",
                 lw=f.width,
                 hatch=f.hatch,
@@ -106,7 +106,6 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         )
 
     from matplotlib.collections import PolyCollection
-    from matplotlib.colors import to_rgba
 
     for layer in spec.layers:
         collection = PolyCollection(

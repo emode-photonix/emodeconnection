@@ -484,6 +484,14 @@ def _target_text(target: str) -> str:
     return f"{name} ({kind}), tap for details"
 
 
+def _rgba(color: str, alpha: float) -> str:
+    """A ``#rrggbb`` color at `alpha` as Plotly's ``rgba()`` string, other colors as they are."""
+    if alpha >= 1.0 or not (color.startswith("#") and len(color) == 7):
+        return color
+    r, g, b = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"rgba({r},{g},{b},{alpha:g})"
+
+
 def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
     """`spec` as ``{'data': [...], 'layout': {...}}`` for ``Plotly.react``.
 
@@ -501,7 +509,7 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
             "x": xs,
             "y": ys,
             "fill": "toself",
-            "fillcolor": f.color or "rgba(0,0,0,0)",
+            "fillcolor": _rgba(f.color, f.alpha) if f.color else "rgba(0,0,0,0)",
             "line": {"width": f.width, "color": f.edgecolor or "rgba(0,0,0,0)"},
             "hoverinfo": "skip",
             "showlegend": False,
