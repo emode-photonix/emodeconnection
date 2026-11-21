@@ -37,6 +37,10 @@ REPORTED = (
     "node_wavelengths",
     "solved_wavelengths",
     "unconverged",
+    "solved",
+    "fallback",
+    "method",
+    "method_reason",
 )
 
 
