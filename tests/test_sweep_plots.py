@@ -26,7 +26,7 @@ from emode.sweep import SweepResult
 from emode.types import UnreadWireType, reconstruct, serialize, wire_dump
 from emode.ui.figure import PlotOptions, compose
 from emode.ui.renderers.plotly import to_plotly
-from emode.ui.sweep_figure import SweepPanel, sweep_menus, sweep_panel
+from emode.ui.sweep_figure import SweepPanel, plottable_results, sweep_menus, sweep_panel
 from emode.ui.views import _select, kind_of, title_of
 
 # ------------------------------------------------------------------ the sweeps
@@ -662,3 +662,20 @@ def test_one_output_mode_and_ports_by_index():
     menus = {m["name"]: m for m in sweep_menus(panel)}
     assert menus["output_mode"]["options"] == ["all", "0", "1"]
     assert len(_lines(compose(_select(panel, {"output_mode": "all"})))) == 2
+
+
+def test_a_geometry_sweeps_reports_are_not_offered_as_results():
+    widths = np.linspace(400.0, 600.0, 5)
+    sweep = SweepResult(
+        data={
+            "key": "shape, core, width",
+            "values": widths,
+            "effective_index": 2.0 + widths / 1000.0,
+            "solved": [True, False, True, False, True],
+            "fallback": False,
+            "method": "interpolated",
+            "method_reason": "enough values to interpolate",
+        }
+    )
+    assert sweep.results == ["effective_index"]
+    assert plottable_results(sweep) == ["effective_index"]
