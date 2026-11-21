@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -289,6 +290,11 @@ def _ink_shot(tmp_path: Path, name: str, figure: Dict[str, Any], drop: List[str]
     return _shot(page, tmp_path / f"{name}.png", PH + 20)
 
 
+@pytest.mark.skipif(
+    bool(os.environ.get("CI")) and sys.platform.startswith("linux"),
+    reason="the Linux runner's Chrome antialiases the one-pixel ink differently, so the ink "
+    "sums are not comparable there (#214). It runs on macOS and on a developer's machine.",
+)
 @pytest.mark.parametrize("level", [0.5, -0.5], ids=["black", "white"])
 def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path, level: float) -> None:
     """Plotly draws a colorbar tick at least one whole pixel and a contour line at 0.5 px.
