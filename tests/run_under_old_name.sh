@@ -11,7 +11,8 @@ cp -R "$here"/. "$copy"/
 rm -f "$copy/test_shim.py" "$copy/run_under_old_name.sh"
 trap 'rm -rf "$copy"' EXIT
 for f in "$copy"/test_*.py; do
-  perl -pi -e 's/^(\s*)import emode\.emode as /$1import emodeconnection.emodeconnection as /;
+  perl -pi -e 's/^(\s*)import emode[ \t]*$/$1import emodeconnection as emode/;
+                s/^(\s*)import emode\.emode as /$1import emodeconnection.emodeconnection as /;
                 s/^(\s*)from emode\.emode import/$1from emodeconnection.emodeconnection import/;
                 s/^(\s*)(from|import) emode\b/$1$2 emodeconnection/' "$f"
 done

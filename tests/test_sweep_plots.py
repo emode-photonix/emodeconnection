@@ -613,9 +613,9 @@ def test_the_tab_changes_a_sweeps_selection_without_asking_emode():
 def test_the_app_draws_a_sweeps_menus():
     from pathlib import Path
 
-    import emode.ui
+    from emode import ui
 
-    app = (Path(emode.ui.__file__).parent / "static" / "app.js").read_text()
+    app = (Path(ui.__file__).parent / "static" / "app.js").read_text()
     assert 'kind === "sweep"' in app and "buildSweepControls" in app
 
 
