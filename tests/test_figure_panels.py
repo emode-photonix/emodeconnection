@@ -9,6 +9,7 @@ what the website examples drew with their own matplotlib.
 """
 from __future__ import annotations
 
+import sys
 import base64
 
 import numpy as np
@@ -289,6 +290,8 @@ def quiet(monkeypatch):
     monkeypatch.delenv("EMODE_HEADLESS", raising=False)
     monkeypatch.delenv("EMODE_PLOT_INLINE", raising=False)
     monkeypatch.setenv("EMODE_NONINTERACTIVE", "1")
+    if sys.platform.startswith("linux"):
+        monkeypatch.setenv("DISPLAY", ":0")  # without a display Linux plots headless
 
 
 def test_figure_plot_with_a_file_name_saves_it(tmp_path, monkeypatch):

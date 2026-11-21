@@ -10,6 +10,7 @@ renderer alike.
 """
 from __future__ import annotations
 
+import sys
 import base64
 import json
 import pickle
@@ -534,6 +535,8 @@ def quiet(monkeypatch):
     monkeypatch.delenv("EMODE_HEADLESS", raising=False)
     monkeypatch.delenv("EMODE_PLOT_INLINE", raising=False)
     monkeypatch.setenv("EMODE_NONINTERACTIVE", "1")
+    if sys.platform.startswith("linux"):
+        monkeypatch.setenv("DISPLAY", ":0")  # without a display Linux plots headless
 
 
 def test_plot_with_a_file_name_draws_a_static_image(tmp_path, monkeypatch):

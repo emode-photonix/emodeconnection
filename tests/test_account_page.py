@@ -14,6 +14,7 @@ foreign ``Origin``.
 """
 from __future__ import annotations
 
+import sys
 import http.client
 import json
 import logging
@@ -428,6 +429,8 @@ def _login_session(fake: FakeAccount):
 def fast_wait(monkeypatch):
     monkeypatch.setattr(account, "LOGIN_POLL", 0.01)
     monkeypatch.delenv("EMODE_HEADLESS", raising=False)
+    if sys.platform.startswith("linux"):
+        monkeypatch.setenv("DISPLAY", ":0")  # without a display Linux plots headless
 
 
 def test_emode_opens_the_account_page_and_resumes_once_signed_in(fast_wait, monkeypatch):

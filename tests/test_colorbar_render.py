@@ -178,6 +178,7 @@ def _run(*args: str) -> str:
         [
             CHROME,
             "--headless",
+            "--no-sandbox",  # the Linux runner forbids the sandbox's user namespaces
             "--disable-gpu",
             "--hide-scrollbars",
             "--force-device-scale-factor=1",
