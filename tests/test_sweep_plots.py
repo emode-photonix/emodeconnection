@@ -26,7 +26,7 @@ from emode.sweep import SweepResult
 from emode.types import UnreadWireType, reconstruct, serialize, wire_dump
 from emode.ui.figure import PlotOptions, compose
 from emode.ui.renderers.plotly import to_plotly
-from emode.ui.sweep_figure import SweepPanel, sweep_menus, sweep_panel
+from emode.ui.sweep_figure import SweepPanel, plottable_results, sweep_menus, sweep_panel
 from emode.ui.views import _select, kind_of, title_of
 
 # ------------------------------------------------------------------ the sweeps
