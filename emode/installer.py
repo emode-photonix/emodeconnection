@@ -534,8 +534,10 @@ def device_login() -> str:
     except KeyError:
         raise DeviceFlowUnavailable
     except RuntimeError as e:
-        print(f"Sign-in failed: {e}")
-        sys.exit(1)
+        # The website could not start a browser sign-in (busy, rate limited or
+        # down). The password still works, so fall back to it.
+        print(f"Browser sign-in failed: {e}")
+        raise DeviceFlowUnavailable
 
     url = start.get('verification_url_complete') or start.get('verification_url', '')
     interval = float(start.get('interval', 5))

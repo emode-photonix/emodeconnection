@@ -136,7 +136,13 @@ def test_no_browser_prints_code_and_url(monkeypatch, capsys):
 
 
 @pytest.mark.parametrize(
-    "code", [FakeResponse(404, {"error": "no"}), FakeResponse(200, None, json_ok=False)]
+    "code",
+    [
+        FakeResponse(404, {"error": "no"}),
+        FakeResponse(200, None, json_ok=False),
+        FakeResponse(502, {"error": "Sign-in is unavailable right now."}),
+        FakeResponse(429, {"error": "Too many sign-in requests. Try again later."}),
+    ],
 )
 def test_older_website_falls_back_to_password(monkeypatch, capsys, code):
     net(monkeypatch, [], code)
