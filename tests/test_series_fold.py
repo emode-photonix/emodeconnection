@@ -75,3 +75,57 @@ def test_gds_layers_past_8_are_mist_and_never_cycle():
     spec = compose(GDSPanel.from_view(view))
     colors = [s.color for s in spec.layers if s.key != "shapes"]
     assert colors == list(colormaps.SERIES) + [colormaps.OTHER] * 2
+
+
+# ------------------------------------------------------------------ text is never in a series or status color
+
+TEXT_COLORS = {
+    colormaps.GUI["text"].lower(),
+    colormaps.GUI["text_secondary"].lower(),
+    colormaps.PLOT["dark"]["text"].lower(),  # Haze, for labels drawn on a field map
+}
+
+
+def _text_colors(spec) -> set:
+    return {t.color.lower() for t in spec.texts}
+
+
+def test_schematic_labels_are_text_colors():
+    from plot_fixtures import schematic
+
+    spec = compose(schematic())
+    assert spec.texts and _text_colors(spec) <= TEXT_COLORS
+    # the monitor mark keeps its series color
+    assert colormaps.schematic_colors()["monitor"] == colormaps.SERIES[2]
+
+
+def test_overlay_labels_are_haze_while_their_lines_keep_their_slots():
+    from plot_fixtures import zx_view
+
+    spec = compose(zx_view())
+    labels = [t for t in spec.texts if t.kind in ("port", "facet", "monitor")]
+    assert labels, "the fixture has no overlay label"
+    assert {t.color.lower() for t in labels} == {colormaps.PLOT["dark"]["text"].lower()}
+    assert {line.color for line in spec.lines if line.kind == "facet"} == {colormaps.overlay_colors()["facet"]}
+
+
+def test_every_text_of_a_composed_figure_and_its_plotly_form_is_a_text_color():
+    from plot_fixtures import schematic, xy_view, zx_view
+
+    for make in (xy_view, zx_view, schematic):
+        spec = compose(make())
+        assert _text_colors(spec) <= TEXT_COLORS
+        figure = to_plotly(spec)
+        for a in figure["layout"]["annotations"]:
+            color = a.get("font", {}).get("color")
+            assert color is None or color.lower() in TEXT_COLORS | {colormaps.GUI["primary"].lower()}
+        assert figure["layout"]["font"]["color"].lower() in TEXT_COLORS
+
+
+def test_a_twin_axis_label_is_not_drawn_in_a_series_color():
+    fig = emode.Figure()
+    p = fig.panel(0)
+    p.line([0, 1], [0, 1])
+    p.twin().line([0, 1], [1, 0])
+    (spec,) = compose(fig).panels
+    assert spec.axes.ylabel_color is None and spec.axes.y2label_color is None
