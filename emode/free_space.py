@@ -241,7 +241,12 @@ class FarField(TaggedModel):
         if colormap is not None:
             colormaps.check_colormap(colormap, "FarField.plot")
         cmap = colormaps.get(colormap or "sequential")
-        lines = colormaps.line_palette()
+        # a figure of its own is light and leaves the user's rcParams alone, one on given axes is theirs
+        with colormaps.figure_style(ax is None):
+            return self._draw(plt, ax, cmap)
+
+    def _draw(self, plt, ax, cmap):
+        from . import colormaps
 
         panels = 3 if self.screen is not None else 2
         if ax is None:
@@ -257,7 +262,7 @@ class FarField(TaggedModel):
         fig.colorbar(image, ax=ax[0], label="intensity (W/sr)")
         for i, (axis, label) in enumerate((("x", "θx"), ("y", "θy"))):
             angle, intensity = self.cut(axis)
-            ax[1].plot(angle, intensity, label=f"{label} cut", color=lines[i % len(lines)])
+            ax[1].plot(angle, intensity, label=f"{label} cut", color=colormaps.series_color(i))
         ax[1].set_xlabel("angle (deg)")
         ax[1].set_ylabel("intensity (W/sr)")
         ax[1].set_title(f"M² = {self.m_squared[0]:.3f}, {self.m_squared[1]:.3f}")

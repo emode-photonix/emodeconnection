@@ -77,9 +77,8 @@ class GDSPanel:
     @classmethod
     def from_view(cls, view: GDSView) -> "GDSPanel":
         """`view` with every layer visible, colored from the line palette in layer order."""
-        palette = colormaps.line_palette()
         styles = tuple(
-            (layer.key, LayerStyle(color=palette[i % len(palette)])) for i, layer in enumerate(view.layers)
+            (layer.key, LayerStyle(color=colormaps.series_color(i))) for i, layer in enumerate(view.layers)
         )
         return cls(view=view, styles=styles)
 
@@ -247,7 +246,7 @@ def compose_gds(panel: GDSPanel, options: PlotOptions) -> FigureSpec:
             key=SHAPES,
             label="simulation shapes",
             polygons=tuple(r / scale for r in _shape_rings(panel)),
-            color="#000000",
+            color=colormaps.GUI["text"],
             opacity=0.0,
             visible=panel.shapes,
             filled=False,

@@ -33,24 +33,17 @@ def parse_style(style: str) -> Tuple[Optional[str], Optional[str], bool]:
     return marker, None, marker is None
 
 
-def _color(color: Any, i: int) -> str:
-    palette = colormaps.line_palette()
+#: How much of its color a band behind the curves shows: the series color itself, never a mixed one.
+BAND_ALPHA = 0.25
+
+
+def _color(color: Any, i: int, limit: Optional[int] = None) -> str:
+    """The color of curve `i`, or of the palette slot `color`: in order, never cycling (Mist past the limit)."""
     if color is None:
-        return palette[i % len(palette)]
+        return colormaps.series_color(i, limit)
     if isinstance(color, int):
-        return palette[color % len(palette)]
+        return colormaps.series_color(color)
     return str(color)
-
-
-def _tint(color: str, white: float = 0.75) -> str:
-    """`color` mixed with `white` of white, for a band behind the curves."""
-    try:
-        from matplotlib.colors import to_hex, to_rgb
-
-        r, g, b = to_rgb(color)
-    except (ImportError, ValueError):
-        return color
-    return to_hex(tuple(c + (1 - c) * white for c in (r, g, b)))
 
 
 def _span(values: List[np.ndarray], pad: float = 0.05) -> Optional[Tuple[float, float]]:
@@ -119,13 +112,18 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
             lines.append(LineSpec(x, y, kind, color, LW, dash, label=item["label"]))
         elif kind == "vspan":
             x0, x1 = float(item["x0"]), float(item["x1"])
-            color = _tint(_color(item["color"], 5))
+            color = _color(item["color"], 5)
             fills.append(
-                FillSpec(np.array([x0, x1, x1, x0]), np.array([yrange[0], yrange[0], yrange[1], yrange[1]]), "vspan", color)
+                FillSpec(
+                    np.array([x0, x1, x1, x0]), np.array([yrange[0], yrange[0], yrange[1], yrange[1]]),
+                    "vspan", color, alpha=BAND_ALPHA,
+                )
             )
             if item["label"]:
                 # the band's legend entry, a wide line of its color
-                lines.append(LineSpec(np.array([np.nan]), np.array([np.nan]), "vspan", color, 6.0, label=item["label"]))
+                lines.append(
+                    LineSpec(np.array([np.nan]), np.array([np.nan]), "vspan", color, 6.0, alpha=BAND_ALPHA, label=item["label"])
+                )
     lines.extend(right_lines)
     axes = AxesSpec(
         xlabel=settings.get("xlabel") or (base.axes.xlabel if base else ""),
@@ -175,14 +173,18 @@ def _curves(
         xs.append(x)
         ys.append(y)
         marker, dash, has_line = parse_style(item["style"])
-        color = _color(item["color"], count)
+        # a marker-only series is a scatter plot: it takes the first 3 colors, the rest fold into "Other"
+        limit = None if has_line else colormaps.SCATTER_SERIES
+        color = _color(item["color"], count, limit)
+        label = item["label"] if item["color"] is not None else colormaps.series_label(count, item["label"], limit)
         count += 1
         width = LW * 1.5 if item["width"] is None else float(item["width"])
         if has_line:
-            lines.append(LineSpec(x, y, "user", color, width, dash, label=item["label"], axis=axis))
+            lines.append(LineSpec(x, y, "user", color, width, dash, label=label, axis=axis))
         if marker is not None:
-            label = None if has_line else item["label"]
-            lines.append(LineSpec(x, y, "user", color, 0.0, None, 1.0, marker, 4.0, label=label, axis=axis))
+            lines.append(
+                LineSpec(x, y, "user", color, 0.0, None, 1.0, marker, 4.0, label=None if has_line else label, axis=axis)
+            )
     return count
 
 

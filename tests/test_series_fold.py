@@ -38,7 +38,7 @@ def test_ten_curves_take_the_8_colors_in_order_then_mist():
 
 def test_the_folded_curves_share_one_other_legend_entry():
     (spec,) = compose(ten_curves()).panels
-    assert [line.label for line in spec.lines] == [f"curve {i}" for i in range(8)] + ["Other", None, None]
+    assert [line.label for line in spec.lines] == [f"curve {i}" for i in range(8)] + ["Other", None]
 
 
 def test_matplotlib_and_plotly_show_one_other_entry():

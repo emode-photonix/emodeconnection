@@ -37,6 +37,10 @@ from emode.ui.server import _json_default
 
 from test_colorbar_marks import _log_view, _view
 
+#: The sum of the 3 channels (0 to 765) below which a bar is too dark for a black mark to show: a
+#: mark of opacity 0.35 changes a channel by 0.35 of its value, and the test sees a change of 40.
+BLACK_ON_DARK = 3 * 115
+
 PLOTLY = (
     Path(__file__).resolve().parents[1]
     / "emode"
@@ -236,22 +240,19 @@ def test_every_level_shows_across_the_bar_and_nothing_else_changes(
                 # a level within 2 px of an end lies on the bar's own outline, which looks the same
                 if min(abs(y - e) for e in bar["ends"]) <= 2:
                     continue
+                # black ink cannot show on a near-black bar (the diverging map's center is the
+                # favicon blue), where the contour line it stands for is as faint
+                if bare[rows, cols].sum(axis=2).max() < BLACK_ON_DARK:
+                    continue
                 seen = diff[rows, cols].max(axis=0)
                 assert (seen > 40).mean() > 0.6, (
                     f"{name}: the mark at y = {y:.1f} px is not seen across the bar"
                 )
-                if bar["white"]:
-                    # a white mark (a negative level): lighter than the bar under it
-                    assert (
-                        marked[rows, cols].sum(axis=2).max()
-                        > bare[rows, cols].sum(axis=2).max() - 1
-                    )
-                else:
-                    # a black mark: darker than the bar under it
-                    assert (
-                        marked[rows, cols].sum(axis=2).min()
-                        < bare[rows, cols].sum(axis=2).min() + 1
-                    )
+                # a black mark: darker than the bar under it
+                assert (
+                    marked[rows, cols].sum(axis=2).min()
+                    < bare[rows, cols].sum(axis=2).min() + 1
+                )
     # on the bars' columns, the clear bars draw nothing but their marks (a title or tick label
     # elsewhere can move by a pixel between two drawings, which says nothing of the bar)
     band = np.zeros(diff.shape, bool)
@@ -295,14 +296,14 @@ def _ink_shot(tmp_path: Path, name: str, figure: Dict[str, Any], drop: List[str]
     reason="the Linux runner's Chrome antialiases the one-pixel ink differently, so the ink "
     "sums are not comparable there (#214). It runs on macOS and on a developer's machine.",
 )
-@pytest.mark.parametrize("level", [0.5, -0.5], ids=["black", "white"])
+@pytest.mark.parametrize("level", [0.5, -0.5], ids=["positive", "negative"])
 def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path, level: float) -> None:
     """Plotly draws a colorbar tick at least one whole pixel and a contour line at 0.5 px.
 
     The field is a ramp in y from -1 to 1, so its one contour is a horizontal line across the
-    plot, black above zero and white below. The ink each leaves (how much darker, or lighter for
-    white, its rows are than the same rows without it, summed over the rows) is the same within
-    10%.
+    plot, black on both sides of zero as in the brand's reference mode plot. The ink each leaves
+    (how much darker its rows are than the same rows without it, summed over the rows) is the same
+    within 10%.
     """
     base = _view()
     x, y = np.linspace(-1000, 1000, 81), np.linspace(-500, 700, 61)
@@ -319,10 +320,8 @@ def test_a_mark_leaves_the_ink_of_a_contour_line(tmp_path: Path, level: float) -
         return a.sum(axis=2)
 
     def ink(without: np.ndarray, with_: np.ndarray) -> np.ndarray:
-        """The share of the way to black (or white) each row went."""
-        if level >= 0:
-            return (luminance(without) - luminance(with_)) / np.maximum(luminance(without), 1)
-        return (luminance(with_) - luminance(without)) / np.maximum(765.0 - luminance(without), 1)
+        """The share of the way to black each row went."""
+        return (luminance(without) - luminance(with_)) / np.maximum(luminance(without), 1)
 
     # the plot's columns away from its edges, where only the contour line differs
     plot = slice(100, 500)

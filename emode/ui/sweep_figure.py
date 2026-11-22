@@ -466,14 +466,18 @@ def compose_sweep(panel: SweepPanel, options: PlotOptions) -> FigureSpec:
     return _line(source, selected, options)
 
 
-def _color(i: int) -> str:
-    palette = colormaps.line_palette()
-    return palette[i % len(palette)]
+def _color(i: int, limit: Optional[int] = None) -> str:
+    """The color of series `i`: in order, never cycling, Mist past the limit."""
+    return colormaps.series_color(i, limit)
 
 
-def _trace(x: Any, y: Any, i: int, label: Optional[str] = None, dash: Optional[str] = None) -> LineSpec:
+def _trace(
+    x: Any, y: Any, i: int, label: Optional[str] = None, dash: Optional[str] = None, limit: Optional[int] = None
+) -> LineSpec:
+    """Series `i` of a plot. Past the limit the series fold into one "Other" with a single legend entry."""
     return LineSpec(
-        np.asarray(x, float), np.asarray(y, float), "trace", _color(i), LW * 1.5, dash, label=label
+        np.asarray(x, float), np.asarray(y, float), "trace", _color(i, limit), LW * 1.5, dash,
+        label=colormaps.series_label(i, label, limit),
     )
 
 
@@ -609,8 +613,10 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
     order = np.argsort(x, kind="stable")
     x = x[order]
     curves, ylabel = _curves(source, selected)
-    lines = [_trace(x, y[order], i, label) for i, (label, y) in enumerate(curves)]
     discrete = key in DISCRETE_KEYS
+    # a discrete key is a marker per mode, a scatter plot: the first 3 colors only
+    limit = colormaps.SCATTER_SERIES if discrete else None
+    lines = [_trace(x, y[order], i, label, None, limit) for i, (label, y) in enumerate(curves)]
     if discrete:
         # mode number is discrete: a marker per mode, no line between them
         lines = [replace(ln, width=0.0, marker="circle", marker_size=6.0) for ln in lines]
@@ -646,7 +652,7 @@ def _line(source: Any, selected: Mapping[str, Any], options: PlotOptions) -> Fig
         text = f"held-out residual {float(residual):.1e} at {float(held):g} nm"
         if nodes is not None:
             text += f", {int(nodes)} nodes"
-        texts.append(TextSpec(text, 0.02, 0.98, "axes", "left", "top", "#000000", options.font_size - 1, "residual"))
+        texts.append(TextSpec(text, 0.02, 0.98, "axes", "left", "top", colormaps.GUI["text"], options.font_size - 1, "residual"))
     spec = _figure(options, key_label(key, unit), ylabel, (float(x.min()), float(x.max())), (lo, hi), lines, texts=texts)
     return replace(spec, axes=replace(spec.axes, y_nonnegative=floor, integer_xticks=discrete))
 

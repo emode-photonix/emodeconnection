@@ -19,7 +19,7 @@ from emode import colormaps
 from emode.types import ArgumentError
 from emode.ui.figure import PlotOptions
 
-from color_science import color_difference, hex_to_rgb, lightness
+from color_science import color_difference, hex_to_rgb, oklab, oklab_lightness
 
 mpl = pytest.importorskip("matplotlib")
 
@@ -28,38 +28,45 @@ mpl = pytest.importorskip("matplotlib")
 #: needs much more than a patch to be told apart.
 MIN_LINE_DISTANCE = 20.0
 
-#: L* may not step back by more than this between neighboring samples, which
-#: is the rounding of a color to 8 bits.
-LIGHTNESS_TOLERANCE = 0.05
+#: The brand's own validation of its maps: OKLab lightness of the diverging map's +v and -v match
+#: within 0.012 (its docstring), and no step between neighbors passes the visible threshold, 0.02.
+SYMMETRY_TOLERANCE = 0.012
+MAX_STEP = 0.02
 
 
 def _sampled_lightness(name: str) -> np.ndarray:
-    """L* of every entry of the registered matplotlib colormap's lookup table."""
+    """OKLab L of every entry of the registered matplotlib colormap's lookup table."""
     cmap = colormaps.get(name)
-    return np.array([lightness(cmap(i)) for i in range(cmap.N)])
+    return np.array([oklab_lightness(cmap(i)) for i in range(cmap.N)])
 
 
 def _stop_lightness(kind: str) -> np.ndarray:
-    return np.array([lightness(hex_to_rgb(c)) for _, c in colormaps.stops(kind)])
+    return np.array([oklab_lightness(hex_to_rgb(c)) for _, c in colormaps.stops(kind)])
 
 
 # ------------------------------------------------------------------ the family's properties
 
 
-def test_the_sequential_map_gets_lighter_monotonically():
+def test_the_sequential_map_gets_lighter_at_every_step():
+    """In OKLab, the brand's own space: in CIELAB L* the map's hex rounding steps back by up to 0.054."""
     for values in (_stop_lightness("sequential"), _sampled_lightness("emode-sequential")):
-        steps = np.diff(values)
-        assert np.all(steps > -LIGHTNESS_TOLERANCE), f"L* steps back by {-steps.min():.3f}"
-        assert values[-1] - values[0] > 50, "the map spans too little lightness to read"
+        assert np.all(np.diff(values) > 0), f"L steps back by {-np.diff(values).min():.5f}"
+        assert values[-1] - values[0] > 0.7, "the map spans too little lightness to read"
 
 
 def test_the_diverging_map_is_symmetric_in_lightness_about_its_center():
     for values in (_stop_lightness("diverging"), _sampled_lightness("emode-diverging")):
-        np.testing.assert_allclose(values, values[::-1], atol=0.5)
-        # each half is monotonic, so a value's magnitude reads the same either side of zero
-        half = values[: len(values) // 2 + 1]
-        steps = np.diff(half)
-        assert np.all(steps > -LIGHTNESS_TOLERANCE) or np.all(steps < LIGHTNESS_TOLERANCE)
+        assert np.abs(values - values[::-1]).max() <= SYMMETRY_TOLERANCE
+        # each half is monotonic toward the dark center, so a value's magnitude reads the same either side
+        middle = len(values) // 2
+        assert np.all(np.diff(values[: middle + 1]) < 0)
+        assert np.all(np.diff(values[middle:]) > 0)
+
+
+def test_no_map_has_a_visible_step_between_neighbors():
+    for kind in colormaps.KINDS:
+        samples = np.array([oklab(hex_to_rgb(c)) for _, c in colormaps.stops(kind)])
+        assert np.linalg.norm(np.diff(samples, axis=0), axis=1).max() < MAX_STEP, kind
 
 
 def test_the_cyclic_maps_ends_meet():
@@ -67,9 +74,6 @@ def test_the_cyclic_maps_ends_meet():
     assert points[0][1] == points[-1][1]
     cmap = colormaps.get("emode-cyclic")
     np.testing.assert_allclose(cmap(0.0), cmap(1.0), atol=1 / 255)
-    # and it has no other jump: neighboring samples stay close all the way round
-    samples = [mpl.colors.to_hex(cmap(f)) for f in np.linspace(0, 1, 257)]
-    assert max(color_difference(a, b) for a, b in zip(samples, samples[1:])) < 5
 
 
 def test_the_line_colors_are_distinguishable():
@@ -131,10 +135,17 @@ needs_brand_files = pytest.mark.skipif(not BRAND_DIR.is_dir(), reason="the brand
 def _brand_assignment(file_name: str, name: str):
     """The literal `name` assigned in a brand file, read without importing (and so registering) it."""
     tree = ast.parse((BRAND_DIR / file_name).read_text())
+    namespace: dict = {}
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
-            return ast.literal_eval(node.value)
-    raise AssertionError(f"{file_name} assigns no {name}")
+        if isinstance(node, ast.Assign):
+            # the plain data assignments only (PLOT names SERIES), never an import or a call
+            try:
+                exec(compile(ast.Module([node], []), file_name, "exec"), namespace)
+            except NameError:
+                continue
+    if name not in namespace:
+        raise AssertionError(f"{file_name} assigns no {name}")
+    return namespace[name]
 
 
 def _diverging_file() -> str:
@@ -169,7 +180,7 @@ def test_the_diverging_map_has_an_odd_number_of_stops_so_zero_has_one():
     assert stops[len(stops) // 2][0] == 0.5
 
 
-def test_the_brand_names_are_aliases_of_the_family(monkeypatch):
+def test_the_brand_names_are_aliases_of_the_family():
     names = colormaps.register()
     assert {"emode", "emode_div"} <= set(mpl.colormaps)
     assert colormaps.get("emode").name == "emode"

@@ -37,7 +37,7 @@ VIEWS = {
     "layout": (layout_view, "emode-sequential"),
     "S-matrix abs^2": (lambda: smatrix_view("abs^2"), "emode-sequential"),
     "S-matrix angle": (lambda: smatrix_view("angle"), "emode-cyclic"),
-    "S-matrix real": (lambda: smatrix_view("real"), "emode-sequential"),
+    "S-matrix real": (lambda: smatrix_view("real"), "emode-diverging"),
     "far field": (lambda: FarFieldPanel(farfield()), "emode-sequential"),
     "far field screen": (lambda: FarFieldPanel(farfield(screen=True), "screen"), "emode-sequential"),
 }
@@ -106,6 +106,13 @@ def test_the_index_panel_fills_from_the_sequential_map():
     spec = compose(index_view())
     assert spec.colorbar.colormap == "emode-sequential"
     assert spec.fills[0].color == colormaps.color_at("sequential", 0.0)
+
+
+def test_a_signed_smatrix_part_has_a_symmetric_range_so_zero_is_the_centers_color():
+    for part in ("real", "imag"):
+        raster = compose(smatrix_view(part)).rasters[0]
+        assert raster.colormap == "emode-diverging"
+        assert raster.vmin == -raster.vmax
 
 
 def test_the_schematic_is_drawn_in_palette_colors_only():
