@@ -34,6 +34,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
+import uuid
+import webbrowser
 import zipfile
 from pathlib import Path
 from typing import Optional
@@ -481,6 +484,138 @@ def login(email: str, password: str) -> str:
     return token
 
 
+class DeviceFlowUnavailable(Exception):
+    """The website has no browser sign-in (an older website), so use the password."""
+
+
+def device_machine_id() -> str:
+    """A stable 64-character hex id for this machine."""
+    seed = f"emode-install:{uuid.getnode()}:{platform.node()}"
+    return hashlib.sha256(seed.encode('utf-8')).hexdigest()
+
+
+def _device_post(path: str, payload: dict) -> dict:
+    """POST to an installer-device endpoint. A 404 or a non-JSON reply is unavailable."""
+    url = f"{API_BASE}/{path.lstrip('/')}"
+    try:
+        resp = http_requests.post(url, json=payload, timeout=15)
+    except http_requests.exceptions.ConnectionError as e:
+        raise RuntimeError(f"Network error: {e}")
+    except http_requests.exceptions.Timeout:
+        raise RuntimeError("Request timed out.")
+    if resp.status_code == 404:
+        raise DeviceFlowUnavailable
+    try:
+        data = resp.json()
+    except ValueError:
+        raise DeviceFlowUnavailable
+    if not isinstance(data, dict):
+        raise DeviceFlowUnavailable
+    if resp.status_code >= 400:
+        raise RuntimeError(data.get('error') or data.get('message') or f"HTTP {resp.status_code}")
+    return data
+
+
+def device_login() -> str:
+    """Sign in through the browser and return the downloadToken.
+
+    Prints the user code and URL, opens the browser when it can, and polls at the
+    server's interval (honoring slow_down) until approved, denied or expired.
+    Raises DeviceFlowUnavailable when the website has no such endpoint, and exits
+    when the sign-in is denied, expires or fails.
+    """
+    try:
+        start = _device_post(
+            '/installer-device/code',
+            {'machine_id': device_machine_id(), 'comp_name': platform.node()},
+        )
+        device_code = start['device_code']
+        user_code = start['user_code']
+    except KeyError:
+        raise DeviceFlowUnavailable
+    except RuntimeError as e:
+        print(f"Sign-in failed: {e}")
+        sys.exit(1)
+
+    url = start.get('verification_url_complete') or start.get('verification_url', '')
+    interval = float(start.get('interval', 5))
+    deadline = time.monotonic() + float(start.get('expires_in', 600))
+
+    opened = False
+    try:
+        opened = bool(webbrowser.open(url))
+    except Exception:
+        opened = False
+    print()
+    if opened:
+        print("Your browser was opened to sign in. If it did not appear, go to:")
+    else:
+        print("To sign in, open this page in a browser:")
+    print(f"  {url}")
+    print(f"and confirm the code  {user_code}")
+    print("Waiting for approval (press Ctrl+C to cancel)...")
+
+    while True:
+        time.sleep(interval)
+        if time.monotonic() >= deadline:
+            print("The sign-in code expired. Run emode-install again.")
+            sys.exit(1)
+        try:
+            reply = _device_post('/installer-device/token', {'device_code': device_code})
+        except DeviceFlowUnavailable:
+            print("Sign-in failed: the website gave no answer.")
+            sys.exit(1)
+        except RuntimeError as e:
+            print(f"Sign-in failed: {e}")
+            sys.exit(1)
+        status = reply.get('status')
+        if status == 'approved':
+            token = reply.get('downloadToken')
+            if not token:
+                print("Authentication failed: no download token received.")
+                sys.exit(1)
+            name = f"{reply.get('firstName', '')} {reply.get('lastName', '')}".strip()
+            if name:
+                print(f"Logged in as {name}.")
+            return token
+        if status == 'slow_down':
+            interval = float(reply.get('interval', interval + 5))
+        elif status == 'denied':
+            print("The sign-in was denied in the browser.")
+            sys.exit(1)
+        elif status == 'expired':
+            print("The sign-in code expired. Run emode-install again.")
+            sys.exit(1)
+
+
+def password_requested(password: bool) -> bool:
+    """True when the user asked for the password prompt, by flag or environment."""
+    return password or bool(
+        os.environ.get('EMODE_EMAIL', '').strip() and os.environ.get('EMODE_PASSWORD', '')
+    )
+
+
+def authenticate(password: bool = False) -> str:
+    """Return a downloadToken: browser sign-in by default, the password as fallback."""
+    if not password_requested(password):
+        if sys.stdin.isatty():
+            try:
+                choice = input("Press Enter to sign in with your browser, or p for a password: ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                sys.exit(1)
+            use_browser = choice.strip().lower() not in ('p', 'password')
+        else:
+            use_browser = True
+        if use_browser:
+            try:
+                return device_login()
+            except DeviceFlowUnavailable:
+                print("Browser sign-in is not available here. Using your password instead.")
+    email, pw = prompt_credentials()
+    return login(email, pw)
+
+
 # ---------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------
@@ -822,6 +957,7 @@ def install(
     update:      bool = False,
     variant:     str = 'default',
     sha256:      Optional[str] = None,
+    password:    bool = False,
 ) -> None:
     """Download and install EMode.
 
@@ -856,8 +992,7 @@ def install(
         sys.exit(0)
 
     # Authentication
-    email, password = prompt_credentials()
-    token = login(email, password)
+    token = authenticate(password)
 
     # Download to a temp directory
     with tempfile.TemporaryDirectory(prefix='emode_install_') as tmp_dir:
@@ -1104,7 +1239,8 @@ Examples:
 Environment variables:
   EMODE_EULA_ACCEPTED=1    Accept EULA non-interactively
   EMODE_EMAIL              Pre-fill email address
-  EMODE_PASSWORD           Pre-fill password (use with caution)
+  EMODE_PASSWORD           Pre-fill password (use with caution). With EMODE_EMAIL,
+                           skips the browser sign-in
         """,
     )
     parser.add_argument(
@@ -1144,6 +1280,11 @@ Environment variables:
              'Combine with --version to switch to a specific version.',
     )
     parser.add_argument(
+        '--password',
+        action='store_true',
+        help='Sign in with an email and password instead of the browser.',
+    )
+    parser.add_argument(
         '--list-versions',
         action='store_true',
         help='List available versions and exit',
@@ -1172,6 +1313,7 @@ Environment variables:
         update      = args.update,
         variant     = args.variant,
         sha256      = args.sha256,
+        password    = args.password,
     )
 
 
