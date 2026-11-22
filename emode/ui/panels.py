@@ -133,8 +133,6 @@ def compose_panel(panel: Any, options: PlotOptions, size: Tuple[float, float]) -
         grid=not (base and base.rasters),
         y2label=(twin.settings.get("ylabel") or "") if twin is not None else None,
         y2range=y2range,
-        ylabel_color=_one_color(lines, "left") if twin is not None else None,
-        y2label_color=_one_color(lines, "right") if twin is not None else None,
         y_nonnegative=floor,
         y2_nonnegative=y2floor,
     )
@@ -186,12 +184,6 @@ def _curves(
                 LineSpec(x, y, "user", color, 0.0, None, 1.0, marker, 4.0, label=None if has_line else label, axis=axis)
             )
     return count
-
-
-def _one_color(lines: List[LineSpec], axis: str) -> Optional[str]:
-    """The color of every curve on `axis` when they share one, so its label can say which axis is whose."""
-    colors = {line.color for line in lines if line.axis == axis and line.kind in ("user", "trace")}
-    return colors.pop() if len(colors) == 1 else None
 
 
 def _merge(a: Optional[Tuple[float, float]], b: Optional[Tuple[float, float]]) -> Optional[Tuple[float, float]]:

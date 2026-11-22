@@ -737,7 +737,8 @@ def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
-    color = line_style(kind)[0]
+    # the line keeps its slot color, its text is Haze as in the brand reference plot (never a series color)
+    color = colormaps.PLOT["dark"]["text"]
     x, y = line.label_at
     return TextSpec(
         line.label, x / sx, y / sy, "data", line.align, "bottom", color, options.font_size, kind
@@ -751,7 +752,7 @@ def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions
 def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
     palette = colormaps.schematic_colors()
     face, edge, text = palette["block_face"], palette["block_edge"], palette["text"]
-    launch, monitor = palette["launch"], palette["monitor"]
+    launch = palette["launch"]
     fills: List[FillSpec] = []
     texts: List[TextSpec] = []
     lines: List[LineSpec] = []
@@ -809,7 +810,7 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
             LineSpec(np.array([view.launch.x1]), np.array([view.launch.y1]), "launch", launch, 0.0, None, 1.0, marker, 7.0)
         )
     for m in view.monitors:
-        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, monitor, 6.0, "monitor"))
+        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, text, 6.0, "monitor"))
     x0, x1, y0, y1 = view.frame or view.limits
     width, height = options.figure_size or (
         max(4.0, (view.limits[1] - view.limits[0]) * 0.42) * 25.4,

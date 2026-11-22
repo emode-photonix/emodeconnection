@@ -131,7 +131,7 @@ def test_the_schematic_is_drawn_in_palette_colors_only():
     assert {b.color for b in blocks} == {roles["block_face"]}
     (launch,) = [line for line in spec.lines if line.kind == "launch"]
     assert launch.color == roles["launch"]
-    assert {t.color for t in spec.texts if t.kind == "monitor"} == {roles["monitor"]}
+    assert {t.color for t in spec.texts if t.kind == "monitor"} == {roles["text"]}  # a label is text, the mark is the series color
     assert {line.color for line in spec.lines if line.kind == "connection"} == {roles["connection"]}
 
 

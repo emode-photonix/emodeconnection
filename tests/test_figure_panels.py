@@ -189,11 +189,10 @@ def test_a_twin_axis_puts_its_curves_on_the_right_with_its_own_label_and_range()
     assert tuple(target.x) == a.xrange and list(target.y) == [3.0, 3.0]
 
 
-def test_each_axis_label_takes_the_color_of_its_one_curve():
-    palette = emode.colormaps.line_palette()
+def test_axis_labels_are_text_colored_never_the_color_of_their_curve():
     a = compose(pump_and_signal()).axes
-    assert (a.ylabel_color, a.y2label_color) == (palette[0], palette[3])
-    # a panel without a twin keeps black labels and has no right axis
+    assert (a.ylabel_color, a.y2label_color) == (None, None)
+    # a panel without a twin has no right axis
     plain = compose(two_panels()).panels[1].axes
     assert plain.ylabel_color is None and plain.y2range is None
 
@@ -222,7 +221,8 @@ def test_matplotlib_draws_the_right_curves_on_a_twin_axes_with_one_legend():
     assert twin.get_ylim() == pytest.approx((0.0, 5.0))
     assert [line.get_label() for line in ax.lines] == ["pump"]
     np.testing.assert_allclose(twin.lines[0].get_ydata(), [0.0, 2.0, 4.0])
-    assert ax.yaxis.label.get_color() == emode.colormaps.line_palette()[0]
+    from matplotlib.colors import to_hex
+    assert to_hex(ax.yaxis.label.get_color()).upper() == emode.colormaps.GUI["text"]
     legends = [a.get_legend() for a in (ax, twin) if a.get_legend() is not None]
     assert len(legends) == 1
     assert [t.get_text() for t in legends[0].get_texts()] == ["pump", "signal", "target"]
