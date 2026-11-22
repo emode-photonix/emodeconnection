@@ -74,8 +74,7 @@ def downloads(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     }
     monkeypatch.setattr(installer, 'get_versions', lambda: versions)
     monkeypatch.setattr(installer, 'handle_eula', lambda: True)
-    monkeypatch.setattr(installer, 'prompt_credentials', lambda: ('a@b.c', 'pw'))
-    monkeypatch.setattr(installer, 'login', lambda email, password: 'token')
+    monkeypatch.setattr(installer, 'authenticate', lambda password=False: 'token')
     # No PyPI lookup unless a test asks for one.
     monkeypatch.setattr(installer, 'latest_client', lambda: None)
 
@@ -715,8 +714,7 @@ def mac(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     }
     monkeypatch.setattr(installer, 'get_versions', lambda: versions)
     monkeypatch.setattr(installer, 'handle_eula', lambda: True)
-    monkeypatch.setattr(installer, 'prompt_credentials', lambda: ('a@b.c', 'pw'))
-    monkeypatch.setattr(installer, 'login', lambda email, password: 'token')
+    monkeypatch.setattr(installer, 'authenticate', lambda password=False: 'token')
     monkeypatch.setattr(installer, 'latest_client', lambda: None)
     asked: list[str] = []
 
