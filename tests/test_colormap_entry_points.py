@@ -108,9 +108,16 @@ def test_the_index_panel_fills_from_the_sequential_map():
     assert spec.fills[0].color == colormaps.color_at("sequential", 0.0)
 
 
-def test_the_schematic_is_drawn_in_the_line_palette():
+def test_the_schematic_is_drawn_in_palette_colors_only():
     roles = colormaps.schematic_colors()
-    assert {roles["block_edge"], roles["launch"], roles["monitor"]} <= set(colormaps.line_palette())
+    assert roles == {
+        "text": colormaps.GUI["text"],
+        "block_face": colormaps.BRAND["Haze"],
+        "block_edge": colormaps.SERIES[0],
+        "launch": colormaps.SERIES[1],
+        "monitor": colormaps.SERIES[2],
+        "connection": colormaps.BRAND["Charcoal"],
+    }
     spec = compose(schematic())
     blocks = [f for f in spec.fills if f.kind == "block"]
     assert {b.edgecolor for b in blocks} == {roles["block_edge"]}
@@ -125,6 +132,49 @@ def test_the_material_explorer_draws_its_curves_in_the_first_line_color():
     spec = compose(material_view(requested=(1000.0, 1700.0)))
     assert spec.lines
     assert {line.color for line in spec.lines} == {colormaps.line_palette()[0]}
+
+
+def test_overlay_colors_are_white_and_the_dark_series_slots_1_to_4():
+    dark = colormaps.SERIES_DARK
+    assert colormaps.overlay_colors() == {
+        "outline": "#ffffff",
+        "port": dark[2],
+        "facet": dark[0],
+        "monitor": dark[3],
+        "slice": dark[1],
+        "connection": colormaps.BRAND["Haze"],
+        "loop": colormaps.BRAND["Haze"],
+        "stub": colormaps.BRAND["Haze"],
+    }
+
+
+def test_a_static_figure_is_light_and_leaves_the_global_rc_params_alone():
+    before = dict(mpl.rcParams)
+    fig = mpl_renderer.to_figure(compose(xy_view()))
+    after = dict(mpl.rcParams)
+    assert before == after
+    chalk = colormaps.PLOT["light"]["background"]
+    assert mpl.colors.to_hex(fig.get_facecolor()).upper() == chalk
+    assert mpl.colors.to_hex(fig.axes[0].xaxis.label.get_color()).upper() == colormaps.GUI["text"]
+    assert mpl.colors.to_hex(fig.axes[0].spines["left"].get_edgecolor()).upper() == colormaps.PLOT["light"]["axes"]
+
+
+def test_a_saved_png_has_the_chalk_background():
+    import io
+
+    from PIL import Image
+
+    png = mpl_renderer.render(compose(index_view()))
+    pixel = Image.open(io.BytesIO(png)).convert("RGB").getpixel((2, 2))
+    assert "#%02X%02X%02X" % pixel == colormaps.PLOT["light"]["background"]
+
+
+def test_the_wire_types_plots_are_light_and_leave_the_global_rc_params_alone():
+    before = dict(mpl.rcParams)
+    fig = farfield().plot()
+    assert dict(mpl.rcParams) == before
+    assert mpl.colors.to_hex(fig.get_facecolor()).upper() == colormaps.PLOT["light"]["background"]
+    mpl.pyplot.close(fig)
 
 
 def test_overlay_colors_come_from_the_module():

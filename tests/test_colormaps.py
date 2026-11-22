@@ -8,7 +8,9 @@ browser (Plotly) and in a static image (matplotlib).
 """
 from __future__ import annotations
 
+import ast
 import itertools
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -71,11 +73,11 @@ def test_the_cyclic_maps_ends_meet():
 
 
 def test_the_line_colors_are_distinguishable():
+    """As the brand palette states it: neighbors in the order curves take them, and the first 3 as all pairs."""
     lines = colormaps.line_palette()
-    assert len(lines) >= 5
-    worst = min(
-        (color_difference(a, b), a, b) for a, b in itertools.combinations(lines, 2)
-    )
+    assert len(lines) == 8
+    pairs = list(zip(lines, lines[1:])) + list(itertools.combinations(lines[:3], 2))
+    worst = min((color_difference(a, b), a, b) for a, b in pairs)
     assert worst[0] >= MIN_LINE_DISTANCE, f"{worst[1]} and {worst[2]} are only {worst[0]:.1f} apart"
 
 
@@ -120,6 +122,110 @@ def test_the_browser_gets_every_kind_the_names_and_the_lines():
 # ------------------------------------------------------------------ the drop-in
 
 
+# ------------------------------------------------------------------ the delivered brand colors
+
+BRAND_DIR = Path.home() / "My_Drive/Assets/Logos/EMode_styles_2026/00_Colors"
+needs_brand_files = pytest.mark.skipif(not BRAND_DIR.is_dir(), reason="the brand color files are not on this machine")
+
+
+def _brand_assignment(file_name: str, name: str):
+    """The literal `name` assigned in a brand file, read without importing (and so registering) it."""
+    tree = ast.parse((BRAND_DIR / file_name).read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{file_name} assigns no {name}")
+
+
+def _diverging_file() -> str:
+    return next(f.name for f in BRAND_DIR.glob("emode_field_colormap_diverging*.py") if "example" not in f.name)
+
+
+def test_the_delivery_is_the_brands_256_and_511_stops_and_8_series_colors():
+    given = colormaps.delivered()
+    assert len(given.sequential) == 256
+    assert given.diverging is not None and len(given.diverging) == 511
+    assert given.cyclic is None  # no cyclic map was delivered, so it derives from the sequential one
+    assert len(given.lines) == 8
+    assert given.diverging[255].upper() == "#1F2D50"  # zero sits on the favicon blue
+
+
+@needs_brand_files
+def test_the_delivery_equals_the_brand_files_exactly():
+    given = colormaps.delivered()
+    assert list(given.sequential) == _brand_assignment("emode_field_colormap.py", "COLORS")
+    assert list(given.diverging) == _brand_assignment(_diverging_file(), "COLORS")
+    assert list(given.lines) == _brand_assignment("emode_palette.py", "SERIES")
+
+
+@needs_brand_files
+def test_the_palette_constants_equal_the_brand_palette():
+    for name in ("BRAND", "SERIES", "SERIES_DARK", "GUI", "PLOT"):
+        assert getattr(colormaps, name) == _brand_assignment("emode_palette.py", name), name
+
+
+def test_the_diverging_map_has_an_odd_number_of_stops_so_zero_has_one():
+    stops = colormaps.stops("diverging")
+    assert stops[len(stops) // 2][0] == 0.5
+
+
+def test_the_brand_names_are_aliases_of_the_family(monkeypatch):
+    names = colormaps.register()
+    assert {"emode", "emode_div"} <= set(mpl.colormaps)
+    assert colormaps.get("emode").name == "emode"
+    for alias, kind in (("emode", "sequential"), ("emode_div", "diverging")):
+        np.testing.assert_allclose(mpl.colormaps[alias](np.linspace(0, 1, 511)), colormaps.get(kind)(np.linspace(0, 1, 511)))
+        assert colormaps.kind_of(alias) == kind
+        assert colormaps.check_colormap(alias) == alias
+        assert colormaps.plotly_colorscale(alias) == colormaps.plotly_colorscale(kind)
+    assert names == colormaps.NAMES  # the aliases are extra, not family members
+    assert colormaps.register() == names  # a second call neither fails nor re-registers
+
+
+def test_a_brand_file_imported_first_does_not_break_registration():
+    pytest.importorskip("matplotlib")
+    from matplotlib.colors import ListedColormap
+
+    name = "emode_div"
+    if name in mpl.colormaps:
+        mpl.colormaps.unregister(name)
+    mpl.colormaps.register(ListedColormap(colormaps.delivered().diverging, name=name))
+    colormaps.register()
+    assert mpl.colormaps[name].N == 511
+
+
+# ------------------------------------------------------------------ series colors, in order and never cycling
+
+
+def test_series_take_their_colors_in_order_and_never_cycle():
+    lines = colormaps.line_palette()
+    assert [colormaps.series_color(i) for i in range(8)] == list(lines)
+    assert colormaps.series_color(8) == colormaps.BRAND["Mist"] == colormaps.OTHER
+    assert colormaps.series_color(30) == colormaps.OTHER
+
+
+def test_scatter_and_map_series_use_only_the_first_3_colors():
+    lines = colormaps.line_palette()
+    assert [colormaps.series_color(i, limit=colormaps.SCATTER_SERIES) for i in range(5)] == list(lines[:3]) + [colormaps.OTHER] * 2
+
+
+def test_the_extra_series_share_one_other_legend_entry():
+    labels = [colormaps.series_label(i, f"curve {i}") for i in range(11)]
+    assert labels[:8] == [f"curve {i}" for i in range(8)]
+    assert labels[8] == "Other" and labels[9:] == [None, None]
+    assert colormaps.series_label(9, None) is None
+    assert colormaps.series_label(0, None) is None
+
+
+def test_the_figure_style_is_the_light_plot_style():
+    style = colormaps.plot_style()
+    light = colormaps.PLOT["light"]
+    assert style["figure.facecolor"] == style["axes.facecolor"] == style["savefig.facecolor"] == light["background"]
+    assert style["text.color"] == light["text"] == colormaps.GUI["text"]
+    assert style["axes.edgecolor"] == light["axes"]
+    assert style["grid.color"] == light["grid"]
+
+
 def test_the_drop_in_is_one_function_and_the_others_derive_from_it(monkeypatch):
     """Replacing ``delivered()`` alone changes every kind, the browser's and matplotlib's."""
     gray = ("#000000", "#808080", "#ffffff")
@@ -128,8 +234,8 @@ def test_the_drop_in_is_one_function_and_the_others_derive_from_it(monkeypatch):
     assert [c for _, c in colormaps.stops("diverging")] == ["#ffffff", "#808080", "#000000", "#808080", "#ffffff"]
     assert [c for _, c in colormaps.stops("cyclic")] == ["#000000", "#808080", "#ffffff", "#808080", "#000000"]
     assert colormaps.plotly_colorscale("emode-sequential")[1] == [0.5, "#808080"]
-    # with no line colors delivered the placeholder palette stays
-    assert colormaps.line_palette() == colormaps.Family.__dataclass_fields__["lines"].default
+    # with no line colors delivered the brand's series stay
+    assert colormaps.line_palette() == tuple(colormaps.SERIES)
 
 
 def test_a_delivered_diverging_or_cyclic_map_is_used_as_given(monkeypatch):
