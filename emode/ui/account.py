@@ -11,11 +11,6 @@ the wait in ``EMode()`` while the user signs in.
 
 A password reaches this process only in the body of a POST from the page, is
 passed on to EMode in one call, and is never written, logged or answered.
-
-An account with two-factor on signs in with the browser only. EMode answers its
-password with ``two_factor_required: True`` and the website's message, which
-the routes pass on as is, and the page shows the message and starts the
-browser sign-in (emode-photonix/emode#470).
 """
 
 from __future__ import annotations
@@ -75,8 +70,8 @@ _POSTS = {
 def device_signin_offered() -> bool:
     """Whether the page offers "Sign in with your browser" (the device code of a two-factor account).
 
-    On by default, since the license manager's device endpoints are live. ``EMODE_DEVICE_SIGNIN=0``
-    hides it. A status from EMode that says ``device`` decides instead.
+    The default way in, offered first, with the password form below it.
+    ``EMODE_DEVICE_SIGNIN=0`` hides it. A status from EMode that says ``device`` decides instead.
     """
     return os.environ.get("EMODE_DEVICE_SIGNIN") != "0"
 
