@@ -141,8 +141,8 @@ def test_the_material_explorer_draws_its_curves_in_the_first_line_color():
     assert {line.color for line in spec.lines} == {colormaps.line_palette()[0]}
 
 
-def test_overlay_colors_are_white_and_the_dark_series_slots_1_to_4():
-    dark = colormaps.SERIES_DARK
+def test_overlay_colors_are_white_and_the_series_slots_1_to_4():
+    dark = colormaps.SERIES
     assert colormaps.overlay_colors() == {
         "outline": "#ffffff",
         "port": dark[2],

@@ -2,7 +2,8 @@
 
 The family has three colormaps and a line palette:
 
-- ``sequential``, the brand's "emode" map, for magnitudes, intensities and the index,
+- ``sequential``, the warm half of the brand's "emode_div" map (Favicon #1F2D50 at 0 to
+  Chalk at the peak), for magnitudes, intensities and the index,
 - ``diverging``, the brand's "emode_div" map, for real and imaginary parts (signed
   values about zero, drawn with a symmetric range so zero sits at the center, #1F2D50),
 - ``cyclic``, for phase, whose two ends meet (derived, since no cyclic map was delivered),
@@ -13,12 +14,18 @@ this module is the one place a kind becomes colors: stop lists for the browser
 (``plotly_colorscale``) and colormaps registered with matplotlib under
 ``NAMES`` for static images (``get``), built from the same stops so the two
 agree. ``plot(colormap=...)`` picks another map by name (``check_colormap``).
-"emode" and "emode_div" are registered too, as aliases of the first two, so a
-script's own matplotlib figure can name them as the brand's files do.
+"emode_div" is registered too, as an alias of the diverging map, so a script's own
+matplotlib figure can name it as the brand's files do. The brand's one-sided "emode"
+map was retired on 2026-11-23 and is not registered.
 
-**The colors.** ``BRAND``, ``SERIES``, ``SERIES_DARK``, ``GUI`` and ``PLOT`` are the
-brand palette (``emode_palette.json``) and the two maps are the brand's colormap files,
-loaded verbatim into ``emode._brand`` by ``scripts/sync_brand_colors.py``. Nothing in
+On data that is never negative, the sequential map draws exactly what the brand's rule
+draws (``emode_div`` with ``vmin=-v, vmax=v``), without the empty half on the colorbar.
+
+**The colors.** ``BRAND``, ``SERIES``, ``GUI`` and ``PLOT`` are the brand palette
+(``emode_palette.json``) and the maps come from the brand's diverging colormap file,
+loaded verbatim into ``emode._brand`` by ``scripts/sync_brand_colors.py``. The series
+are one set for light and dark backgrounds, so ``SERIES_DARK`` is only a kept alias of
+``SERIES``. Nothing in
 EMode invents or mixes a color: every color a plot or the
 browser interface draws is one of these. ``tests/test_colormaps.py`` compares them with the
 brand files when those are present. ``delivered()`` is the one function that gathers
@@ -39,8 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # The brand's colors, generated from its color files by scripts/sync_brand_colors.py.
-from ._brand import BRAND, GUI, PLOT, RULES, SERIES, SERIES_DARK, SERIES_NAMES  # noqa: F401 (re-exported)
-from ._brand import EMODE as _EMODE
+from ._brand import BRAND, GUI, PLOT, RULES, SERIES, SERIES_NAMES  # noqa: F401 (re-exported)
 from ._brand import EMODE_DIV as _EMODE_DIV
 from .types import ArgumentError, EModeError
 
@@ -57,7 +63,13 @@ _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 # ------------------------------------------------------------------ the brand's colors
 
 #: The kind each brand colormap name is an alias of.
-ALIASES = {"emode": "sequential", "emode_div": "diverging"}
+ALIASES = {"emode_div": "diverging"}
+
+#: The series colors for dark backgrounds: the same set as ``SERIES`` (kept for older scripts).
+SERIES_DARK = SERIES
+
+#: The index of the diverging map's zero stop: the sequential map starts here.
+_ZERO = 255
 
 #: The color of every series past the 8th, folded into one "Other" series (Mist).
 OTHER = BRAND["Mist"]
@@ -87,7 +99,7 @@ class Family:
 
 
 def delivered() -> Family:
-    """The brand's colors: the "emode" and "emode_div" stops and the 8 series colors.
+    """The brand's colors: the "emode_div" stops, its warm half, and the 8 series colors.
 
     The cyclic map is not delivered, so it derives from the sequential one
     (``family()``). ``tests/test_colormaps.py`` holds what is delivered to the
@@ -95,7 +107,7 @@ def delivered() -> Family:
     lightness, the diverging map symmetric about its center, and the line colors
     distinguishable as the brand palette states it.
     """
-    return Family(sequential=_EMODE, diverging=_EMODE_DIV, lines=tuple(SERIES))
+    return Family(sequential=_EMODE_DIV[_ZERO:], diverging=_EMODE_DIV, lines=tuple(SERIES))
 
 
 # ------------------------------------------------------------------ the family
@@ -218,8 +230,8 @@ def plot_style(mode: str = "light") -> dict[str, Any]:
 def use_style(mode: str = "light") -> None:
     """Style the user's own matplotlib figures with the brand colors, as the brand's ``use_style`` does.
 
-    Registers "emode" and "emode_div" (and the ``NAMES``), makes "emode" the default image
-    colormap, and sets the background, text, axes, grid and series colors of ``mode``
+    Registers "emode_div" (and the ``NAMES``), makes "emode_div" the default image colormap
+    (as the brand's ``use_style`` does, so draw with a symmetric ``vmin=-v, vmax=v``), and sets the background, text, axes, grid and series colors of ``mode``
     ("light" or "dark") in the global ``rcParams``. Call it once in a script; EMode's own
     plots never call it. Matplotlib's color cycle repeats after the 8th line, so a plot of
     more than 8 series should color them with ``series_color``, which folds the rest into
@@ -236,7 +248,7 @@ def use_style(mode: str = "light") -> None:
         "axes.prop_cycle": cycler(color=PLOT[mode]["series"]),
         "lines.linewidth": 2.0,
         "lines.markersize": 7,
-        "image.cmap": "emode",
+        "image.cmap": "emode_div",
     })
 
 
@@ -277,16 +289,16 @@ def overlay_colors() -> dict[str, str]:
     """The colors of the lines drawn over a field panel and between schematic blocks.
 
     The overlays sit on the field maps, whose background is the dark end, so they take the
-    series colors stepped for dark backgrounds: the port is slot 3 (teal), the facet slot 1
+    series colors, which read on dark and light alike: the port is slot 3 (teal), the facet slot 1
     (blue), the monitor slot 4 (coral) and the slice slot 2 (orange). The waveguide outline is
     white, as in the brand's reference mode plot, and the connections are Haze.
     """
     return {
         "outline": "#ffffff",
-        "port": SERIES_DARK[2],
-        "facet": SERIES_DARK[0],
-        "monitor": SERIES_DARK[3],
-        "slice": SERIES_DARK[1],
+        "port": SERIES[2],
+        "facet": SERIES[0],
+        "monitor": SERIES[3],
+        "slice": SERIES[1],
         "connection": BRAND["Haze"],
         "loop": BRAND["Haze"],
         "stub": BRAND["Haze"],

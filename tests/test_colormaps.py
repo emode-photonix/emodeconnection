@@ -51,7 +51,7 @@ def test_the_sequential_map_gets_lighter_at_every_step():
     """In OKLab, the brand's own space: in CIELAB L* the map's hex rounding steps back by up to 0.054."""
     for values in (_stop_lightness("sequential"), _sampled_lightness("emode-sequential")):
         assert np.all(np.diff(values) > 0), f"L steps back by {-np.diff(values).min():.5f}"
-        assert values[-1] - values[0] > 0.7, "the map spans too little lightness to read"
+        assert values[-1] - values[0] > 0.65, "the map spans too little lightness to read"
 
 
 def test_the_diverging_map_is_symmetric_in_lightness_about_its_center():
@@ -154,25 +154,48 @@ def _diverging_file() -> str:
 
 def test_the_delivery_is_the_brands_256_and_511_stops_and_8_series_colors():
     given = colormaps.delivered()
-    assert len(given.sequential) == 256
+    assert len(given.sequential) == 256  # the warm half of emode_div: stops 255 to 510 of the 511
     assert given.diverging is not None and len(given.diverging) == 511
     assert given.cyclic is None  # no cyclic map was delivered, so it derives from the sequential one
     assert len(given.lines) == 8
     assert given.diverging[255].upper() == "#1F2D50"  # zero sits on the favicon blue
+    assert given.sequential[0].upper() == "#1F2D50"  # and the sequential map starts there
+    assert given.sequential[-1].upper() == "#FDFCF8"  # and ends on Chalk
+
+
+def test_the_sequential_map_is_the_warm_half_of_emode_div():
+    """On data >= 0 this draws what the brand's symmetric-range rule draws, with no empty half on the colorbar."""
+    given = colormaps.delivered()
+    assert given.sequential == given.diverging[255:]
+    colormaps.register()
+    div, seq = mpl.colormaps["emode_div"], colormaps.get("sequential")
+    for v in np.linspace(0.0, 1.0, 41):  # value v on vmin=-1, vmax=1 is position (1 + v) / 2
+        np.testing.assert_allclose(seq(v)[:3], div((1 + v) / 2)[:3], atol=2 / 255)
+
+
+def test_the_retired_emode_map_is_not_registered():
+    colormaps.register()
+    assert "emode" not in mpl.colormaps
+    assert "emode" not in colormaps.ALIASES
+    assert colormaps.kind_of("emode") is None
+    with pytest.raises(ArgumentError):
+        colormaps.check_colormap("emode")
 
 
 @needs_brand_files
 def test_the_delivery_equals_the_brand_files_exactly():
     given = colormaps.delivered()
-    assert list(given.sequential) == _brand_assignment("emode_field_colormap.py", "COLORS")
-    assert list(given.diverging) == _brand_assignment(_diverging_file(), "COLORS")
+    diverging = _brand_assignment(_diverging_file(), "COLORS")
+    assert list(given.diverging) == diverging
+    assert list(given.sequential) == diverging[255:]
     assert list(given.lines) == _brand_assignment("emode_palette.py", "SERIES")
 
 
 @needs_brand_files
 def test_the_palette_constants_equal_the_brand_palette():
-    for name in ("BRAND", "SERIES", "SERIES_DARK", "GUI", "PLOT"):
+    for name in ("BRAND", "SERIES", "GUI", "PLOT"):
         assert getattr(colormaps, name) == _brand_assignment("emode_palette.py", name), name
+    assert colormaps.SERIES_DARK == colormaps.SERIES  # a kept alias: one set for light and dark
 
 
 @needs_brand_files
@@ -190,10 +213,11 @@ def test_the_generated_brand_module_is_current_with_the_brand_files():
 def test_the_palette_is_loaded_from_the_generated_brand_module():
     from emode import _brand
 
-    for name in ("BRAND", "SERIES", "SERIES_DARK", "SERIES_NAMES", "GUI", "PLOT", "RULES"):
+    for name in ("BRAND", "SERIES", "SERIES_NAMES", "GUI", "PLOT", "RULES"):
         assert getattr(colormaps, name) is getattr(_brand, name), name
     given = colormaps.delivered()
-    assert given.sequential is _brand.EMODE and given.diverging is _brand.EMODE_DIV
+    assert given.diverging is _brand.EMODE_DIV and given.sequential == _brand.EMODE_DIV[255:]
+    assert not hasattr(_brand, "EMODE") and not hasattr(_brand, "SERIES_DARK")
 
 
 def test_no_module_names_a_matplotlib_colormap():
@@ -214,20 +238,20 @@ def test_use_style_registers_the_brand_maps_and_sets_the_mode(mode):
     with mpl.rc_context():
         colormaps.use_style(mode)
         params = mpl.rcParams
-        assert {"emode", "emode_div", *colormaps.NAMES} <= set(mpl.colormaps)
-        assert params["image.cmap"] == "emode"
+        assert {"emode_div", *colormaps.NAMES} <= set(mpl.colormaps)
+        assert params["image.cmap"] == "emode_div"
         assert params["axes.prop_cycle"].by_key()["color"] == colormaps.PLOT[mode]["series"]
         assert params["figure.facecolor"] == colormaps.PLOT[mode]["background"]
         assert params["text.color"] == colormaps.PLOT[mode]["text"]
-    assert mpl.rcParams["image.cmap"] != "emode" or mpl.rcParamsDefault["image.cmap"] == "emode"
+    assert mpl.rcParams["image.cmap"] == mpl.rcParamsDefault["image.cmap"]
 
 
 def test_the_brand_maps_are_the_delivered_stops():
     colormaps.register()
-    for alias, given in (("emode", colormaps.delivered().sequential), ("emode_div", colormaps.delivered().diverging)):
-        cmap = mpl.colormaps[alias]
-        assert mpl.colors.to_hex(cmap(0.0)).upper() == given[0].upper()
-        assert mpl.colors.to_hex(cmap(1.0)).upper() == given[-1].upper()
+    cmap = mpl.colormaps["emode_div"]
+    given = colormaps.delivered().diverging
+    assert mpl.colors.to_hex(cmap(0.0)).upper() == given[0].upper()
+    assert mpl.colors.to_hex(cmap(1.0)).upper() == given[-1].upper()
     assert mpl.colors.to_hex(mpl.colormaps["emode_div"](0.5)).upper() == "#1F2D50"
 
 
@@ -243,9 +267,9 @@ def test_the_diverging_map_has_an_odd_number_of_stops_so_zero_has_one():
 
 def test_the_brand_names_are_aliases_of_the_family():
     names = colormaps.register()
-    assert {"emode", "emode_div"} <= set(mpl.colormaps)
-    assert colormaps.get("emode").name == "emode"
-    for alias, kind in (("emode", "sequential"), ("emode_div", "diverging")):
+    assert "emode_div" in set(mpl.colormaps)
+    assert colormaps.get("emode_div").name == "emode_div"
+    for alias, kind in (("emode_div", "diverging"),):
         np.testing.assert_allclose(mpl.colormaps[alias](np.linspace(0, 1, 511)), colormaps.get(kind)(np.linspace(0, 1, 511)))
         assert colormaps.kind_of(alias) == kind
         assert colormaps.check_colormap(alias) == alias
