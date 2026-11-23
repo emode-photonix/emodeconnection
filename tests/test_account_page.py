@@ -34,7 +34,17 @@ from emode.ui.server import UIServer
 from emode.ui.views import ViewRegistry
 
 from js_harness import needs_jsc, run_app
-from login_standin import EMAIL, LOGIN_INFO, PASSWORD, REFUSALS, USER_CODE, FakeAccount, login_required
+from login_standin import (
+    EMAIL,
+    LOGIN_INFO,
+    PASSWORD,
+    REFUSALS,
+    TWO_FACTOR_EMAIL,
+    TWO_FACTOR_REFUSAL,
+    USER_CODE,
+    FakeAccount,
+    login_required,
+)
 from plot_standin import session
 from test_ui_server import request
 
@@ -324,6 +334,27 @@ def test_the_browser_sign_in_shows_the_code_then_signs_in(signed_out):
     assert events.get(timeout=2) == ("login-changed", {"state": "logged_in"})
 
 
+def test_a_two_factor_account_password_is_answered_with_two_factor_required(signed_out):
+    """EMode refuses the password of an account with two-factor on, and the route passes it on as is."""
+    server, fake = signed_out
+    _, reply = post(server, "/api/login/password", {"email": TWO_FACTOR_EMAIL, "password": PASSWORD})
+    assert reply["state"] == "signed_out"
+    assert reply["two_factor_required"] is True
+    assert reply["error"] == TWO_FACTOR_REFUSAL
+    _, status = get(server, "/api/login/status")
+    assert status["two_factor_required"] is True
+    _, started = post(server, "/api/login/start", {})
+    assert started["state"] == "pending"
+    assert started["two_factor_required"] is False
+    assert fake.calls[-1] == ("EM_login_start", {"method": "device"})
+
+
+def test_an_ordinary_refusal_is_not_two_factor(signed_out):
+    server, fake = signed_out
+    _, reply = post(server, "/api/login/password", {"email": EMAIL, "password": "wrong"})
+    assert reply["two_factor_required"] is False
+
+
 @pytest.mark.parametrize("outcome", ["denied", "expired"])
 def test_a_declined_or_expired_code_is_shown_with_a_retry(signed_out, outcome):
     server, fake = signed_out
@@ -569,6 +600,78 @@ def test_a_pending_sign_in_shows_the_code_and_its_link():
         """
     )
     assert got == [False, USER_CODE, f"https://example.com/device/?user_code={USER_CODE}", True]
+
+
+@needs_jsc
+def test_a_two_factor_refusal_starts_the_browser_sign_in_at_once():
+    """The page shows the message and starts the browser sign-in, as if the button were pressed."""
+    message = json.dumps(TWO_FACTOR_REFUSAL)
+    got = run_app(
+        f"""
+        document.getElementById("device-signin").hidden = true;
+        showLogin({{state: "signed_out", email: null, error: {message}, two_factor_required: true}});
+        var banner = document.getElementById("account-message");
+        return [__posts, banner.hidden, banner.textContent,
+                document.getElementById("login-error").hidden,
+                document.getElementById("signed-out").hidden];
+        """
+    )
+    posts, banner_hidden, banner, error_hidden, form_hidden = got
+    assert posts[-1] == ["api/login/start", {}]
+    assert [p for p, _ in posts].count("api/login/start") == 1
+    assert (banner_hidden, banner) == (False, TWO_FACTOR_REFUSAL)
+    assert error_hidden is True  # the message is in the banner, not under the form
+    assert form_hidden is False
+
+
+@needs_jsc
+def test_the_password_reply_for_a_two_factor_account_clears_the_field_and_starts():
+    message = json.dumps(TWO_FACTOR_REFUSAL)
+    got = run_app(
+        f"""
+        var input = document.getElementById("login-password");
+        input.value = "{PASSWORD}";
+        passwordAnswered({{state: "signed_out", error: {message}, two_factor_required: true}});
+        return [input.value, __posts, document.getElementById("login-submit").textContent];
+        """
+    )
+    value, posts, submit = got
+    assert value == ""
+    assert posts[-1] == ["api/login/start", {}]
+    assert submit == "Log In"
+
+
+@needs_jsc
+@pytest.mark.parametrize("two_factor", ["false", "undefined"])
+def test_an_ordinary_refusal_keeps_the_form_and_starts_nothing(two_factor):
+    got = run_app(
+        f"""
+        var input = document.getElementById("login-password");
+        input.value = "wrong";
+        passwordAnswered({{state: "signed_out", error: "Incorrect password.", two_factor_required: {two_factor}}});
+        return [input.value, __posts, document.getElementById("login-error").textContent,
+                document.getElementById("account-message").hidden];
+        """
+    )
+    value, posts, error, banner_hidden = got
+    assert value == "wrong"
+    assert posts == []
+    assert error == "Incorrect password."
+    assert banner_hidden is not False
+
+
+@needs_jsc
+def test_a_new_password_attempt_clears_the_two_factor_banner():
+    got = run_app(
+        f"""
+        showAccountMessage("This account uses two-factor authentication.");
+        document.getElementById("login-email").value = "{EMAIL}";
+        document.getElementById("login-password").value = "{PASSWORD}";
+        signInWithPassword();
+        return document.getElementById("account-message").hidden;
+        """
+    )
+    assert got is True
 
 
 @needs_jsc

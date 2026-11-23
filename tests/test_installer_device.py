@@ -191,3 +191,89 @@ def test_default_is_browser(monkeypatch):
     monkeypatch.delenv("EMODE_PASSWORD", raising=False)
     monkeypatch.setattr(installer.sys.stdin, "isatty", lambda: False)
     assert installer.authenticate() == "tok"
+
+
+# ---------------------------------------------------------------------------
+# A password refused because the account has two-factor on (emode#470)
+# ---------------------------------------------------------------------------
+
+TWO_FACTOR = {
+    "error": (
+        "This account uses two-factor authentication, so it signs in with your browser. "
+        "Update the installer with: pip install --upgrade emode, then run emode-install "
+        "again and sign in with your browser."
+    ),
+    "code": "two_factor_required",
+}
+
+
+class LoginResponse(FakeResponse):
+    """A reply to /installer-login/, which the installer checks with raise_for_status."""
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise installer.http_requests.exceptions.HTTPError(response=self)
+
+
+class Website(Net):
+    """The fake website, also answering /installer-login/ with `login`."""
+
+    def __init__(self, monkeypatch, login: LoginResponse, code=None, tokens=None) -> None:
+        super().__init__(monkeypatch, code or FakeResponse(200, START), list(tokens or []))
+        self._login = login
+
+    def _post(self, url: str, json: dict, timeout: float) -> FakeResponse:
+        if url.endswith("/installer-login/"):
+            self.posts.append((url, {"email": json["email"]}))  # never record the password
+            return self._login
+        return super()._post(url, json, timeout)
+
+
+def test_login_refused_for_two_factor_raises_two_factor_required(monkeypatch):
+    Website(monkeypatch, LoginResponse(403, TWO_FACTOR))
+    with pytest.raises(installer.TwoFactorRequired) as caught:
+        installer.login("a@b.c", "pw")
+    assert str(caught.value) == TWO_FACTOR["error"]
+
+
+def test_an_ordinary_refusal_still_exits_with_the_message(monkeypatch, capsys):
+    Website(monkeypatch, LoginResponse(403, {"error": "The password is incorrect."}))
+    with pytest.raises(SystemExit):
+        installer.login("a@b.c", "pw")
+    assert "Authentication failed: The password is incorrect." in capsys.readouterr().out
+
+
+def test_a_password_login_still_returns_the_token(monkeypatch):
+    Website(monkeypatch, LoginResponse(200, {"downloadToken": "pw-tok", "firstName": "Ada"}))
+    assert installer.login("a@b.c", "pw") == "pw-tok"
+
+
+def test_the_password_flag_switches_to_the_browser_for_two_factor(monkeypatch, capsys):
+    site = Website(monkeypatch, LoginResponse(403, TWO_FACTOR), tokens=[APPROVED])
+    monkeypatch.delenv("EMODE_EMAIL", raising=False)
+    monkeypatch.setattr(installer, "prompt_credentials", lambda: ("a@b.c", "pw"))
+    assert installer.authenticate(password=True) == "tok"
+    out = capsys.readouterr().out
+    assert TWO_FACTOR["error"] in out
+    assert "browser" in out.split(TWO_FACTOR["error"], 1)[1]
+    urls = [url for url, _ in site.posts]
+    assert urls[0].endswith("/installer-login/")
+    assert urls[1].endswith("/installer-device/code")
+
+
+def test_the_env_password_switches_to_the_browser_for_two_factor(monkeypatch):
+    site = Website(monkeypatch, LoginResponse(403, TWO_FACTOR), tokens=[APPROVED])
+    monkeypatch.setenv("EMODE_EMAIL", "a@b.c")
+    monkeypatch.setenv("EMODE_PASSWORD", "pw")
+    assert installer.authenticate() == "tok"
+    assert site.opened == [START["verification_url_complete"]]
+
+
+def test_the_switch_exits_when_the_website_has_no_browser_sign_in(monkeypatch, capsys):
+    Website(monkeypatch, LoginResponse(403, TWO_FACTOR), code=FakeResponse(404, {"error": "no"}))
+    monkeypatch.delenv("EMODE_EMAIL", raising=False)
+    monkeypatch.setattr(installer, "prompt_credentials", lambda: ("a@b.c", "pw"))
+    with pytest.raises(SystemExit) as caught:
+        installer.authenticate(password=True)
+    assert caught.value.code == 1
+    assert TWO_FACTOR["error"] in capsys.readouterr().out

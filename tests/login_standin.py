@@ -61,6 +61,13 @@ LOGIN_INFO = {
     "error_reporting": True,
 }
 
+#: An account with two-factor on: its right password is refused with ``two_factor_required``.
+TWO_FACTOR_EMAIL = "secure@example.com"
+TWO_FACTOR_REFUSAL = (
+    "This account uses two-factor authentication, so it signs in with your browser. "
+    "Update EMode to 1.0.9 or later and choose Sign in with your browser."
+)
+
 #: What the license manager answers a password it refuses, by email.
 REFUSALS = {
     EMAIL: "Incorrect password. Please try again.",
@@ -83,6 +90,7 @@ class FakeAccount:
         self.info = copy.deepcopy(LOGIN_INFO)
         self.unreachable = unreachable
         self.device: Optional[str] = None
+        self.two_factor_required = False
         self.calls: List[Tuple[str, Dict[str, Any]]] = []
 
     def __call__(self, function: str, **kwargs: Any) -> Any:
@@ -98,6 +106,7 @@ class FakeAccount:
             "state": self.state,
             "email": EMAIL if self.state == "logged_in" else None,
             "error": self.error,
+            "two_factor_required": self.two_factor_required,
         }
         if self.state == "pending":
             reply.update(
@@ -123,14 +132,19 @@ class FakeAccount:
             raise EModeError("EMode could not reach the license manager.")
         self.state = "pending"
         self.error = None
+        self.two_factor_required = False
         self.device = "pending"
         return self.status_reply()
 
     def _login(self, email: str, password: str) -> Dict[str, Any]:
         if self.unreachable:
             raise EModeError("EMode could not reach the license manager.")
+        self.two_factor_required = False
         if email == EMAIL and password == PASSWORD:
             self.state, self.error = "logged_in", None
+        elif email == TWO_FACTOR_EMAIL and password == PASSWORD:
+            self.state, self.error = "signed_out", TWO_FACTOR_REFUSAL
+            self.two_factor_required = True
         else:
             self.state = "signed_out"
             self.error = REFUSALS.get(email, REFUSALS["nobody@example.com"])
