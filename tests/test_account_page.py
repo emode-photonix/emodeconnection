@@ -650,14 +650,14 @@ def test_an_ordinary_refusal_keeps_the_form_and_starts_nothing(two_factor):
         input.value = "wrong";
         passwordAnswered({{state: "signed_out", error: "Incorrect password.", two_factor_required: {two_factor}}});
         return [input.value, __posts, document.getElementById("login-error").textContent,
-                document.getElementById("account-message").hidden];
+                document.getElementById("account-message").textContent];
         """
     )
-    value, posts, error, banner_hidden = got
+    value, posts, error, banner = got
     assert value == "wrong"
     assert posts == []
     assert error == "Incorrect password."
-    assert banner_hidden is not False
+    assert banner == ""
 
 
 @needs_jsc
