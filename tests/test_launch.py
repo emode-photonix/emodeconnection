@@ -111,3 +111,41 @@ def test_plain_python_launch_inherits_stdout(
     assert popen.kwargs.get("stdout") is None
     # Not hasattr: EMode.__getattr__ turns any unknown name into a solver call.
     assert "_print_thread" not in vars(em)
+
+
+def _launch_label(call: tuple[tuple[Any, ...], dict[str, Any]]) -> str:
+    cmd = call[0][0]
+    return cmd[cmd.index("run") + 1]
+
+
+def test_two_launches_in_the_same_microsecond_get_their_own_port_file(
+    popen: _PopenRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each session's port file has a name no other launch can draw.
+
+    The name used to be the launch time to the microsecond. Two clients that
+    launched in the same microsecond (parallel test workers starting together)
+    shared one port file, so one client could read the other's port, and the
+    other waited out its whole timeout for a file that was already gone.
+    """
+
+    instant = launch_module.datetime(2026, 11, 21, 1, 41, 50, 206000)
+
+    class _FrozenClock:
+        @staticmethod
+        def now(tz: Any = None) -> Any:
+            return instant.replace(tzinfo=tz)
+
+    monkeypatch.setattr(launch_module, "datetime", _FrozenClock)
+    monkeypatch.setattr(EMode, "in_ipython", lambda self: False)
+
+    first = EMode()
+    second = EMode()
+
+    labels = [_launch_label(call) for call in popen.calls]
+    assert labels[0] != labels[1]
+    assert first._cache.port_path != second._cache.port_path
+    for label in labels:
+        # a plain argument and file name: never read as an option, safe on every platform
+        assert label[0].isalnum()
+        assert all(c.isalnum() or c == "_" for c in label)
