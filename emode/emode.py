@@ -6,6 +6,7 @@ from logging.config import dictConfig
 import os
 from pathlib import Path
 import platform
+import secrets
 import signal
 from subprocess import DEVNULL, PIPE, Popen, TimeoutExpired
 from threading import RLock, Thread
@@ -57,6 +58,21 @@ def _forward_stdout(pipe: IO[bytes]) -> None:
             print(tail, end="", flush=True)
     finally:
         pipe.close()
+
+
+def _port_file_label() -> str:
+    """A name for this session's port file that no other launch draws.
+
+    The solver publishes its port in a file named after this label, and the
+    client reads that file. The launch time alone, to the microsecond, is not
+    enough: clients that start together (parallel test workers, a pool of
+    scripts) can draw the same time, share one file, and one of them then
+    reads the other's port while the other waits for a file that is already
+    gone. The process id and a random part make the name unique. The time
+    stays first, so the files still sort by launch.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    return f"{stamp}_{os.getpid()}_{secrets.token_hex(4)}"
 
 
 def _launch_solver(cmd: list[str], ipython: bool, quiet: bool) -> "Popen[bytes]":
@@ -214,7 +230,7 @@ class EMode:
         self._clear = clear
         self._roaming = roaming
         self._ext = ".eph"
-        self._port_file_label = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        self._port_file_label = _port_file_label()
         self._cache = Cache(self._port_file_label)
         self._save = save
         self.running = True
