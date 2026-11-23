@@ -248,8 +248,8 @@ def _heatmap(r: RasterSpec, showscale: bool, spec: FigureSpec) -> Dict[str, Any]
     return trace
 
 
-#: A contour line's color on each side of zero, as the window drew them.
-_CONTOUR_COLORS = ("#000000", "#ffffff")
+#: A contour line's color on each side of zero: black on both, as the brand's reference mode plot draws them.
+_CONTOUR_COLORS = ("#000000", "#000000")
 
 #: A contour line's width in pixels and its opacity. The colorbar's marks draw with the same
 #: two numbers (`_colorbar_marks`), so the marks and the lines they stand for look alike (#199).
@@ -263,7 +263,7 @@ CONTOUR_OPACITY = 0.7
 _MARK_OPACITY = CONTOUR_OPACITY * min(CONTOUR_WIDTH, 1.0)
 
 #: The marks' rgb on each side of zero, the contours' colors (`_CONTOUR_COLORS`).
-_MARK_COLORS = ("0,0,0", "255,255,255")
+_MARK_COLORS = ("0,0,0", "0,0,0")
 
 
 def _contours(r: RasterSpec) -> List[Dict[str, Any]]:
@@ -331,7 +331,7 @@ def _plotly_contours(r: RasterSpec) -> List[Dict[str, Any]]:
                 "y": typed_array(r.y),
                 "z": typed_array(r.z),
                 "contours": {"start": level, "end": level, "size": 1.0, "coloring": "none"},
-                "line": {"color": "#000000" if level >= 0 else "#ffffff", "width": CONTOUR_WIDTH},
+                "line": {"color": "#000000", "width": CONTOUR_WIDTH},
                 "opacity": CONTOUR_OPACITY,
                 "showscale": False,
                 "hoverinfo": "skip",
@@ -520,7 +520,7 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
             trace.update({"hoveron": "fills", "hoverinfo": "text", "text": _target_text(f.target),
                           "meta": f"component:{f.target}"})
         if f.hatch:
-            trace["fillpattern"] = {"shape": _HATCH.get(f.hatch, "/"), "fgcolor": f.edgecolor or "#000000"}
+            trace["fillpattern"] = {"shape": _HATCH.get(f.hatch, "/"), "fgcolor": f.edgecolor or colormaps.GUI["text"]}
         data.append(trace)
 
     for layer in spec.layers:
@@ -612,7 +612,7 @@ def to_plotly(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dic
                 "x": [None],
                 "y": [None],
                 "name": math_html(entry.label),
-                "marker": {"symbol": "square", "size": 10, "color": entry.color or "#ffffff", "line": {"width": 0.5, "color": "#000000"}},
+                "marker": {"symbol": "square", "size": 10, "color": entry.color or colormaps.BRAND["Chalk"], "line": {"width": 0.5, "color": colormaps.GUI["text"]}},
                 "showlegend": True,
             }
         )
@@ -626,7 +626,8 @@ _TICKS: Dict[str, Any] = {"ticks": "outside", "ticklen": 4, "tickwidth": 1}
 
 def _layout(spec: FigureSpec) -> Dict[str, Any]:
     a = spec.axes
-    font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3}
+    light = colormaps.PLOT["light"]
+    font = {"family": "Arial, Helvetica, sans-serif", "size": spec.font_size + 3, "color": light["text"]}
     yrange = [a.yrange[1], a.yrange[0]] if a.invert_y else list(a.yrange)
     # no top line on any plot, and a right line only where an image fills the box (#187), with
     # no ticks on it: the ticks go outside the left and bottom axes, 4 by 1 px (#190)
@@ -639,6 +640,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "mirror": False,
         "showline": True,
         "linewidth": 0.5,
+        "linecolor": light["axes"],
         "showgrid": False,
         "zeroline": False,
         "visible": a.visible,
@@ -651,6 +653,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         "mirror": image,
         "showline": True,
         "linewidth": 0.5,
+        "linecolor": light["axes"],
         "showgrid": False,
         "zeroline": False,
         "visible": a.visible,
@@ -672,6 +675,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
             **_TICKS,
             "showline": True,
             "linewidth": 0.5,
+            "linecolor": light["axes"],
             "showgrid": False,
             "zeroline": False,
             "visible": a.visible,
@@ -688,7 +692,7 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         yaxis["scaleratio"] = 1
     if a.grid:
         for axis in (xaxis, yaxis):
-            axis.update({"showgrid": True, "gridcolor": "rgba(128,128,128,0.25)", "gridwidth": 0.5})
+            axis.update({"showgrid": True, "gridcolor": colormaps.PLOT["light"]["grid"], "gridwidth": 0.5})
     if a.integer_xticks:
         xaxis.update({"tickformat": "d", "dtick": 1})
     if a.integer_ticks:
@@ -720,9 +724,9 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
                 "xref": "x domain",
                 "yref": "y domain",
                 "showarrow": False,
-                "font": {"color": "#d1495b", "size": 16},
-                "bgcolor": "rgba(255,255,255,0.85)",
-                "bordercolor": "#d1495b",
+                "font": {"color": colormaps.GUI["primary"], "size": 16},
+                "bgcolor": _rgba(colormaps.BRAND["Chalk"], 0.85),
+                "bordercolor": colormaps.GUI["primary"],
                 "name": "arrow",
                 "captureevents": True,
                 "hovertext": f"go to {arrow.target}",
@@ -738,8 +742,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
         or any(line.label is not None for line in spec.lines),
         "legend": {"orientation": "h", "x": 0.5, "xanchor": "center", "y": 1.02, "yanchor": "bottom"},
         "margin": {"l": 60, "r": 20, "t": 40, "b": 110 if any(t.kind == "footer" for t in spec.texts) else 50},
-        "paper_bgcolor": "#ffffff",
-        "plot_bgcolor": a.background or "#ffffff",
+        "paper_bgcolor": colormaps.PLOT["light"]["background"],
+        "plot_bgcolor": a.background or colormaps.PLOT["light"]["background"],
         "dragmode": "zoom",
     }
     if yaxis2 is not None:
@@ -812,8 +816,8 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
             "showlegend": any(t.get("showlegend") for t in data),
             "legend": first["legend"],
             "margin": {"l": 60, "r": 60 if any(p.axes.y2range is not None for p in spec.panels) else 20, "t": 60, "b": 50},
-            "paper_bgcolor": "#ffffff",
-            "plot_bgcolor": "#ffffff",
+            "paper_bgcolor": colormaps.PLOT["light"]["background"],
+            "plot_bgcolor": colormaps.PLOT["light"]["background"],
             "dragmode": "zoom",
         }
     )

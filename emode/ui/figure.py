@@ -525,7 +525,7 @@ def _cmap(kind: str, options: PlotOptions) -> str:
 
 def _color(value: Optional[float], color: Optional[str], options: PlotOptions) -> Optional[str]:
     if color is not None:
-        return {"grey": "#808080", "k": "#000000", "w": "#ffffff"}.get(color, color)
+        return {"grey": colormaps.BRAND["Mist"], "k": colormaps.GUI["text"], "w": colormaps.BRAND["Chalk"]}.get(color, color)
     if value is None:
         return None
     kind = colormaps.kind_of(options.colormap or "sequential")
@@ -611,7 +611,7 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
                     kind=p.kind,
                     color=_color(None, p.color, options),
                     holes=tuple(np.asarray(h) / np.array([sx, sy]) for h in p.holes),
-                    edgecolor="#000000" if p.kind == "window" else "#808080",
+                    edgecolor=colormaps.GUI["text"] if p.kind == "window" else colormaps.BRAND["Mist"],
                     hatch=p.hatch,
                     alpha=WINDOW_FILL_ALPHA if p.color else 1.0,
                     width=LW,
@@ -650,12 +650,12 @@ def _compose_view(view: PlotView, options: PlotOptions) -> FigureSpec:
     if options.mesh_display:
         for s in view.mesh:
             xy = np.asarray(s.xy, np.float32) / np.array([sx, sy], np.float32)
-            segments.append(SegmentsSpec(xy=xy, kind=s.kind, color="#000000", width=LW / 2, alpha=s.alpha))
+            segments.append(SegmentsSpec(xy=xy, kind=s.kind, color=colormaps.GUI["text"], width=LW / 2, alpha=s.alpha))
 
     if options.text_display:
         for t in view.texts:
             texts.append(
-                TextSpec(t.text, t.x, t.y, t.frame, t.ha, t.va, t.color or "#000000", options.font_size, t.kind)
+                TextSpec(t.text, t.x, t.y, t.frame, t.ha, t.va, t.color or colormaps.GUI["text"], options.font_size, t.kind)
             )
 
     colorbar = None
@@ -737,7 +737,8 @@ def _reached(rasters: List[RasterSpec]) -> Tuple[float, ...]:
 
 
 def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions) -> TextSpec:
-    color = line_style(kind)[0]
+    # the line keeps its slot color, its text is Haze as in the brand reference plot (never a series color)
+    color = colormaps.PLOT["dark"]["text"]
     x, y = line.label_at
     return TextSpec(
         line.label, x / sx, y / sy, "data", line.align, "bottom", color, options.font_size, kind
@@ -751,7 +752,7 @@ def _data_label(line: Any, kind: str, sx: float, sy: float, options: PlotOptions
 def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
     palette = colormaps.schematic_colors()
     face, edge, text = palette["block_face"], palette["block_edge"], palette["text"]
-    launch, monitor = palette["launch"], palette["monitor"]
+    launch = palette["launch"]
     fills: List[FillSpec] = []
     texts: List[TextSpec] = []
     lines: List[LineSpec] = []
@@ -774,7 +775,7 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
     for s in view.stubs:
         lines.append(
             LineSpec(
-                np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", line_style("stub")[0], 1.0, target=s.id
+                np.array([s.x0, s.x1]), np.array([s.y0, s.y1]), "stub", palette["connection"], 1.0, target=s.id
             )
         )
         if s.label:
@@ -798,15 +799,18 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
                 )
     ids = list(view.connection_ids) + [None] * (len(view.connections) - len(view.connection_ids))
     for c, target in zip(view.connections, ids):
-        color, width, dash, alpha = line_style(c.kind)
-        lines.append(LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, color, width, dash, alpha, target=target))
+        # drawn on the schematic's light background, so Charcoal, not the overlays' Haze
+        _, width, dash, alpha = line_style(c.kind)
+        lines.append(
+            LineSpec(np.asarray(c.x), np.asarray(c.y), c.kind, palette["connection"], width, dash, alpha, target=target)
+        )
     if view.launch is not None:
         marker = "triangle-right" if view.launch.side == "left" else "triangle-left"
         lines.append(
             LineSpec(np.array([view.launch.x1]), np.array([view.launch.y1]), "launch", launch, 0.0, None, 1.0, marker, 7.0)
         )
     for m in view.monitors:
-        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, monitor, 6.0, "monitor"))
+        texts.append(TextSpec(m.text, m.x, m.y, "data", m.ha, m.va, text, 6.0, "monitor"))
     x0, x1, y0, y1 = view.frame or view.limits
     width, height = options.figure_size or (
         max(4.0, (view.limits[1] - view.limits[0]) * 0.42) * 25.4,
@@ -834,7 +838,7 @@ def _compose_schematic(view: Schematic, options: PlotOptions) -> FigureSpec:
 SMATRIX_COMPONENTS = ("abs^2", "angle", "real", "imag")
 
 #: Which colormap of the family each S-matrix component is drawn with.
-SMATRIX_KINDS = {"abs^2": "sequential", "angle": "cyclic", "real": "sequential", "imag": "sequential"}
+SMATRIX_KINDS = {"abs^2": "sequential", "angle": "cyclic", "real": "diverging", "imag": "diverging"}
 
 
 def smatrix_values(view: SMatrixView) -> Tuple[np.ndarray, str]:
@@ -862,11 +866,15 @@ def smatrix_scale(values: np.ndarray, component: str, options: PlotOptions) -> T
     """The color scale of the S-matrix plot and its colorbar's tick format.
 
     Automatic from the block's extremes, ``abs^2`` snapped to 0 to 1 when its
-    range is over a half, and replaced by the user's `vmin` and `vmax`.
+    range is over a half, ``real`` and ``imag`` (signed, drawn with the diverging map) made
+    symmetric about zero so zero sits at the map's center, and replaced by the user's `vmin` and `vmax`.
     """
     vmin, vmax = float(np.min(values)), float(np.max(values))
     if component == "abs^2" and abs(vmax - vmin) > 0.5:
         vmin, vmax = 0.0, 1.0
+    if component in ("real", "imag"):
+        peak = max(abs(vmin), abs(vmax)) or 1.0
+        vmin, vmax = -peak, peak
     if options.vmin is not None:
         vmin = float(options.vmin)
     if options.vmax is not None:
@@ -985,7 +993,7 @@ def _compose_material(view: MaterialView, options: PlotOptions) -> FigureSpec:
         texts.append(
             TextSpec(
                 "\n".join(textwrap.wrap(view.reference, 110)), 0.0, -0.22, "axes", "left", "top",
-                "#000000", options.font_size - 1, "footer",
+                colormaps.GUI["text"], options.font_size - 1, "footer",
             )
         )
     axes = AxesSpec(
@@ -1052,11 +1060,11 @@ def _compose_farfield(view: Any, options: PlotOptions, panel: str = "intensity")
             f"M² {view.m_squared[0]:.3f}, {view.m_squared[1]:.3f}"
         )
         bar_label = "intensity (W/sr)"
-    # white text on the image's top left corner, placed from the image itself: the equal aspect
+    # Haze text (the brand reference mode plot's) on the image's top left corner, placed from the image itself: the equal aspect
     # widens one axis range past the image, so an axes fraction can fall on the white
     # background beside it (#209)
     left, top = _image_corner(x, y)
-    texts = (TextSpec(note, left, top, "data", "left", "top", "#ffffff", options.font_size, "annotation"),)
+    texts = (TextSpec(note, left, top, "data", "left", "top", colormaps.BRAND["Haze"], options.font_size, "annotation"),)
     vmax = float(np.nanmax(z)) if z.size else 1.0
     vmin = 0.0 if options.vmin is None else float(options.vmin)
     vmax = vmax if options.vmax is None else float(options.vmax)
@@ -1127,7 +1135,7 @@ def _compose_monitor(view: MonitorPanel, options: PlotOptions) -> FigureSpec:
     texts = (
         TextSpec(
             f"{plane.power_through_plane:.3g} W through the plane of {plane.power_in:g} W launched",
-            0.02, 0.98, "axes", "left", "top", "#ffffff", options.font_size, "annotation",
+            0.02, 0.98, "axes", "left", "top", colormaps.BRAND["Haze"], options.font_size, "annotation",
         ),
     )
     label = "Sn (W/m²)" if view.data == "Sn" else view.data

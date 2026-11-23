@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from emode.types import EModeError
+from emode import colormaps
 from emode.ui.figure import PlotOptions, compose
 from emode.ui.renderers.plotly import to_plotly
 
@@ -86,7 +87,7 @@ def test_one_scatter_per_overlay_styled_by_its_kind():
     lines = [t for t in _traces(figure, "scatter") if t.get("name") in ("outline", "port", "facet")]
     assert [t["name"] for t in lines] == ["facet", "port", "outline", "outline"]
     port = next(t for t in lines if t["name"] == "port")
-    assert port["line"]["color"] == "#00ff00"
+    assert port["line"]["color"] == colormaps.overlay_colors()["port"]
     assert port["line"]["width"] == pytest.approx(2.0)
 
 

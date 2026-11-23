@@ -35,6 +35,28 @@ def lab(rgb: Sequence[float]) -> np.ndarray:
     return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]), 200 * (f[1] - f[2])])
 
 
+def oklab(rgb: Sequence[float]) -> np.ndarray:
+    """OKLab ``(L, a, b)`` of an sRGB color with components from 0 to 1 (Ottosson, 2020), the space
+    the brand's own colormap files are validated in."""
+    c = np.asarray(rgb[:3], float)
+    r, g, b = np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+    lms = np.cbrt([
+        0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b,
+        0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+        0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b,
+    ])
+    return np.array([
+        0.2104542553 * lms[0] + 0.7936177850 * lms[1] - 0.0040720468 * lms[2],
+        1.9779984951 * lms[0] - 2.4285922050 * lms[1] + 0.4505937099 * lms[2],
+        0.0259040371 * lms[0] + 0.7827717662 * lms[1] - 0.8086757660 * lms[2],
+    ])
+
+
+def oklab_lightness(rgb: Sequence[float]) -> float:
+    """OKLab L (0 black to 1 white)."""
+    return float(oklab(rgb)[0])
+
+
 def lightness(rgb: Sequence[float]) -> float:
     """CIELAB L* (0 black to 100 white)."""
     return float(lab(rgb)[0])

@@ -274,28 +274,30 @@ class SMatrix(TaggedModel, PortIndexed):
         else:
             raise ValueError(f'Unknown kind: {kind}')
 
-        if ax is None:
-            fig, ax = plt.subplots(
-                nrows=N, ncols=N,
-                figsize=(3 * N + 1, 3 * N + 1),
-                constrained_layout=True,
-                squeeze=False,
-            )
-        else:
-            ax = np.atleast_2d(ax)
-            fig = ax.flat[0].get_figure()
+        # a figure of its own is light and leaves the user's rcParams alone, one on given axes is theirs
+        with colormaps.figure_style(ax is None):
+            if ax is None:
+                fig, ax = plt.subplots(
+                    nrows=N, ncols=N,
+                    figsize=(3 * N + 1, 3 * N + 1),
+                    constrained_layout=True,
+                    squeeze=False,
+                )
+            else:
+                ax = np.atleast_2d(ax)
+                fig = ax.flat[0].get_figure()
 
-        im = None
-        for i in range(N):
-            for j in range(N):
-                data = transform(self.block(i, j))
-                im = ax[i, j].imshow(data, norm=norm, cmap=cmap)
-                if self.port_names is not None:
-                    ax[i, j].set_title(f'S[{self.port_names[i]}, {self.port_names[j]}]')
-                else:
-                    ax[i, j].set_title(f'S[{i},{j}]')
+            im = None
+            for i in range(N):
+                for j in range(N):
+                    data = transform(self.block(i, j))
+                    im = ax[i, j].imshow(data, norm=norm, cmap=cmap)
+                    if self.port_names is not None:
+                        ax[i, j].set_title(f'S[{self.port_names[i]}, {self.port_names[j]}]')
+                    else:
+                        ax[i, j].set_title(f'S[{i},{j}]')
 
-        if im is not None:
-            fig.colorbar(im, ax=ax.ravel().tolist(), label=clabel)
+            if im is not None:
+                fig.colorbar(im, ax=ax.ravel().tolist(), label=clabel)
 
         return fig

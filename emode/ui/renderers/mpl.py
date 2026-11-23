@@ -62,7 +62,18 @@ def _edges(centers: np.ndarray) -> np.ndarray:
 
 
 def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
-    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas (or on `ax` of `fig`)."""
+    """`spec` drawn on a new matplotlib ``Figure`` with an Agg canvas (or on `ax` of `fig`).
+
+    The figure is light, in the brand's plot style (Chalk, Night Ink text, Charcoal axes), applied
+    in an ``rc_context`` so the caller's global ``rcParams`` are never touched.
+    """
+    from ... import colormaps
+
+    with colormaps.figure_style():
+        return _to_figure(spec, fig, ax)
+
+
+def _to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     _matplotlib()
     if spec.panels and ax is None:
         return _panels(spec)
@@ -174,8 +185,8 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     for arrow in spec.arrows:
         ax.text(
             arrow.x, arrow.y, glyphs[arrow.direction], transform=ax.transAxes,
-            ha="center", va="center", fontsize=14, color="#d1495b", gid="arrow",
-            bbox={"boxstyle": "round,pad=0.25", "fc": "white", "ec": "#d1495b", "alpha": 0.85},
+            ha="center", va="center", fontsize=14, color=colormaps.GUI["primary"], gid="arrow",
+            bbox={"boxstyle": "round,pad=0.25", "fc": colormaps.BRAND["Chalk"], "ec": colormaps.GUI["primary"], "alpha": 0.85},
         )
 
     ax.set_xlim(*a.xrange)
@@ -188,7 +199,7 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
     if a.box_aspect is not None:
         ax.set_box_aspect(a.box_aspect)
     if a.grid:
-        ax.grid(visible=True, which="major", axis="both", linewidth=0.25, color="grey", alpha=0.25)
+        ax.grid(visible=True, which="major", axis="both", linewidth=0.5, color=colormaps.PLOT["light"]["grid"])
     if a.integer_xticks and not a.integer_ticks:
         from matplotlib.ticker import MaxNLocator
 
@@ -254,12 +265,12 @@ def to_figure(spec: FigureSpec, fig: Any = None, ax: Any = None) -> Any:
         if cb.lines:
             # a line across the bar at each contour level drawn on the panel
             bar.add_lines(
-                list(cb.lines), [to_rgba("k" if v >= 0 else "w", CONTOUR_ALPHA) for v in cb.lines], [CONTOUR_LINEWIDTH] * len(cb.lines)
+                list(cb.lines), [to_rgba("k", CONTOUR_ALPHA) for _ in cb.lines], [CONTOUR_LINEWIDTH] * len(cb.lines)
             )
         if cb.label:
             bar.set_label(cb.label, fontsize=spec.font_size)
 
-    handles = [Patch(facecolor=e.color or "white", label=e.label, ec="k", lw=0.5) for e in spec.legend]
+    handles = [Patch(facecolor=e.color or colormaps.BRAND["Chalk"], label=e.label, ec=colormaps.GUI["text"], lw=0.5) for e in spec.legend]
     handles += [
         Patch(
             facecolor=to_rgba(layer.color, layer.opacity), edgecolor=layer.color,
@@ -290,7 +301,7 @@ def _draw_contours(ax: Any, r: Any, x: np.ndarray, y: np.ndarray, z: np.ndarray)
     if r.contour_levels and min(z.shape) >= 2:
         for level in r.contour_levels:
             ax.contour(
-                x, y, z, levels=[level], colors="k" if level >= 0 else "w",
+                x, y, z, levels=[level], colors="k",
                 linewidths=CONTOUR_LINEWIDTH, alpha=CONTOUR_ALPHA, linestyles="solid",
             )
 
@@ -334,7 +345,8 @@ def render(spec: FigureSpec, file_type: str = "png", dpi: Optional[int] = None) 
     if file_type == "pdf":
         metadata = {"Creator": "EMode, https://emodephotonix.com"}
     fig.savefig(
-        buf, format=file_type, dpi=dpi or spec.dpi, bbox_inches="tight", pad_inches=0.1, metadata=metadata
+        buf, format=file_type, dpi=dpi or spec.dpi, bbox_inches="tight", pad_inches=0.1, metadata=metadata,
+        facecolor=fig.get_facecolor(),
     )
     return buf.getvalue()
 

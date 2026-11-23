@@ -1,11 +1,15 @@
 :root {
-  --bg: #f5f5f5;
-  --panel: #ffffff;
-  --text: #1f2933;
-  --muted: #5f6b76;
-  --accent: #2b5c9e;
-  --line: #d8dde3;
-  --warn: #d1495b;
+  /* the brand palette's GUI roles (emode_palette.py), light mode only: the interface has no dark mode */
+  --bg: #FDFCF8;          /* GUI background, Chalk */
+  --panel: #FDFCF8;       /* GUI surface, Chalk, set off by a Haze border */
+  --panel-alt: #E5E3DD;   /* GUI surface_alt, Haze: selected rows, notices, stripes */
+  --text: #10151F;        /* GUI text, Night Ink */
+  --muted: #535256;       /* GUI text_secondary, Charcoal */
+  --accent: #253F88;      /* GUI primary, Blue */
+  --accent-text: #FDFCF8; /* GUI primary_text, Chalk on Blue */
+  --line: #E5E3DD;        /* GUI border, Haze */
+  --warn: #8E1719;        /* GUI error, only for error text, which always has words with it */
+  --shadow: rgba(16, 21, 31, 0.25); /* Night Ink at 25% */
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -16,7 +20,7 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 #nav .tab { color: var(--text); text-decoration: none; }
 #nav .tab.active { font-weight: 600; border-bottom: 2px solid var(--accent); }
 #status { margin-left: auto; color: var(--muted); }
-#status.busy { color: var(--warn); }
+#status.busy { color: var(--accent); }
 #app { display: flex; height: calc(100vh - 38px); }
 #list { width: 220px; flex: none; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); transition: width 0.2s, visibility 0.2s; }
 #app.sidebar-collapsed #list { width: 0; border-right-width: 0; visibility: hidden; }
@@ -25,7 +29,7 @@ body { margin: 0; font: 13px/1.4 -apple-system, "Segoe UI", Arial, sans-serif; b
 body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views { list-style: none; margin: 0; padding: 0; }
 #views li { padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
-#views li.selected { background: #e8f0fb; }
+#views li.selected { background: var(--panel-alt); }
 #views li .when { display: block; color: var(--muted); font-size: 11px; }
 #views li.pinned { font-weight: 600; border-bottom: 2px solid var(--line); }
 /* saved views (emode#1703): a group heading, and each entry's menu of actions */
@@ -42,9 +46,9 @@ body.embed #sidebar-toggle, #nav.on-session #sidebar-toggle { display: none; }
 #views li .entry-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 6px; }
 #views li .entry-actions button { font: inherit; font-size: 12px; padding: 4px 8px; }
 #controls .save-view-bar { display: inline-flex; gap: 8px; align-items: center; }
-#controls .save-view-bar .modified { color: var(--warn); font-style: italic; }
-#controls button.primary, #save-sheet button.primary { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
-#save-sheet { position: fixed; top: 52px; right: 16px; z-index: 40; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); padding: 12px 14px; display: grid; gap: 6px; }
+#controls .save-view-bar .modified { color: var(--accent); font-style: italic; }
+#controls button.primary, #save-sheet button.primary { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-text); font-weight: 600; border-radius: 3px; padding: 3px 10px; cursor: pointer; }
+#save-sheet { position: fixed; top: 52px; right: 16px; z-index: 40; width: 320px; max-width: calc(100vw - 32px); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); padding: 12px 14px; display: grid; gap: 6px; }
 #save-sheet h2 { font-size: 14px; margin: 0 0 2px; }
 #save-sheet input { font: inherit; font-size: 16px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; width: 100%; }
 #save-sheet .sheet-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
@@ -85,7 +89,7 @@ body.embed #nav, body.embed #list { display: none; }
 body.embed #app { height: 100vh; }
 #controls button { font: inherit; padding: 1px 8px; }
 #controls .render { display: inline-flex; gap: 6px; align-items: center; }
-#controls #render.pending { background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600; }
+#controls #render.pending { background: var(--accent); border: 1px solid var(--accent); color: var(--accent-text); font-weight: 600; }
 #controls details.export { margin-left: auto; }
 #controls details.export > div { right: 0; }
 #controls details.export details > div { position: static; border: 0; padding: 4px 0 4px 10px; }
@@ -110,7 +114,7 @@ body.embed #app { height: 100vh; }
 #account .note { color: var(--muted); font-size: 12px; margin: 6px 0; }
 #account button, #account select, #account input { font: inherit; }
 #account button { padding: 5px 12px; min-height: 32px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--text); cursor: pointer; }
-#account button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+#account button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 #account button.wide { width: 100%; min-height: 38px; }
 #account button:focus-visible, #account input:focus-visible, #account select:focus-visible, #account a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #account a { color: var(--accent); }
@@ -131,7 +135,7 @@ body.embed #app { height: 100vh; }
 #account .account-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 #account .account-bar strong { word-break: break-all; }
 #account .bar-links { display: flex; align-items: center; gap: 14px; }
-#account .notice { border-color: var(--accent); background: #eef3fb; white-space: pre-line; }
+#account .notice { border-color: var(--accent); background: var(--panel-alt); white-space: pre-line; }
 #account .account-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2.4fr); gap: 12px; align-items: start; }
 #account .counts { display: flex; gap: 20px; font-size: 15px; margin: 4px 0 8px; }
 #account .check { display: inline-flex; gap: 6px; align-items: center; }
@@ -139,15 +143,15 @@ body.embed #app { height: 100vh; }
 #account table { border-collapse: collapse; width: 100%; }
 #account th, #account td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 #account th { color: var(--muted); font-weight: 600; }
-#account tr.shared td { background: #f0f0fa; }
+#account tr.shared td { background: var(--panel-alt); }
 #account .sessions-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-top: 16px; }
 #account .sessions-head h3 { margin: 0; }
 #account .session-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-#account button.clear-row { min-width: 32px; padding: 2px 6px; color: var(--warn); }
+#account button.clear-row { min-width: 32px; padding: 2px 6px; color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 800px) {
   #app { position: relative; }
-  #list { position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: 220px; max-width: 85vw; box-shadow: 2px 0 8px rgba(0, 0, 0, 0.25); transition: transform 0.2s, visibility 0.2s; }
+  #list { position: absolute; top: 0; bottom: 0; left: 0; z-index: 20; width: 220px; max-width: 85vw; box-shadow: 2px 0 8px var(--shadow); transition: transform 0.2s, visibility 0.2s; }
   #app.sidebar-collapsed #list { width: 220px; border-right-width: 1px; transform: translateX(-105%); box-shadow: none; }
   #panel { padding: 8px; }
   #stage { flex-direction: column; }
@@ -162,7 +166,7 @@ body.embed #app { height: 100vh; }
   /* the Save sheet is a bottom sheet on a phone, as the details panel is */
   #save-sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 8px 8px 0 0; padding: 14px 16px 20px; }
   #controls .save-view-bar button { min-height: 36px; }
-  #details { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 60vh; z-index: 30; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.25); }
+  #details { position: fixed; left: 0; right: 0; bottom: 0; width: auto; max-height: 60vh; z-index: 30; border-left: 0; border-top: 1px solid var(--line); box-shadow: 0 -2px 8px var(--shadow); }
   #session { padding: 10px; }
   #nav { gap: 10px; padding: 6px 10px; }
   #account { padding: 10px 10px 24px; }

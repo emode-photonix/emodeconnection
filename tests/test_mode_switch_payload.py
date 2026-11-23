@@ -122,7 +122,7 @@ def test_the_contours_are_lines_at_the_levels_on_each_side_of_zero():
     view = mode_view()
     lines = _contours(to_plotly(compose(view)))
     assert lines and all(t["type"] == "scatter" for t in lines)
-    assert {t["line"]["color"] for t in lines} == {"#000000", "#ffffff"}
+    assert {t["line"]["color"] for t in lines} == {"#000000"}
     r = view.rasters[0]
     for t in lines:
         x, y = _decode(t["x"]), _decode(t["y"])
@@ -132,8 +132,8 @@ def test_the_contours_are_lines_at_the_levels_on_each_side_of_zero():
         ix = np.interp(x[ok], r.x, np.arange(len(r.x)))
         iy = np.interp(y[ok], r.y, np.arange(len(r.y)))
         z = np.asarray(r.z)[np.round(iy).astype(int), np.round(ix).astype(int)]
-        positive = t["line"]["color"] == "#000000"
-        assert (z > -0.05).all() if positive else (z < 0.05).all()
+        # a trace holds the levels on one side of zero (both in black)
+        assert (z > -0.05).all() or (z < 0.05).all()
 
 
 def test_the_contours_are_off_when_turned_off():

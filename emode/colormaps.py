@@ -2,30 +2,46 @@
 
 The family has three colormaps and a line palette:
 
-- ``sequential``, for magnitudes, intensities and the index,
-- ``diverging``, for real and imaginary parts (signed values about zero),
-- ``cyclic``, for phase, whose two ends meet,
-- the line palette, for curves, the schematic and legend entries.
+- ``sequential``, the brand's "emode" map, for magnitudes, intensities and the index,
+- ``diverging``, the brand's "emode_div" map, for real and imaginary parts (signed
+  values about zero, drawn with a symmetric range so zero sits at the center, #1F2D50),
+- ``cyclic``, for phase, whose two ends meet (derived, since no cyclic map was delivered),
+- the line palette (``SERIES``), for curves, the schematic and legend entries.
 
 A panel never names a colormap. Its rasters say which kind they want, and
 this module is the one place a kind becomes colors: stop lists for the browser
 (``plotly_colorscale``) and colormaps registered with matplotlib under
 ``NAMES`` for static images (``get``), built from the same stops so the two
 agree. ``plot(colormap=...)`` picks another map by name (``check_colormap``).
+"emode" and "emode_div" are registered too, as aliases of the first two, so a
+script's own matplotlib figure can name them as the brand's files do.
 
-**The drop-in.** The colors are ``delivered()``, and nothing else in EMode
-holds one. EMode's own family replaces the body of that function: the
-sequential stops at least, and the diverging and cyclic stops and the line
-colors where they are delivered. A kind that is not delivered is derived from
-the sequential map (``family()``). Until then the stops are placeholders,
-matplotlib's plasma, which is what EMode's plot window drew.
+**The colors.** ``BRAND``, ``SERIES``, ``SERIES_DARK``, ``GUI`` and ``PLOT`` are the
+brand palette (``emode_palette.json``) and the two maps are the brand's colormap files,
+loaded verbatim into ``emode._brand`` by ``scripts/sync_brand_colors.py``. Nothing in
+EMode invents or mixes a color: every color a plot or the
+browser interface draws is one of these. ``tests/test_colormaps.py`` compares them with the
+brand files when those are present. ``delivered()`` is the one function that gathers
+the delivery, and ``family()`` fills in what is not delivered.
+
+**Series.** Curves take the line colors in order, slot 1, 2, 3 and so on, and never
+cycle (``series_color``). At most 8 are drawn in a color: every further series is folded
+into one "Other" series drawn in Mist, with a single legend entry (``series_label``). A
+series keeps its color when others are filtered out, as its slot is its own index. A
+scatter plot, a map or a small multiple uses only the first 3 (``SCATTER_SERIES``).
+Status colors (success, error) are never series colors, and the GUI is light mode only.
 """
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass
 from typing import Any
 
+# The brand's colors, generated from its color files by scripts/sync_brand_colors.py.
+from ._brand import BRAND, GUI, PLOT, RULES, SERIES, SERIES_DARK, SERIES_NAMES  # noqa: F401 (re-exported)
+from ._brand import EMODE as _EMODE
+from ._brand import EMODE_DIV as _EMODE_DIV
 from .types import ArgumentError, EModeError
 
 KINDS = ("sequential", "diverging", "cyclic")
@@ -38,21 +54,19 @@ NAMES = tuple(MPL_NAMES.values())
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
-# ------------------------------------------------------------------ the placeholders
+# ------------------------------------------------------------------ the brand's colors
 
-#: PLACEHOLDER: matplotlib's plasma at 33 evenly spaced stops, dark to light.
-_PLACEHOLDER_SEQUENTIAL = (
-    "#0d0887", "#220690", "#310597", "#3f049c", "#4c02a1", "#5901a5", "#6600a7",
-    "#7201a8", "#7e03a8", "#8a09a5", "#9511a1", "#a01a9c", "#aa2395", "#b32c8e",
-    "#bc3587", "#c43e7f", "#cc4778", "#d35171", "#da5a6a", "#e06363", "#e66c5c",
-    "#eb7655", "#f0804e", "#f58b47", "#f89540", "#fba139", "#fdac33", "#feb82c",
-    "#fdc527", "#fcd225", "#f8df25", "#f4ed27", "#f0f921",
-)
+#: The kind each brand colormap name is an alias of.
+ALIASES = {"emode": "sequential", "emode_div": "diverging"}
 
-#: PLACEHOLDER: the line palette. EMode's blue first (the material explorer's
-#: curve), then the schematic's launch red and monitor magenta, a teal, an
-#: amber and a neutral gray, each at least 20 apart in CIEDE2000.
-_PLACEHOLDER_LINES = ("#3634A3", "#d1495b", "#b5179e", "#2a9d8f", "#e9a23b", "#4a4a4a")
+#: The color of every series past the 8th, folded into one "Other" series (Mist).
+OTHER = BRAND["Mist"]
+
+#: How many series a line plot colors before the rest fold into "Other".
+MAX_SERIES = 8
+
+#: How many series a scatter plot, a map or a small multiple colors, as any two colors can touch.
+SCATTER_SERIES = 3
 
 
 @dataclass(frozen=True)
@@ -62,27 +76,26 @@ class Family:
     ``diverging`` and ``cyclic`` may be None, and are then derived from
     ``sequential``: the diverging map runs it backward to its dark end at
     zero and forward again, so a value's magnitude has the same color on
-    either side of zero (EMode's plot window colored a signed field this way),
-    and the cyclic map runs it forward and back so its ends meet.
+    either side of zero, and the cyclic map runs it forward and back so its
+    ends meet. The brand delivered a diverging map but no cyclic one.
     """
 
     sequential: tuple[str, ...]
     diverging: tuple[str, ...] | None = None
     cyclic: tuple[str, ...] | None = None
-    lines: tuple[str, ...] = _PLACEHOLDER_LINES
+    lines: tuple[str, ...] = tuple(SERIES)
 
 
 def delivered() -> Family:
-    """The family's colors. THE DROP-IN POINT: EMode's colormap replaces this body.
+    """The brand's colors: the "emode" and "emode_div" stops and the 8 series colors.
 
-    Return a ``Family`` with the delivered stops (``'#rrggbb'``, evenly spaced,
-    the sequential map from its dark end to its light end), leaving out what
-    is not delivered. Then regenerate the plot snapshots and the docs' figures
-    once. ``tests/test_colormaps.py`` checks what is delivered: the sequential
-    map monotonic in lightness, the diverging map symmetric in lightness, the
-    cyclic map's ends meeting and the line colors distinguishable.
+    The cyclic map is not delivered, so it derives from the sequential one
+    (``family()``). ``tests/test_colormaps.py`` holds what is delivered to the
+    brand files and to what a plot needs: the sequential map monotonic in
+    lightness, the diverging map symmetric about its center, and the line colors
+    distinguishable as the brand palette states it.
     """
-    return Family(sequential=_PLACEHOLDER_SEQUENTIAL, lines=_PLACEHOLDER_LINES)
+    return Family(sequential=_EMODE, diverging=_EMODE_DIV, lines=tuple(SERIES))
 
 
 # ------------------------------------------------------------------ the family
@@ -116,6 +129,8 @@ def kind_of(name: str) -> str | None:
     """The kind `name` is (a kind or a registered name), or None for any other map."""
     if name in KINDS:
         return name
+    if name in ALIASES:
+        return ALIASES[name]
     for kind, registered in MPL_NAMES.items():
         if name == registered:
             return kind
@@ -140,6 +155,91 @@ def line_palette() -> tuple[str, ...]:
     return family().lines
 
 
+def series_color(index: int, limit: int | None = None) -> str:
+    """The color of the series at `index` (0 for the first): its slot's, never cycling.
+
+    A series at or past `limit` (``MAX_SERIES`` unless a scatter plot, a map or small
+    multiples ask for ``SCATTER_SERIES``) is part of the one "Other" series, in Mist.
+    """
+    lines = line_palette()
+    cap = min(len(lines), MAX_SERIES if limit is None else limit)
+    return lines[index] if 0 <= index < cap else OTHER
+
+
+def series_label(index: int, label: str | None, limit: int | None = None) -> str | None:
+    """`label` for a series that has its own color, "Other" for the first folded one, else None.
+
+    The folded series share one legend entry, and a series without a label has none.
+    """
+    cap = min(len(line_palette()), MAX_SERIES if limit is None else limit)
+    if index < cap:
+        return label
+    return "Other" if index == cap and label is not None else None
+
+
+def figure_style(active: bool = True) -> Any:
+    """A context in which a new matplotlib figure is light (``plot_style``), or one that changes nothing.
+
+    The rc parameters change only inside the ``with`` block, and are restored when it ends.
+    """
+    if not active:
+        return contextlib.nullcontext()
+    return _matplotlib().rc_context(plot_style())
+
+
+def plot_style(mode: str = "light") -> dict[str, Any]:
+    """The matplotlib rc parameters of a brand figure: background, text, axes and grid from ``PLOT``.
+
+    ``mode`` is "light" (Chalk, Night Ink text, Charcoal axes, Haze grid), the default and
+    the only mode the interface uses, or "dark" for dark slides and figures. EMode's own
+    plots apply it with ``matplotlib.rc_context``, never to the global ``rcParams``, since
+    this client runs in the user's own Python.
+    """
+    if mode not in PLOT:
+        raise ArgumentError(f"mode is 'light' or 'dark', got {mode!r}", "plot_style", "mode")
+    colors = PLOT[mode]
+    return {
+        "figure.facecolor": colors["background"],
+        "axes.facecolor": colors["background"],
+        "savefig.facecolor": colors["background"],
+        "text.color": colors["text"],
+        "axes.labelcolor": colors["text"],
+        "axes.titlecolor": colors["text"],
+        "xtick.color": colors["axes"],
+        "ytick.color": colors["axes"],
+        "xtick.labelcolor": colors["text"],
+        "ytick.labelcolor": colors["text"],
+        "axes.edgecolor": colors["axes"],
+        "grid.color": colors["grid"],
+        "legend.frameon": False,
+    }
+
+
+def use_style(mode: str = "light") -> None:
+    """Style the user's own matplotlib figures with the brand colors, as the brand's ``use_style`` does.
+
+    Registers "emode" and "emode_div" (and the ``NAMES``), makes "emode" the default image
+    colormap, and sets the background, text, axes, grid and series colors of ``mode``
+    ("light" or "dark") in the global ``rcParams``. Call it once in a script; EMode's own
+    plots never call it. Matplotlib's color cycle repeats after the 8th line, so a plot of
+    more than 8 series should color them with ``series_color``, which folds the rest into
+    "Other".
+    """
+    style = plot_style(mode)
+    matplotlib = _matplotlib()
+    from cycler import cycler
+
+    register()
+    matplotlib.rcParams.update({
+        **style,
+        "grid.linewidth": 0.8,
+        "axes.prop_cycle": cycler(color=PLOT[mode]["series"]),
+        "lines.linewidth": 2.0,
+        "lines.markersize": 7,
+        "image.cmap": "emode",
+    })
+
+
 def plotly_colorscale(kind: str) -> list[list[Any]]:
     """`kind` (or its registered name) as a Plotly colorscale, ``[[position, color], ...]``."""
     return [[p, c] for p, c in stops(kind)]
@@ -161,43 +261,35 @@ def _rgb(color: str) -> tuple[int, int, int]:
     return int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
 
 
-def _tint(color: str, white: float) -> str:
-    """`color` mixed with white, `white` the white's share (0 to 1)."""
-    return "#" + "".join(f"{round(c + white * (255 - c)):02x}" for c in _rgb(color))
-
-
-def _line(i: int) -> str:
-    lines = line_palette()
-    return lines[i % len(lines)]
-
-
 def schematic_colors() -> dict[str, str]:
-    """The schematic's colors, from the line palette: blocks, launch, monitors, connections."""
+    """The schematic's colors, all palette colors: blocks, launch, monitors, connections."""
     return {
-        "block_edge": _line(0),
-        "block_face": _tint(_line(0), 0.88),
-        "text": "#1f2933",
-        "launch": _line(1),
-        "monitor": _line(2),
-        "connection": _line(5),
+        "text": GUI["text"],
+        "block_face": BRAND["Haze"],
+        "block_edge": SERIES[0],
+        "launch": SERIES[1],
+        "monitor": SERIES[2],
+        "connection": BRAND["Charcoal"],
     }
 
 
 def overlay_colors() -> dict[str, str]:
     """The colors of the lines drawn over a field panel and between schematic blocks.
 
-    The overlays are bright and saturated so they read on any colormap, and are
-    not taken from the line palette.
+    The overlays sit on the field maps, whose background is the dark end, so they take the
+    series colors stepped for dark backgrounds: the port is slot 3 (teal), the facet slot 1
+    (blue), the monitor slot 4 (coral) and the slice slot 2 (orange). The waveguide outline is
+    white, as in the brand's reference mode plot, and the connections are Haze.
     """
     return {
         "outline": "#ffffff",
-        "port": "#00ff00",
-        "facet": "#00bfbf",
-        "monitor": "#bf00bf",
-        "slice": "#ff4040",
-        "connection": _line(5),
-        "loop": _line(5),
-        "stub": _line(5),
+        "port": SERIES_DARK[2],
+        "facet": SERIES_DARK[0],
+        "monitor": SERIES_DARK[3],
+        "slice": SERIES_DARK[1],
+        "connection": BRAND["Haze"],
+        "loop": BRAND["Haze"],
+        "stub": BRAND["Haze"],
     }
 
 
@@ -230,8 +322,13 @@ def register() -> tuple[str, ...]:
 
     for kind, name in MPL_NAMES.items():
         if name not in matplotlib.colormaps:
-            cmap = LinearSegmentedColormap.from_list(name, stops(kind), N=256)
+            points = stops(kind)
+            cmap = LinearSegmentedColormap.from_list(name, points, N=max(256, len(points)))
             matplotlib.colormaps.register(cmap, name=name)
+    for alias, kind in ALIASES.items():
+        # the brand's own files register these names too: the first to arrive wins
+        if alias not in matplotlib.colormaps:
+            matplotlib.colormaps.register(matplotlib.colormaps[MPL_NAMES[kind]], name=alias)
     return NAMES
 
 
@@ -245,7 +342,7 @@ def get(name: str = "sequential") -> Any:
     kind = kind_of(name)
     if kind is not None:
         register()
-        return matplotlib.colormaps[MPL_NAMES[kind]]
+        return matplotlib.colormaps[name if name in ALIASES else MPL_NAMES[kind]]
     return matplotlib.colormaps[name]
 
 
@@ -266,7 +363,7 @@ def check_colormap(name: Any, function: str = "plot") -> str:
     colormap matplotlib has registered.
     """
     choices = (
-        f"one of EMode's colormaps ({', '.join(NAMES)}), a kind ({', '.join(KINDS)}), "
+        f"one of EMode's colormaps ({', '.join(NAMES + tuple(ALIASES))}), a kind ({', '.join(KINDS)}), "
         "or the name of a colormap matplotlib has registered"
     )
     if isinstance(name, str) and kind_of(name) is not None:

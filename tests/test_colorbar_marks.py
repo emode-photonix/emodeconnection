@@ -159,7 +159,7 @@ def _check_marks(figure: Dict[str, Any], levels: List[float]) -> None:
     if any(v >= 0 for v in levels):
         groups.append(([v for v in levels if v >= 0], "0,0,0"))
     if any(v < 0 for v in levels):
-        groups.append(([v for v in levels if v < 0], "255,255,255"))
+        groups.append(([v for v in levels if v < 0], "0,0,0"))  # black on both sides, as the brand reference
     assert bars and len(overlays) == len(bars) * len(groups), (
         "one clear bar of marks per sign over each shown bar"
     )
@@ -271,7 +271,7 @@ def test_plotly_marks_draw_at_the_contour_lines_width_and_ink():
     for _, overlay in _overlays(figure):
         clear = overlay["marker"]["colorbar"]
         assert clear["tickwidth"] == width
-        alpha = re.fullmatch(r"rgba\((?:0,0,0|255,255,255),([0-9.]+)\)", clear["tickcolor"].replace(" ", ""))
+        alpha = re.fullmatch(r"rgba\(0,0,0,([0-9.]+)\)", clear["tickcolor"].replace(" ", ""))
         assert alpha, clear["tickcolor"]
         # Plotly draws a tick at least one whole pixel, so a mark of the same ink as a line
         # narrower than that has the line's opacity times its width (#199)
@@ -313,5 +313,5 @@ def test_matplotlib_marks_take_their_contours_colors():
     ]
     assert len(marks) == 1
     colors = [tuple(c[:3]) for c in marks[0].get_edgecolor()]
-    expected = [(0.0, 0.0, 0.0) if v >= 0 else (1.0, 1.0, 1.0) for v in spec.colorbar.lines]
+    expected = [(0.0, 0.0, 0.0) for _ in spec.colorbar.lines]  # black on both sides, as the brand reference
     assert colors == [pytest.approx(e) for e in expected]

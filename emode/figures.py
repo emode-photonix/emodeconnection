@@ -26,7 +26,7 @@ on the same x axis::
 A panel's ``style`` is a short string as in matplotlib: ``'-'`` (solid),
 ``'--'`` (dashed), ``':'`` (dotted), a marker (``'o'``, ``'s'``, ``'^'``,
 ``'D'``, ``'>'``, ``'<'``), or both (``'o-'``). ``color`` is an index into
-EMode's line palette or a color (``'#3634A3'``, ``'gray'``).
+EMode's line palette or a color (``'#3957C2'``, ``'gray'``).
 """
 from __future__ import annotations
 
