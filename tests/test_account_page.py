@@ -611,3 +611,11 @@ def test_the_error_reporting_note_is_short_and_the_same_in_python_and_the_page()
     assert m, "the page sets its note as one string"
     assert m.group(1) == SETTINGS_EXPLANATION
     assert len(SETTINGS_EXPLANATION) <= 120
+
+
+def test_the_browser_sign_in_is_offered_unless_turned_off(monkeypatch):
+    """The browser sign-in is the default way in, and EMODE_DEVICE_SIGNIN=0 hides it."""
+    monkeypatch.delenv("EMODE_DEVICE_SIGNIN", raising=False)
+    assert account.device_signin_offered() is True
+    monkeypatch.setenv("EMODE_DEVICE_SIGNIN", "0")
+    assert account.device_signin_offered() is False
