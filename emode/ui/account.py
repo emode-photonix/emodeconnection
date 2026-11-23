@@ -75,10 +75,10 @@ _POSTS = {
 def device_signin_offered() -> bool:
     """Whether the page offers "Sign in with your browser" (the device code of a two-factor account).
 
-    Off until the license manager's device endpoints are live: ``EMODE_DEVICE_SIGNIN=1``
-    turns it on. A status from EMode that says ``device`` decides instead.
+    On by default, since the license manager's device endpoints are live. ``EMODE_DEVICE_SIGNIN=0``
+    hides it. A status from EMode that says ``device`` decides instead.
     """
-    return os.environ.get("EMODE_DEVICE_SIGNIN") == "1"
+    return os.environ.get("EMODE_DEVICE_SIGNIN") != "0"
 
 
 def is_login_required(error: BaseException) -> bool:
