@@ -397,13 +397,18 @@ def ensure_server(em: "EMode") -> UIServer:
                 raise EModeError("EMode answered session_info() with something this client cannot read.")
             return info.model_dump(mode="json")
 
+        def login(function: str, **kwargs: Any) -> Any:
+            if not em.running:
+                raise EModeError("This EMode session has ended. Start a new one to sign in.")
+            return em.call(function, **kwargs)
+
         server = UIServer(
             em._views,
             refetch,
             clock=clock,
             session_info=session_info,
             details=lambda component: fetch_details(em, component),
-            login=lambda function, **kwargs: em.call(function, **kwargs),
+            login=login,
             emode_version=em._emode_version,
             generation=lambda: em.generation,
             inventory=lambda: fetch_inventory(em),
