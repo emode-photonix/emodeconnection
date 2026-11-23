@@ -17,8 +17,9 @@ agree. ``plot(colormap=...)`` picks another map by name (``check_colormap``).
 script's own matplotlib figure can name them as the brand's files do.
 
 **The colors.** ``BRAND``, ``SERIES``, ``SERIES_DARK``, ``GUI`` and ``PLOT`` are the
-brand palette (``emode_palette.py``) and the two maps are the brand's colormap files,
-copied verbatim. Nothing in EMode invents or mixes a color: every color a plot or the
+brand palette (``emode_palette.json``) and the two maps are the brand's colormap files,
+loaded verbatim into ``emode._brand`` by ``scripts/sync_brand_colors.py``. Nothing in
+EMode invents or mixes a color: every color a plot or the
 browser interface draws is one of these. ``tests/test_colormaps.py`` compares them with the
 brand files when those are present. ``delivered()`` is the one function that gathers
 the delivery, and ``family()`` fills in what is not delivered.
@@ -37,6 +38,10 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+# The brand's colors, generated from its color files by scripts/sync_brand_colors.py.
+from ._brand import BRAND, GUI, PLOT, RULES, SERIES, SERIES_DARK, SERIES_NAMES  # noqa: F401 (re-exported)
+from ._brand import EMODE as _EMODE
+from ._brand import EMODE_DIV as _EMODE_DIV
 from .types import ArgumentError, EModeError
 
 KINDS = ("sequential", "diverging", "cyclic")
@@ -50,182 +55,6 @@ NAMES = tuple(MPL_NAMES.values())
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 # ------------------------------------------------------------------ the brand's colors
-
-#: The brand's "emode" colormap (emode_field_colormap.py), 256 stops from Night Ink to Chalk, verbatim.
-_EMODE = (
-    "#10151F", "#141623", "#111725", "#0F1826", "#151829", "#14192A", "#14192D", "#141A2F",
-    "#131B30", "#111C32", "#0F1D34", "#161D36", "#141E38", "#131F3A", "#12203C", "#11213E",
-    "#0F2240", "#162242", "#132344", "#192248", "#182249", "#17234B", "#15254D", "#14264F",
-    "#192752", "#182753", "#152855", "#132857", "#19295A", "#1A295C", "#1B2A5E", "#182C60",
-    "#162C62", "#132D65", "#192C68", "#182E69", "#182F6B", "#182F6E", "#163070", "#133172",
-    "#1A3175", "#1F3076", "#243179", "#23327B", "#22337E", "#213380", "#1E3481", "#213686",
-    "#1C3787", "#1F3787", "#253889", "#243A8B", "#243B8C", "#243D8D", "#253F88", "#243F8E",
-    "#22418F", "#294191", "#2D4092", "#304091", "#383F93", "#3B3F92", "#3F3F92", "#453D95",
-    "#453F95", "#424097", "#444095", "#494099", "#4D4099", "#504098", "#514097", "#534095",
-    "#584099", "#5A3F99", "#5C3F99", "#5F3F99", "#613F97", "#674099", "#683F9A", "#6A3F98",
-    "#6D3F98", "#6E4097", "#6F3F98", "#723F95", "#754199", "#774098", "#793F97", "#7B3F97",
-    "#7D4096", "#7F4096", "#823F94", "#843E92", "#853F91", "#884096", "#8A4095", "#8C4095",
-    "#8E4194", "#914093", "#933F92", "#963E8D", "#973F88", "#9D3D86", "#9F3D86", "#A13D85",
-    "#A23E84", "#A44189", "#A54089", "#A74087", "#A84185", "#AA4085", "#AC4085", "#AE4184",
-    "#B04283", "#B24182", "#B44180", "#B6407C", "#B84077", "#BA4076", "#BC4175", "#BE4175",
-    "#BF4274", "#C14273", "#C24371", "#C5426E", "#C74267", "#C84365", "#CA4463", "#CB4364",
-    "#CD4463", "#CE4661", "#CF4760", "#D1475F", "#D34964", "#D54B62", "#D74C60", "#D84D5F",
-    "#DA4E67", "#DC5066", "#DD5165", "#DF5363", "#E15461", "#E2555F", "#E45764", "#E55862",
-    "#E65960", "#E75B5B", "#E85C58", "#EA5E57", "#EB5F57", "#EB6056", "#EC6254", "#ED6353",
-    "#EE6551", "#EE6650", "#EF6857", "#F06A56", "#F16B55", "#F16D55", "#F26F54", "#F47159",
-    "#F47258", "#F47456", "#F47654", "#F67859", "#F5795A", "#F57B59", "#F57D5B", "#F57F5F",
-    "#F88163", "#F88361", "#F78560", "#F7865F", "#F88964", "#F88B64", "#F88D64", "#F88F64",
-    "#F99269", "#FB926B", "#FC926D", "#FE926F", "#FD9674", "#FD9872", "#FD9971", "#FC9B71",
-    "#FC9D71", "#FD9E71", "#FDA071", "#FDA170", "#FCA377", "#FCA575", "#FCA773", "#FCA872",
-    "#FCAA71", "#FCAC71", "#FCAD71", "#FCAF71", "#FCB170", "#FCB26F", "#FCB476", "#FCB674",
-    "#FCB773", "#FCBA71", "#FBBC71", "#FDBC71", "#FDBE71", "#FDC071", "#FDC170", "#FDC26F",
-    "#FFC26F", "#FDC674", "#FDC872", "#FDC971", "#FDCB71", "#FCCC71", "#FACF71", "#F9D26B",
-    "#FBD26B", "#FED26D", "#FFD26F", "#F9D575", "#FCD674", "#FCD980", "#FED881", "#FDDA89",
-    "#FDDB8B", "#FDDC8F", "#FDDE8F", "#FCDF98", "#FAE098", "#F7E19C", "#F9E4A4", "#FCE4A4",
-    "#FBE8AA", "#FAE8AF", "#FCE7B1", "#FFE6B2", "#FEE8B9", "#FFE8BC", "#FFE8BF", "#FDEBC8",
-    "#FCEDC8", "#F8EFCA", "#F7F1CD", "#F7F1D0", "#F9F2D6", "#F5F3DB", "#F9F6E2", "#F9F7E1",
-    "#FCF6E2", "#FFF6E2", "#FDF8E9", "#FEF8EC", "#FFF8F0", "#FFF9F8", "#FFFBF8", "#FDFCF8",
-)
-
-#: The brand's "emode_div" colormap (emode_field_colormap_diverging.py), 511 stops, verbatim. Zero is the middle
-#: stop, the favicon blue #1F2D50.
-_EMODE_DIV = (
-    "#F8FAFF", "#F8F9FF", "#F8F9FE", "#F1F7FF", "#F2F6FF", "#F2F6FE", "#F3F5FF", "#F3F5FE",
-    "#F4F4FE", "#E7F1FF", "#E7F1FE", "#E8F0FF", "#E8F0FE", "#E8EFFE", "#E8EEFE", "#E8EDFE",
-    "#E8ECFD", "#E8EBFD", "#E0E8FD", "#E0E8FC", "#DFE8FD", "#DEE8FD", "#DCE8FD", "#DBE8FD",
-    "#D9E8FE", "#D4E4FC", "#D5E3FB", "#D6E2FB", "#D6E2FA", "#D7E1FA", "#D1E0F7", "#D0DFF8",
-    "#D0DEF8", "#D0DDF8", "#CFDCF8", "#CEDBF8", "#CDDAF8", "#CCDAF8", "#CBD9F8", "#CAD8F9",
-    "#C9D8F9", "#C6D6F5", "#C6D5F6", "#C5D5F7", "#C6D4F7", "#C2D2F4", "#C1D2F5", "#C2D1F5",
-    "#C1D1F6", "#BED0F8", "#BDCFF8", "#BCCEF8", "#B8CCF0", "#B8CBF0", "#B7CBF1", "#B7CAF1",
-    "#B7C9F1", "#B7C8F2", "#B6C8F3", "#B2C6F0", "#B3C5F0", "#B3C5EF", "#B3C4F1", "#B2C4F2",
-    "#ADC4F4", "#A7C1EF", "#A8C0EE", "#A8C0ED", "#A8BFED", "#A8BEEC", "#A8BDEC", "#A8BCEB",
-    "#A8BBEB", "#A8BAEA", "#A8B9E9", "#A1B8E8", "#A2B7E8", "#A1B7E9", "#A2B6E9", "#9FB4E4",
-    "#9EB3E5", "#9CB3E5", "#9BB2E6", "#9AB2E6", "#99B1E7", "#99B0E8", "#94AFE4", "#94AEE4",
-    "#94ADE4", "#94ACE4", "#94ABE4", "#94AAE4", "#8FA9E0", "#90A8E0", "#8FA8E1", "#8EA7E2",
-    "#8CA7E2", "#8BA6E3", "#89A6E3", "#86A3E0", "#86A3DF", "#87A2DE", "#88A1DE", "#89A0DD",
-    "#899FDC", "#809FDD", "#809EDC", "#809DDC", "#809CDB", "#809BDA", "#809ADA", "#8099DA",
-    "#8099D9", "#7D96D4", "#7C95D5", "#7A95D5", "#7895D6", "#7994D6", "#7894D7", "#7492D4",
-    "#7591D4", "#7491D5", "#7590D5", "#708FD2", "#708ED2", "#708DD2", "#708CD2", "#6E8CD3",
-    "#6D8BD3", "#6C8AD3", "#6B8AD3", "#6A89D3", "#6587CE", "#6686CD", "#6686CC", "#6785CC",
-    "#6884CB", "#6884CA", "#6282C8", "#6381C8", "#6281C9", "#6380C9", "#5F7FC5", "#5F7EC5",
-    "#5F7DC5", "#5E7DC5", "#5E7CC5", "#5D7BC5", "#5C7AC5", "#5B7AC5", "#5A79C5", "#5777C0",
-    "#5777BF", "#5876BF", "#5975BE", "#5975BD", "#5273BD", "#5372BC", "#5372BB", "#5471BA",
-    "#5471B9", "#5570B9", "#4F6FB7", "#4F6EB7", "#506DB6", "#506CB6", "#4E6CB7", "#4D6BB7",
-    "#4C6AB7", "#4C67B0", "#4B67B0", "#4A67B0", "#4967B0", "#4A66B1", "#4966B1", "#4364AE",
-    "#4463AD", "#4562AD", "#4562AC", "#4661AB", "#4760AA", "#405FA8", "#405EA8", "#415EA7",
-    "#415DA7", "#415CA7", "#415BA7", "#425AA6", "#3E58A1", "#3D58A1", "#3C58A1", "#3B57A2",
-    "#3A57A2", "#3957A2", "#3455A0", "#35549F", "#36539E", "#36539D", "#37529C", "#38519B",
-    "#30509A", "#314F99", "#324F98", "#324E98", "#334D97", "#334C97", "#344B96", "#2F4B92",
-    "#2F4A92", "#2E4992", "#2D4992", "#2C4893", "#2B4893", "#26468F", "#27458F", "#27458E",
-    "#28448D", "#29438C", "#29438B", "#29438A", "#244187", "#254087", "#263F87", "#273F86",
-    "#283E85", "#223E82", "#233D81", "#233C81", "#243C80", "#253B7E", "#253A7C", "#25397B",
-    "#253979", "#1F3877", "#203876", "#223775", "#233774", "#1F3670", "#20366F", "#21356D",
-    "#21356B", "#213569", "#233567", "#1F3463", "#223361", "#233360", "#24335D", "#25325B",
-    "#253259", "#203057", "#213056", "#223055", "#232F55", "#1F2E50", "#1E2E50", "#1F2D50",
-    "#202D4F", "#202E4F", "#262F52", "#253052", "#263051", "#273050", "#27314F", "#2A3354",
-    "#2C3354", "#2E3453", "#303452", "#313451", "#323450", "#353654", "#363653", "#373652",
-    "#383651", "#3A3650", "#3B374F", "#3D374F", "#403955", "#413954", "#413A54", "#423A53",
-    "#433B52", "#443B51", "#483C56", "#493C55", "#493D55", "#4B3D55", "#4C3E55", "#4E3E55",
-    "#4F3F55", "#503F54", "#513F53", "#554156", "#564155", "#574154", "#584153", "#5A4152",
-    "#5B4152", "#5C4458", "#5E4458", "#604457", "#614456", "#624455", "#634454", "#664658",
-    "#674657", "#684656", "#6A4655", "#6B4655", "#6C4754", "#6E4754", "#6F4754", "#724958",
-    "#734957", "#744956", "#754955", "#754A55", "#764A54", "#784A52", "#7B4A51", "#804B59",
-    "#804C59", "#814C58", "#814D58", "#824D57", "#834D56", "#844D55", "#894E59", "#894F59",
-    "#8A4F59", "#8C4F59", "#8E4F59", "#8F5058", "#905057", "#924F56", "#934F55", "#965159",
-    "#975158", "#985157", "#9A5156", "#9B5156", "#9D5156", "#9E5255", "#A05255", "#A35459",
-    "#A3545A", "#A45458", "#A55457", "#A65456", "#A95759", "#AA5759", "#AB5759", "#AD5759",
-    "#AF5759", "#B05759", "#B25757", "#B35756", "#B45755", "#B75959", "#B85958", "#BA5957",
-    "#BB5957", "#BD5957", "#BE5A57", "#C05A57", "#C15A56", "#C25A55", "#C35B54", "#C75C59",
-    "#C85C58", "#C95C57", "#CA5D57", "#CC5D57", "#CE5D57", "#CF5E57", "#D15E56", "#D25E55",
-    "#D35F54", "#D45F53", "#D65F51", "#D86156", "#D96155", "#DA6254", "#DC6254", "#DD6353",
-    "#DF6353", "#E16352", "#E26450", "#E3644F", "#E4634F", "#E66752", "#E76751", "#E86750",
-    "#E8684E", "#E76A4F", "#E76B4F", "#E76C4F", "#E76D4F", "#EA7055", "#EB7154", "#EC7253",
-    "#EC7352", "#ED7352", "#EE7451", "#EE7757", "#EE7856", "#EF7955", "#EF7A55", "#EF7C55",
-    "#F07D55", "#F07E55", "#F07F55", "#F28259", "#F1835A", "#F0845A", "#F08558", "#F08657",
-    "#F4895C", "#F48A5D", "#F38C60", "#F38D60", "#F38E60", "#F38F60", "#F3905F", "#F49364",
-    "#F39464", "#F39563", "#F39662", "#F49967", "#F49A67", "#F49B67", "#F49C67", "#F49D67",
-    "#F39F68", "#F3A068", "#F3A167", "#F7A46C", "#F6A56D", "#F5A66E", "#F4A76F", "#F3A86F",
-    "#F5AB75", "#F5AC75", "#F4AE76", "#F4AF76", "#F4B076", "#F3B176", "#F3B275", "#F5B57A",
-    "#F4B67B", "#F3B77D", "#F2B87E", "#F1BA7F", "#F1BB7F", "#F3BD86", "#F3BE86", "#F2C087",
-    "#F1C187", "#F0C287", "#F0C386", "#F3C68C", "#F2C78E", "#F1C88F", "#F0C98F", "#F0CA8F",
-    "#F1CC97", "#F1CD97", "#F0CE98", "#F0CF98", "#EFD098", "#F0D098", "#F2D3A3", "#F1D4A3",
-    "#F0D5A3", "#F0D6A2", "#F0D8A9", "#F1D8A8", "#F0D9A8", "#F0DAA8", "#F0DBA8", "#F4DDB4",
-    "#F3DEB5", "#F2DFB6", "#F2E0B6", "#F1E1B6", "#F5E3BA", "#F5E3BC", "#F4E4BE", "#F3E5C0",
-    "#F2E6C0", "#F5E7C5", "#F4E8C5", "#F8E9C9", "#F8EACB", "#F8EBCD", "#F7ECD1", "#F6EDD2",
-    "#F5EED3", "#F8EFD9", "#F8F0DA", "#F7F1DD", "#F6F2E0", "#F9F4E4", "#FAF4E4", "#FBF4E4",
-    "#F9F8EC", "#FAF8EE", "#FBF8F0", "#FCF8F0", "#FBFBF8", "#FCFBF8", "#FDFCF8",
-)
-
-#: The brand palette (emode_palette.py), verbatim. Every hex follows the brand's digit rule.
-BRAND = {
-    # Neutrals
-    "Chalk":     "#FDFCF8",  # page background
-    "Haze":      "#E5E3DD",  # hairlines, borders, light panels
-    "Mist":      "#9B9A98",  # disabled, placeholder (2.7:1 on Chalk: not for text that must be read)
-    "Charcoal":  "#535256",  # secondary text (7.6:1 on Chalk)
-    "Ink":       "#201A23",
-    "Night Ink": "#10151F",  # body text, dark backgrounds
-    # Brand colors
-    "Blue":      "#253F88",  # wordmark, links, primary buttons
-    "Coral":     "#F03A5F",  # logo gradient start
-    "Orange":    "#FE5F3E",  # logo gradient middle, highlights (3.0:1 on Chalk: large text or marks only)
-    "Amber":     "#FCBA71",
-    "Gold":      "#F9D575",  # logo gradient end (not a text color on light)
-    "Favicon":   "#1F2D50",  # favicon square, field-plot background (emode_div centre)
-    # Status (reserved: state only, always with an icon or label)
-    "Success":   "#227636",
-    "Error":     "#8E1719",
-}
-
-SERIES_NAMES = ["blue", "orange", "teal", "coral", "violet", "ochre", "plum", "green"]
-
-SERIES = [          # light backgrounds (Chalk / white)
-    "#3957C2",      # 1 blue    (Blue, lifted for lines)
-    "#FE5F3E",      # 2 orange  (brand Orange, exact)
-    "#23A3A0",      # 3 teal
-    "#CC2150",      # 4 coral   (brand Coral, deepened for contrast)
-    "#A979F1",      # 5 violet
-    "#B88523",      # 6 ochre   (Gold"s hue, darkened to read on light)
-    "#A93680",      # 7 plum
-    "#3FA050",      # 8 green
-]
-
-SERIES_DARK = [     # dark backgrounds (Night Ink / Favicon blue)
-    "#395FC9",      # 1 blue
-    "#D33F20",      # 2 orange
-    "#2AA6A0",      # 3 teal
-    "#CA2150",      # 4 coral
-    "#A377E9",      # 5 violet
-    "#BC8828",      # 6 ochre
-    "#B03986",      # 7 plum
-    "#52A955",      # 8 green
-]
-
-GUI = {  # light mode (the site is light-only for now)
-    "background":     "#FDFCF8",  # Chalk
-    "surface":        "#FDFCF8",  # cards and panels sit on Chalk, separated by a Haze border
-    "surface_alt":    "#E5E3DD",  # Haze: table stripes, sidebars, selected rows
-    "border":         "#E5E3DD",  # Haze
-    "text":           "#10151F",  # Night Ink, 17.8:1
-    "text_secondary": "#535256",  # Charcoal, 7.6:1
-    "text_disabled":  "#9B9A98",  # Mist
-    "link":           "#253F88",  # Blue, 9.5:1
-    "primary":        "#253F88",  # Blue buttons
-    "primary_text":   "#FDFCF8",  # Chalk on Blue
-    "primary_hover":  "#263870",
-    "focus":          "#253F88",
-    "highlight":      "#FE5F3E",  # Orange: active tab underline, badges, icons (not small text)
-    "success":        "#227636",  # 5.5:1
-    "error":          "#8E1719",  # 9.0:1
-    "warning_fill":   "#FCBA71",  # Amber fill with Night Ink text (10.8:1)
-}
-
-PLOT = {
-    "light": {"background": "#FDFCF8", "text": "#10151F", "axes": "#535256",
-              "grid": "#E5E3DD", "series": SERIES},
-    "dark":  {"background": "#10151F", "text": "#E5E3DD", "axes": "#9B9A98",
-              "grid": "#2B303E", "series": SERIES_DARK},
-}
 
 #: The kind each brand colormap name is an alias of.
 ALIASES = {"emode": "sequential", "emode_div": "diverging"}
@@ -358,28 +187,57 @@ def figure_style(active: bool = True) -> Any:
     return _matplotlib().rc_context(plot_style())
 
 
-def plot_style() -> dict[str, Any]:
-    """The matplotlib rc parameters of a light figure: Chalk, Night Ink text, Charcoal axes, Haze grid.
+def plot_style(mode: str = "light") -> dict[str, Any]:
+    """The matplotlib rc parameters of a brand figure: background, text, axes and grid from ``PLOT``.
 
-    Apply it with ``matplotlib.rc_context``, never to the global ``rcParams``, since this
-    client runs in the user's own Python.
+    ``mode`` is "light" (Chalk, Night Ink text, Charcoal axes, Haze grid), the default and
+    the only mode the interface uses, or "dark" for dark slides and figures. EMode's own
+    plots apply it with ``matplotlib.rc_context``, never to the global ``rcParams``, since
+    this client runs in the user's own Python.
     """
-    light = PLOT["light"]
+    if mode not in PLOT:
+        raise ArgumentError(f"mode is 'light' or 'dark', got {mode!r}", "plot_style", "mode")
+    colors = PLOT[mode]
     return {
-        "figure.facecolor": light["background"],
-        "axes.facecolor": light["background"],
-        "savefig.facecolor": light["background"],
-        "text.color": light["text"],
-        "axes.labelcolor": light["text"],
-        "axes.titlecolor": light["text"],
-        "xtick.color": light["axes"],
-        "ytick.color": light["axes"],
-        "xtick.labelcolor": light["text"],
-        "ytick.labelcolor": light["text"],
-        "axes.edgecolor": light["axes"],
-        "grid.color": light["grid"],
+        "figure.facecolor": colors["background"],
+        "axes.facecolor": colors["background"],
+        "savefig.facecolor": colors["background"],
+        "text.color": colors["text"],
+        "axes.labelcolor": colors["text"],
+        "axes.titlecolor": colors["text"],
+        "xtick.color": colors["axes"],
+        "ytick.color": colors["axes"],
+        "xtick.labelcolor": colors["text"],
+        "ytick.labelcolor": colors["text"],
+        "axes.edgecolor": colors["axes"],
+        "grid.color": colors["grid"],
         "legend.frameon": False,
     }
+
+
+def use_style(mode: str = "light") -> None:
+    """Style the user's own matplotlib figures with the brand colors, as the brand's ``use_style`` does.
+
+    Registers "emode" and "emode_div" (and the ``NAMES``), makes "emode" the default image
+    colormap, and sets the background, text, axes, grid and series colors of ``mode``
+    ("light" or "dark") in the global ``rcParams``. Call it once in a script; EMode's own
+    plots never call it. Matplotlib's color cycle repeats after the 8th line, so a plot of
+    more than 8 series should color them with ``series_color``, which folds the rest into
+    "Other".
+    """
+    style = plot_style(mode)
+    matplotlib = _matplotlib()
+    from cycler import cycler
+
+    register()
+    matplotlib.rcParams.update({
+        **style,
+        "grid.linewidth": 0.8,
+        "axes.prop_cycle": cycler(color=PLOT[mode]["series"]),
+        "lines.linewidth": 2.0,
+        "lines.markersize": 7,
+        "image.cmap": "emode",
+    })
 
 
 def plotly_colorscale(kind: str) -> list[list[Any]]:

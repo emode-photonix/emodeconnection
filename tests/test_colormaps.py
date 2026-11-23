@@ -175,6 +175,67 @@ def test_the_palette_constants_equal_the_brand_palette():
         assert getattr(colormaps, name) == _brand_assignment("emode_palette.py", name), name
 
 
+@needs_brand_files
+def test_the_generated_brand_module_is_current_with_the_brand_files():
+    """``emode/_brand.py`` is what ``scripts/sync_brand_colors.py`` writes from today's brand files."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location("sync_brand_colors", root / "scripts/sync_brand_colors.py")
+    sync = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sync)
+    assert (root / "emode/_brand.py").read_text() == sync.render(BRAND_DIR), "rerun scripts/sync_brand_colors.py"
+
+
+def test_the_palette_is_loaded_from_the_generated_brand_module():
+    from emode import _brand
+
+    for name in ("BRAND", "SERIES", "SERIES_DARK", "SERIES_NAMES", "GUI", "PLOT", "RULES"):
+        assert getattr(colormaps, name) is getattr(_brand, name), name
+    given = colormaps.delivered()
+    assert given.sequential is _brand.EMODE and given.diverging is _brand.EMODE_DIV
+
+
+def test_no_module_names_a_matplotlib_colormap():
+    """Every map is the brand's: no module of the package names plasma, viridis or another stock map."""
+    stock = {"plasma", "viridis", "inferno", "magma", "cividis", "jet", "turbo", "hsv", "twilight",
+             "coolwarm", "seismic", "bwr", "RdBu", "RdBu_r", "Blues", "Reds", "Greens", "gray"}
+    package = Path(colormaps.__file__).parent
+    found = []
+    for path in package.rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Constant) and node.value in stock:
+                found.append(f"{path.relative_to(package)}:{node.lineno} {node.value!r}")
+    assert not found, found
+
+
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_use_style_registers_the_brand_maps_and_sets_the_mode(mode):
+    with mpl.rc_context():
+        colormaps.use_style(mode)
+        params = mpl.rcParams
+        assert {"emode", "emode_div", *colormaps.NAMES} <= set(mpl.colormaps)
+        assert params["image.cmap"] == "emode"
+        assert params["axes.prop_cycle"].by_key()["color"] == colormaps.PLOT[mode]["series"]
+        assert params["figure.facecolor"] == colormaps.PLOT[mode]["background"]
+        assert params["text.color"] == colormaps.PLOT[mode]["text"]
+    assert mpl.rcParams["image.cmap"] != "emode" or mpl.rcParamsDefault["image.cmap"] == "emode"
+
+
+def test_the_brand_maps_are_the_delivered_stops():
+    colormaps.register()
+    for alias, given in (("emode", colormaps.delivered().sequential), ("emode_div", colormaps.delivered().diverging)):
+        cmap = mpl.colormaps[alias]
+        assert mpl.colors.to_hex(cmap(0.0)).upper() == given[0].upper()
+        assert mpl.colors.to_hex(cmap(1.0)).upper() == given[-1].upper()
+    assert mpl.colors.to_hex(mpl.colormaps["emode_div"](0.5)).upper() == "#1F2D50"
+
+
+def test_plot_style_refuses_an_unknown_mode():
+    with pytest.raises(ArgumentError):
+        colormaps.plot_style("sepia")
+
+
 def test_the_diverging_map_has_an_odd_number_of_stops_so_zero_has_one():
     stops = colormaps.stops("diverging")
     assert stops[len(stops) // 2][0] == 0.5
