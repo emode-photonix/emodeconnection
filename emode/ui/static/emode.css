@@ -5,8 +5,11 @@
   --panel-alt: #E5E3DD;   /* GUI surface_alt, Haze: selected rows, notices, stripes */
   --text: #10151F;        /* GUI text, Night Ink */
   --muted: #535256;       /* GUI text_secondary, Charcoal */
-  --accent: #253F88;      /* GUI primary, Blue */
+  --accent: #305ACF;      /* GUI primary, link and focus: Blue */
+  --accent-hover: #253F88; /* GUI primary_hover: Logo Blue, for hover and pressed states of Blue */
   --accent-text: #FDFCF8; /* GUI primary_text, Chalk on Blue */
+  --success: #3EA23F;     /* GUI success: icons, badges and fills, never small text */
+  --success-text: #018656; /* GUI success_text: small success text */
   --line: #E5E3DD;        /* GUI border, Haze */
   --warn: #8E1719;        /* GUI error, only for error text, which always has words with it */
   --shadow: rgba(16, 21, 31, 0.25); /* Night Ink at 25% */
@@ -118,6 +121,8 @@ body.embed #app { height: 100vh; }
 #account button.wide { width: 100%; min-height: 38px; }
 #account button:focus-visible, #account input:focus-visible, #account select:focus-visible, #account a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #account a { color: var(--accent); }
+#account a:hover { color: var(--accent-hover); }
+#controls button.primary:hover, #save-sheet button.primary:hover, #controls #render.pending:hover, #account button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .login-card { max-width: 400px; margin: 0 auto; }
 #login-form { display: grid; gap: 6px; }
 #login-form label { font-weight: 600; margin-top: 6px; }
