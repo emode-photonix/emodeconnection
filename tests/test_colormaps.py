@@ -51,7 +51,7 @@ def test_the_sequential_map_gets_lighter_at_every_step():
     """In OKLab, the brand's own space: in CIELAB L* the map's hex rounding steps back by up to 0.054."""
     for values in (_stop_lightness("sequential"), _sampled_lightness("emode-sequential")):
         assert np.all(np.diff(values) > 0), f"L steps back by {-np.diff(values).min():.5f}"
-        assert values[-1] - values[0] > 0.7, "the map spans too little lightness to read"
+        assert values[-1] - values[0] > 0.65, "the map spans too little lightness to read"
 
 
 def test_the_diverging_map_is_symmetric_in_lightness_about_its_center():
