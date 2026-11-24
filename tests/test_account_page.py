@@ -640,3 +640,9 @@ def test_a_page_whose_session_has_gone_says_so_not_load_failed():
     )
     assert "Load failed" not in got
     assert "session has ended" in got
+
+
+def test_the_browser_sign_in_button_names_the_website(html):
+    """The page is already a browser tab, so the button names where you sign in, not the browser."""
+    button = re.search(r'<button id="device-start"[^>]*>([^<]*)</button>', html).group(1)
+    assert button == "Sign in at emodephotonix.com"

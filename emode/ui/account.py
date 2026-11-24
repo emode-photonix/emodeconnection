@@ -68,7 +68,7 @@ _POSTS = {
 
 
 def device_signin_offered() -> bool:
-    """Whether the page offers "Sign in with your browser" (the device code of a two-factor account).
+    """Whether the page offers "Sign in at emodephotonix.com" (the device code, two-factor included).
 
     The default way in, offered first, with the password form below it.
     ``EMODE_DEVICE_SIGNIN=0`` hides it. A status from EMode that says ``device`` decides instead.
