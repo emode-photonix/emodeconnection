@@ -28,14 +28,22 @@ const SETTINGS = [
 
 const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null, benchTimer: null };
 
+const SESSION_GONE = "This EMode session has ended, so this page can no longer reach it. You can close this tab.";
+
 function api(path, body) {
   const options = body === undefined
     ? { headers: HEADERS }
     : { method: "POST", headers: HEADERS, body: JSON.stringify(body) };
-  return fetch("api/" + path, options).then((r) => {
-    if (!r.ok) throw new Error("EMode answered " + r.status);
-    return r.json();
-  });
+  return fetch("api/" + path, options).then(
+    (r) => {
+      if (!r.ok) throw new Error("EMode answered " + r.status);
+      return r.json();
+    },
+    () => {
+      // The request never reached the client's server: the script that owned this page has ended.
+      throw new Error(SESSION_GONE);
+    },
+  );
 }
 
 function setStatus(text, busy) {

@@ -619,3 +619,24 @@ def test_the_browser_sign_in_is_offered_unless_turned_off(monkeypatch):
     assert account.device_signin_offered() is True
     monkeypatch.setenv("EMODE_DEVICE_SIGNIN", "0")
     assert account.device_signin_offered() is False
+
+
+@needs_jsc
+def test_a_page_whose_session_has_gone_says_so_not_load_failed():
+    """When the script that owned the page has ended, fetch fails with the browser's bare
+    "TypeError: Load failed". The page says the session has ended instead."""
+    got = run_app(
+        """
+        var caught = null;
+        fetch = function () {
+          return { then: function (ok, fail) {
+            try { fail(new TypeError("Load failed")); } catch (e) { caught = String(e); }
+            return { then: function () { return this; }, catch: function () { return this; } };
+          } };
+        };
+        api("login/status");
+        return caught;
+        """
+    )
+    assert "Load failed" not in got
+    assert "session has ended" in got
