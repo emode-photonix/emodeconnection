@@ -99,6 +99,15 @@ def panel_title(view: PlotView, label: str) -> str:
     return f"{label}: {neff}" if neff else label
 
 
+def grid_gaps(rows: int, columns: int) -> Tuple[float, float]:
+    """The gaps between the grid's panels (x, y) as fractions of its width and height.
+
+    Half of what a grid with tick labels on every panel needs (#184 left them only on the
+    outer panels): the column gap is a small margin and the row gap holds a panel's title.
+    """
+    return (0.05 if columns <= 2 else 0.1 / columns), (0.07 if rows <= 2 else 0.15 / rows)
+
+
 def compose_modes(panel: ModesPanel, options: PlotOptions) -> FigureSpec:
     """The grid of every mode, each panel drawn as the single view draws it, without its texts.
 
@@ -107,6 +116,10 @@ def compose_modes(panel: ModesPanel, options: PlotOptions) -> FigureSpec:
     small panel has no room for: the title carries the mode and its index.
     """
     each = replace(options, text_display=False, legend=False, title=None)
+    if each.aspect_ratio is None:
+        # a panel keeps its data's own shape, so the grid has no empty box around a wide, short
+        # cross section: a chosen ratio still wins
+        each = replace(each, aspect_ratio="real")
     columns = max(1, min(panel.columns, len(panel.views)))
     rows = math.ceil(len(panel.views) / columns)
     panels = []
@@ -139,6 +152,7 @@ def compose_modes(panel: ModesPanel, options: PlotOptions) -> FigureSpec:
         axes=first.axes,
         panels=tuple(panels),
         panel_grid=(rows, columns),
+        panel_gap=grid_gaps(rows, columns),
         title=options.title,
         width_mm=first.width_mm * columns / 2,
         height_mm=first.height_mm * rows / 2,
