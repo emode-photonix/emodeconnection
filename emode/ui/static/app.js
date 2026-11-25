@@ -264,7 +264,7 @@ function markSelected() {
 function pixels() {
   const el = document.getElementById("figure");
   const r = window.devicePixelRatio || 1;
-  const width = el.clientWidth || document.getElementById("stage").clientWidth || 0;
+  const width = figureWidth(el);
   const aspect = (state.reply && state.reply.aspect) || Math.SQRT1_2;
   const height = el.clientHeight > 0 ? el.clientHeight : width * aspect;
   return [Math.max(1, Math.round(width * r)), Math.max(1, Math.round(height * r))];
@@ -275,7 +275,7 @@ async function request(id, controls) {
   state.busyTimer = setTimeout(() => setStatus("EMode is busy", true), 1000);
   try {
     // the plot's CSS width sets the All modes grid's columns
-    const width = document.getElementById("stage").clientWidth || document.getElementById("figure").clientWidth;
+    const width = figureWidth(document.getElementById("figure"));
     return await api("views/" + id + "/data", { controls: controls || {}, pixels: pixels(), width: width });
   } finally {
     clearTimeout(state.busyTimer);
@@ -316,15 +316,59 @@ async function show(id, controls) {
   }
 }
 
-// The plot's size (emodeconnection#160): as wide as its container allows,
-// never wider (the stage, which a figure grown to Plotly's default 700 px must
-// not push out), and as tall as the reply's aspect (the plot box's height over
-// its width) makes it, with the margins around the box. A phone's tall frame
-// scrolls rather than stretching the plot.
+// The plot's size (emodeconnection#160): as wide as the size choice allows (Small 640 px,
+// Medium 960 px, Large 1280 px, or Fit width, the whole stage), never wider than the stage
+// (which a figure grown to Plotly's default 700 px must not push out), and as tall as the
+// reply's aspect (the plot box's height over its width) makes it, with the margins around the
+// box. A phone's tall frame scrolls rather than stretching the plot. Every reader of the plot's
+// width goes through figureWidth, so the data request samples the pixels that are shown.
+
+const SIZE_KEY = "emode.plotSize";
+const PLOT_SIZES = [["Small", 640], ["Medium", 960], ["Large", 1280], ["Fit width", Infinity]];
+const DEFAULT_PLOT_SIZE = "Medium";
+
+function plotSize() {
+  if (state.plotSize == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(SIZE_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.plotSize = PLOT_SIZES.some(([n]) => n === stored) ? stored : DEFAULT_PLOT_SIZE;
+  }
+  return state.plotSize;
+}
+
+function setPlotSize(name) {
+  if (!PLOT_SIZES.some(([n]) => n === name)) return;
+  state.plotSize = name;
+  try {
+    localStorage.setItem(SIZE_KEY, name);
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  fitFigure();
+  // the server samples the field at the pixels shown, so the shown plot is asked for again
+  if (state.current) show(state.current);
+}
+
 function figureWidth(fig) {
   const room = document.getElementById("stage").clientWidth;
-  const own = fig.clientWidth;
-  return Math.max(100, own > 0 && room > 0 ? Math.min(own, room) : room || own);
+  const cap = PLOT_SIZES.find(([n]) => n === plotSize())[1];
+  if (cap === Infinity) {
+    fig.style.width = "";
+    fig.style.flex = "";
+    fig.style.margin = "";
+    const own = fig.clientWidth;
+    return Math.max(100, own > 0 && room > 0 ? Math.min(own, room) : room || own);
+  }
+  // a capped plot is centered in the stage, which also centers the controls' column on a phone
+  const width = Math.max(100, room > 0 ? Math.min(cap, room) : cap);
+  fig.style.width = width + "px";
+  fig.style.flex = "0 0 auto";
+  fig.style.margin = "0 auto";
+  return width;
 }
 
 function figureSize(fig, reply) {
@@ -730,6 +774,7 @@ function buildControls(reply) {
   else if (kind === "sweep") buildSweepControls(bar, reply);
   else buildPlotControls(bar, reply);
   if (kind === "schematic") bar.append(componentMenu(reply));
+  bar.append(sizeControl());
   if (kind !== "gds") bar.append(aspectControl(reply));
   if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
   box.append(renderPanel());
@@ -904,6 +949,14 @@ document.addEventListener("keydown", (ev) => {
 const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
 const ASPECT_MIN = 0.001;
 const ASPECT_MAX = 1000;
+
+// How wide the plot may be: a cap per browser, never posted (it does not change the plot).
+function sizeControl() {
+  const wrap = document.createElement("span");
+  wrap.className = "plot-size";
+  wrap.append(select("Size", PLOT_SIZES.map(([n]) => n), plotSize(), setPlotSize));
+  return wrap;
+}
 
 function aspectControl(reply) {
   const c = reply.controls || {};
