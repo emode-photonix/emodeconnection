@@ -21,6 +21,8 @@ the same modules. Switch to `emode` at your convenience.
 
 To run the MCP server (`emode-mcp`), install the extra: `pip install "emode[mcp]"`.
 
+<!-- mcp-name: com.emodephotonix/emode -->
+
 ## Quick Start
 
 ```python

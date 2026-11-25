@@ -234,3 +234,39 @@ def test_an_emode_1_0_9_without_a_page_is_still_refused():
     with pytest.raises(EModeError, match="needs EMode 1.0.9 or newer"):
         em.plot_S_matrix()
     assert client.calls("EM_plot_S_matrix") == []
+
+
+# ------------------------------------------------------------------ the note's wording (emodeconnection#236)
+
+
+def _window_note(caught) -> str:
+    (note,) = [str(w.message) for w in caught if "draws its plots" in str(w.message)]
+    return note
+
+
+def test_the_note_says_window_only_where_emode_opens_one():
+    em, _ = _old_session()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        em.plot()
+    note = _window_note(caught)
+    assert "in its own window" in note
+    assert "emode-install" not in note
+
+
+@pytest.mark.parametrize("how", ["headless", "no_display", "file_name"])
+def test_the_note_says_images_when_emode_draws_without_a_window(monkeypatch, how):
+    if how == "headless":
+        monkeypatch.setenv("EMODE_HEADLESS", "1")
+    elif how == "no_display":
+        if not sys.platform.startswith("linux"):
+            pytest.skip("only Linux decides by DISPLAY")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    em, _ = _old_session()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        em.plot(file_name="fig") if how == "file_name" else em.plot()
+    note = _window_note(caught)
+    assert "own window" not in note and "as images" in note
+    assert "emode-install" not in note and "1.0.9" in note
