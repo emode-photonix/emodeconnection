@@ -66,3 +66,9 @@ reportMissingTypeStubs = false
 enableTypeIgnoreComments = true
 reportImplicitOverride = false
 reportUnnecessaryIsInstance = false
+
+[tool.uv]
+# fonttools 4.69.0 was published (2026-11-25) with cp311 wheels only and no sdist, so it
+# cannot install on 3.12. Development and CI only, the published package's metadata is
+# unchanged.
+constraint-dependencies = ["fonttools!=4.69.0"]
