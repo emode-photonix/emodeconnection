@@ -120,6 +120,117 @@ def check_plot_support(em: "EMode", kind: str = "plot") -> None:
     )
 
 
+# ------------------------------------------------------------------ EModes that draw their own window
+
+#: What ``EM_plot`` of EMode 1.0.6 and 1.0.7 takes, besides ``file_name`` and ``file_type``.
+#: 1.0.5 has no ``view``, and an EMode older than 1.0.7 cannot say which it is, so it gets
+#: ``view`` when the call gives one, as client 1.1.25 sent it.
+_EM_PLOT_1_0_7 = (
+    "component", "plot_function", "mode", "port", "plane", "aspect_ratio", "index_outline",
+    "text_display", "mesh_display", "window_display", "legend", "slice_position", "forward_only",
+    "wavelength", "normalization", "resolution", "profile", "excitation", "view",
+)  # fmt: skip
+
+#: What each function of an EMode that draws its own window takes, by that EMode's version
+#: (None: older than 1.0.7, which has no ``version()``).
+_LEGACY_ARGUMENTS: Dict[str, Dict[Optional[str], Tuple[str, ...]]] = {
+    "EM_plot": {
+        None: _EM_PLOT_1_0_7,
+        "1.0.7": _EM_PLOT_1_0_7,
+        "1.0.8": _EM_PLOT_1_0_7 + ("blend_slices", "contours", "section"),
+    },
+    "EM_plot_S_matrix": {None: ("input", "output", "plot_function")},
+    "EM_material_explorer": {None: (), "1.0.7": (), "1.0.8": ("material",)},
+}
+
+#: The defaults of the client's methods, which are not something the user asked for.
+_CLIENT_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "EM_plot_S_matrix": {"input": 0, "output": 1},
+    "EM_material_explorer": {"material": "SiO2", "component": "n_x"},
+}
+
+
+def draws_its_own_window(em: "EMode") -> bool:
+    """Whether this EMode draws its plots itself (1.0.8 and older): no ``'plot': 'view'`` in ``version()``."""
+    info = em._emode_info()
+    return not (isinstance(info, dict) and info.get("plot") == PLOT_VIEW)
+
+
+def _version_tuple(version: str) -> Tuple[int, ...]:
+    return tuple(int(part) for part in version.split(".")[:3])
+
+
+def _legacy_names(function: str, version: Optional[str]) -> Tuple[str, ...]:
+    """The arguments `function` of EMode `version` takes: the newest table at or before it."""
+    table = _LEGACY_ARGUMENTS[function]
+    if version in table:
+        return table[version]
+    known = sorted((v for v in table if v is not None), key=_version_tuple)
+    if version is None or not known:
+        return table[None]
+    try:
+        wanted = _version_tuple(version)
+    except ValueError:
+        return table[known[-1]]
+    older = [v for v in known if _version_tuple(v) <= wanted]
+    return table[older[-1]] if older else table[None]
+
+
+def legacy_call(
+    em: "EMode",
+    function: str,
+    arguments: Dict[str, Any],
+    file_name: Optional[str] = None,
+    file_type: str = "png",
+) -> Any:
+    """Send a plot call to an EMode that draws its own window, as client 1.1.25 did (emode#2073).
+
+    Only the arguments that EMode's `function` takes are sent. The others (the
+    browser tab's options, and data options that EMode is too old for) are left
+    out and named in a warning. The answer is EMode's own: ``'ok'`` from its
+    window, or a ``PlotImage`` when it drew headless (shown in a notebook's cell).
+    """
+    import warnings
+
+    info = em._emode_info()
+    version = info.get("emode") if isinstance(info, dict) else None
+    takes = _legacy_names(function, version)
+    defaults = _CLIENT_DEFAULTS.get(function, {})
+    sent: Dict[str, Any] = {}
+    ignored: List[str] = []
+    for name, value in arguments.items():
+        if name in takes:
+            if value is not None:
+                sent[name] = value
+        elif value is not None and not (name in defaults and defaults[name] == value):
+            ignored.append(name)
+    if file_name is not None:
+        # EMode 1.0.7 and older append the type to a name that already ends in it (#1362)
+        extension = file_type.lstrip(".")
+        stem = file_name.rstrip(".")
+        if extension and stem.lower().endswith(f".{extension.lower()}"):
+            stem = stem[: -len(extension) - 1]
+        sent["file_name"] = stem
+        sent["file_type"] = file_type
+
+    this = version or "older than 1.0.7"
+    if not em.__dict__.get("_legacy_plot_warned"):
+        em.__dict__["_legacy_plot_warned"] = True
+        warnings.warn(
+            f"This EMode ({this}) draws its plots in its own window. EMode 1.0.9 shows them in "
+            "the browser tab, with saved views and the figure options. Update it with emode-install.",
+            UserWarning,
+            stacklevel=4,
+        )
+    if ignored:
+        warnings.warn(
+            f"EMode {this} draws this plot itself, so these options were ignored: {', '.join(ignored)}.",
+            UserWarning,
+            stacklevel=4,
+        )
+    return em.call(function, **sent)
+
+
 #: The EMode function each kind of view is fetched with.
 FUNCTIONS = {
     "plot": "EM_plot",
@@ -625,6 +736,9 @@ def plot(
         return show_call(em, "gds", data_args, figure_args, block, inline, file_name, file_type, name, tags)
     arguments = _physical_space(arguments)
     check_figure_arguments(arguments)
+    if draws_its_own_window(em):
+        extra = {"name": name, "tags": tags, "inline": inline if inline != "png" else None}
+        return legacy_call(em, "EM_plot", {**arguments, **extra}, file_name, file_type)
     data_args, figure_args = split_arguments(arguments)
     return show_call(em, "plot", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
@@ -784,6 +898,9 @@ def plot_S_matrix(
     name = arguments.pop("name", None)
     tags = arguments.pop("tags", None)
     data_args, figure_args = _split(arguments, ("input", "output", "plot_function"), "plot_S_matrix")
+    if draws_its_own_window(em):
+        extra = {"name": name, "tags": tags, "inline": inline if inline != "png" else None}
+        return legacy_call(em, "EM_plot_S_matrix", {**arguments, **extra}, file_name, file_type)
     return show_call(em, "smatrix", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
 
@@ -801,6 +918,9 @@ def material_explorer(
     data_args, figure_args = _split(
         arguments, ("material", "wavelengths", "step", "x", "component"), "material_explorer"
     )
+    if draws_its_own_window(em):
+        extra = {"name": name, "tags": tags, "inline": inline if inline != "png" else None}
+        return legacy_call(em, "EM_material_explorer", {**arguments, **extra}, file_name, file_type)
     return show_call(em, "material", data_args, figure_args, block, inline, file_name, file_type, name, tags)
 
 

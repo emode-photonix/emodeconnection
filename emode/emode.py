@@ -570,6 +570,12 @@ class EMode:
         simulation's shapes over the layers) and ``orientation`` (``'gds'``, the
         default, y up as KLayout draws the cell, or ``'layout'``, the layout
         view's axes with x increasing downward).
+
+        An EMode older than 1.0.9 has no browser tab. It draws the plot in its
+        own window (or returns a ``PlotImage`` headless), as it always has, and
+        this client sends it only the arguments it takes, warning about the
+        options it left out. ``plot_S_matrix()`` and ``material_explorer()`` do
+        the same.
         """
         from .ui import session as ui
 
