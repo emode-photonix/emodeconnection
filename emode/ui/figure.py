@@ -326,6 +326,9 @@ class FigureSpec:
     #: The figure's own axes and drawables are then unused.
     panels: Tuple["FigureSpec", ...] = ()
     panel_grid: Tuple[int, int] = (1, 1)
+    #: The gaps between panels (x, y) as fractions of the grid's width and height, None for the
+    #: renderer's defaults, which leave room for every panel's tick labels.
+    panel_gap: Optional[Tuple[float, float]] = None
     title: Optional[str] = None
     width_mm: float = DEFAULT_SIZE_MM[0]
     height_mm: float = DEFAULT_SIZE_MM[1]
@@ -401,8 +404,12 @@ def figure_aspect(spec: FigureSpec) -> float:
     """The plot box's height over its width, which the tab sizes the plot to."""
     if spec.panels:
         rows, cols = spec.panel_grid
-        each = spec.panels[0].axes.box_aspect
-        return rows / cols * (float(each) if each else 1 / PLOT_RATIO)
+        each = float(spec.panels[0].axes.box_aspect or 1 / PLOT_RATIO)
+        if spec.panel_gap is None:
+            return rows / cols * each
+        # the gaps are fractions of the grid, so the grid is taller than its panels by their share
+        gap_x, gap_y = spec.panel_gap
+        return rows / cols * each * (1 - gap_x * (cols - 1)) / (1 - gap_y * (rows - 1))
     if spec.axes.box_aspect is not None:
         return float(spec.axes.box_aspect)
     return 1 / PLOT_RATIO
