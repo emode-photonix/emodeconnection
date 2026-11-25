@@ -312,18 +312,14 @@ def test_a_schematic_registers_as_a_schematic_view(browser, clock):
 # ------------------------------------------------------------------ the pairing
 
 
-def test_an_emode_that_draws_its_own_window_is_refused_before_any_call(clock):
-    em, client = session(version=VERSION_1_0_8)
-    with pytest.raises(EModeError, match="plot\\(\\) needs EMode 1.0.9 or newer, and this EMode is 1.0.8. Update it with emode-install"):
-        em.plot()
-    assert client.calls("EM_plot") == []
-
-
-def test_an_emode_older_than_1_0_7_is_refused_too(clock):
-    em, client = session(version=None)
-    client.answers["EM_version"] = lambda request: (_ for _ in ()).throw(EModeError("not a supported EMode function"))
-    with pytest.raises(EModeError, match="older than 1.0.7"):
-        em.plot()
+def test_an_emode_that_draws_its_own_window_gets_em_plot_and_no_tab(clock, browser):
+    """1.0.8 and older draw the plot themselves (emode#2073). ``test_plot_old_solvers.py`` covers the rest."""
+    em, client = session(version=VERSION_1_0_8, plot=lambda request: "ok")
+    with pytest.warns(UserWarning, match="its own window"):
+        assert em.plot(component="Ex") == "ok"
+    (sent,) = client.calls("EM_plot")
+    assert sent["component"] == "Ex" and "pixels" not in sent
+    assert browser == []
 
 
 def test_a_reply_that_is_not_a_plot_is_reported(clock):
