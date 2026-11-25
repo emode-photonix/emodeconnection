@@ -395,6 +395,11 @@ function draw(reply) {
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
     else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
+    // a click on a z panel's field moves the x-y cut to the clicked z, as the Cut z slider does (#227)
+    else {
+      const z = clickedCut(reply, point);
+      if (z !== null) change({ z_position: z });
+    }
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
@@ -402,6 +407,42 @@ function draw(reply) {
     if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
+}
+
+// The z of the x-y cut a click on `point` asks for, in the cut control's unit, or null when the
+// click is not on the field of a z panel that has a cut. `reply` is the figure on screen, so a
+// control rebuilt for a later reply is never read from an earlier one.
+function clickedCut(reply, point) {
+  const m = reply.menu || {};
+  const plane = (m.selected || {}).plane;
+  if (!point || !m.position || (plane !== "z-x" && plane !== "z-y")) return null;
+  // z runs along the first panel's x axis, the x-y cut drawn under it is on x2
+  const axis = point.data && point.data.xaxis;
+  if (axis && axis !== "x") return null;
+  const raw = Number(point.x);
+  if (!Number.isFinite(raw)) return null;
+  const layout = (reply.figure && reply.figure.layout) || {};
+  const title = layout.xaxis && layout.xaxis.title;
+  const text = String(title && typeof title === "object" ? title.text : title || "");
+  const found = text.match(/\((nm|\u03bcm|um)\)\s*$/);
+  const per = { nm: 1, "\u03bcm": 1000, um: 1000 };
+  const unit = String(m.position.unit);
+  let scale = null;
+  if (found && per[unit] !== undefined) {
+    // the axis shows its own unit, the cut control another one
+    scale = per[unit] / per[found[1]];
+  } else {
+    // a label of the user's own: the marker line sits at the cut, in both units
+    const marker = (reply.figure.data || []).find((t) => t.meta === "slice");
+    const at = marker && marker.x && Number(marker.x[0]);
+    const cut = parseFloat(m.position.value);
+    if (Number.isFinite(at) && Number.isFinite(cut) && at !== 0 && cut !== 0) scale = at / cut;
+  }
+  if (!scale) return null;
+  let z = raw / scale;
+  const lo = Number(m.position.min), hi = Number(m.position.max);
+  if (hi > lo) z = Math.min(hi, Math.max(lo, z));
+  return Number(z.toPrecision(6));
 }
 
 // A touch that moved more than a few pixels is a swipe, not a tap (#185).
