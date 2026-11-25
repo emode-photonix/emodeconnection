@@ -26,6 +26,19 @@ PHONE_WIDTH = 700
 TABLET_WIDTH = 1100
 
 
+#: The grid's left and right layout margins (CSS pixels), which are not plot area.
+GRID_MARGIN_X = 80
+
+
+def grid_pixels(css: float, aspect: float) -> Tuple[int, int]:
+    """The grid's size in CSS pixels for a tab `css` wide: its width and its plot area's height.
+
+    The area is the tab width less the layout margins, times the plot box's `aspect`. Plotly lays
+    the grid out in CSS pixels, so the row gaps are floored against this and not device pixels.
+    """
+    return int(css), max(1, int((css - GRID_MARGIN_X) * aspect))
+
+
 def mode_labels(view: Any) -> Tuple[str, ...]:
     """The modes an All modes grid of `view` shows: its Mode menu's, without the free-space fields."""
     if not isinstance(view, PlotView) or view.plane != "x-y" or not view.rasters:

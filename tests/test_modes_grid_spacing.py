@@ -123,3 +123,35 @@ def test_a_cut_and_a_figure_of_panels_keep_their_gaps():
     ys = [a["domain"] for a in _axes(to_plotly(spec), "y")]
     assert ys[0][0] - ys[1][1] == pytest.approx(0.14)
     assert spec.panel_gap is None
+
+
+def _px_gap(count: int, columns: int, css: int) -> Tuple[float, float]:
+    """The row gap and the least it may be, in CSS px, for a tab `css` px wide."""
+    from emode.ui.modes import grid_pixels
+
+    spec = compose_modes(_grid(count, columns), PlotOptions())
+    pixels = grid_pixels(css, figure_aspect(spec))
+    _, gap_y = _gaps(to_plotly(spec, pixels), columns)
+    least = (spec.font_size + 4) * 1.3 + 4 + 4
+    return gap_y * pixels[1], least
+
+
+@pytest.mark.parametrize("css, columns", [(375, 2), (390, 2), (768, 3)])
+def test_a_phone_row_gap_holds_the_title_the_ticks_and_air(css, columns):
+    # the panel above ends in outside ticks (4 px), then a few px of air, then this title
+    gap, least = _px_gap(10, columns, css)
+    assert gap >= least - 0.5
+
+
+def test_a_desktop_plot_keeps_the_gaps_it_had():
+    spec = compose_modes(_grid(4, 2), PlotOptions())
+    gap_x, gap_y = _gaps(to_plotly(spec, (1280, 1280)), 2)
+    assert (gap_x, gap_y) == (pytest.approx(0.05), pytest.approx(0.07))
+
+
+def test_the_grid_is_sized_by_its_plot_area_in_css_pixels():
+    from emode.ui.modes import grid_pixels
+
+    # the layout margins (left 60, right 20) are not plot area
+    assert grid_pixels(375, 0.5) == (375, int((375 - 80) * 0.5))
+    assert grid_pixels(40, 0.5)[1] >= 1

@@ -755,8 +755,8 @@ def _layout(spec: FigureSpec) -> Dict[str, Any]:
 
 
 def _title_px(spec: FigureSpec) -> float:
-    """The height in pixels a panel's title takes: its text and a little air."""
-    return (spec.font_size + 4) * 1.3 + 4
+    """The CSS pixels a row gap holds: the title's text, the outside ticks of the panel above, and air."""
+    return (spec.font_size + 4) * 1.3 + _TICKS["ticklen"] + 4
 
 
 def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[str, Any]:
@@ -770,7 +770,8 @@ def _panels(spec: FigureSpec, pixels: Optional[Tuple[int, int]] = None) -> Dict[
     if spec.panel_gap is not None:
         gap_x, gap_y = spec.panel_gap
         if pixels is not None and pixels[1] > 0:
-            # a small plot still leaves a row gap as tall as a panel's title
+            # a small plot still leaves a row gap as tall as a panel's title and the ticks above it.
+            # `pixels` is CSS px (plotly lays out in CSS px), its height the plot area's
             gap_y = max(gap_y, _title_px(spec) / pixels[1])
     else:
         # the gaps hold a panel's title and tick labels: a tall grid gives each a smaller share
