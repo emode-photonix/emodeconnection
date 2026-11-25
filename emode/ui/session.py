@@ -216,9 +216,15 @@ def legacy_call(
     this = version or "older than 1.0.7"
     if not em.__dict__.get("_legacy_plot_warned"):
         em.__dict__["_legacy_plot_warned"] = True
+        # The older EMode decides as headless_requested() does (emodeconnection#236): without a
+        # window it hands the plot back as an image, which a notebook shows in its cell.
+        if headless_requested(file_name):
+            where = "draws its plots itself and returns them as images"
+        else:
+            where = "draws its plots in its own window"
         warnings.warn(
-            f"This EMode ({this}) draws its plots in its own window. EMode 1.0.9 shows them in "
-            "the browser tab, with saved views and the figure options. Update it with emode-install.",
+            f"This EMode ({this}) {where}. EMode 1.0.9 or newer shows them in the browser tab, "
+            "with saved views and the figure options.",
             UserWarning,
             stacklevel=4,
         )
