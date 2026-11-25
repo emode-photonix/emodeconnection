@@ -352,6 +352,21 @@ def test_show_without_a_session_draws_a_file_or_says_how(monkeypatch, tmp_path):
             farfield().show()
 
 
+def test_the_account_page_of_a_closed_session_answers_without_calling_emode(quiet):
+    """An account tab left open after ``close()`` keeps polling. Its calls must not reach the closed socket."""
+    em, client = _pages_session()
+    server = ui.ensure_server(em)
+    try:
+        em.running = False
+        for method, path in (("GET", "/api/login/status"), ("GET", "/api/login/info")):
+            status, _, payload = request(server, method, path)
+            assert status == 200
+            assert "session has ended" in json.loads(payload)["error"]
+        assert not [c for c in client.sent if c["function"].startswith("EM_login")]
+    finally:
+        server.stop()
+
+
 def test_the_session_info_route_asks_emode(quiet):
     em, client = _pages_session(EM_session_info=lambda request: session_info())
     em.plot_S_matrix()

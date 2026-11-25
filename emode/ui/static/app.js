@@ -28,14 +28,22 @@ const SETTINGS = [
 
 const state = { views: [], current: null, reply: null, ended: false, busyTimer: null, autoRender: null, benchTimer: null };
 
+const SESSION_GONE = "This EMode session has ended, so this page can no longer reach it. You can close this tab.";
+
 function api(path, body) {
   const options = body === undefined
     ? { headers: HEADERS }
     : { method: "POST", headers: HEADERS, body: JSON.stringify(body) };
-  return fetch("api/" + path, options).then((r) => {
-    if (!r.ok) throw new Error("EMode answered " + r.status);
-    return r.json();
-  });
+  return fetch("api/" + path, options).then(
+    (r) => {
+      if (!r.ok) throw new Error("EMode answered " + r.status);
+      return r.json();
+    },
+    () => {
+      // The request never reached the client's server: the script that owned this page has ended.
+      throw new Error(SESSION_GONE);
+    },
+  );
 }
 
 function setStatus(text, busy) {
@@ -256,7 +264,7 @@ function markSelected() {
 function pixels() {
   const el = document.getElementById("figure");
   const r = window.devicePixelRatio || 1;
-  const width = el.clientWidth || document.getElementById("stage").clientWidth || 0;
+  const width = figureWidth(el);
   const aspect = (state.reply && state.reply.aspect) || Math.SQRT1_2;
   const height = el.clientHeight > 0 ? el.clientHeight : width * aspect;
   return [Math.max(1, Math.round(width * r)), Math.max(1, Math.round(height * r))];
@@ -267,7 +275,7 @@ async function request(id, controls) {
   state.busyTimer = setTimeout(() => setStatus("EMode is busy", true), 1000);
   try {
     // the plot's CSS width sets the All modes grid's columns
-    const width = document.getElementById("stage").clientWidth || document.getElementById("figure").clientWidth;
+    const width = figureWidth(document.getElementById("figure"));
     return await api("views/" + id + "/data", { controls: controls || {}, pixels: pixels(), width: width });
   } finally {
     clearTimeout(state.busyTimer);
@@ -308,15 +316,59 @@ async function show(id, controls) {
   }
 }
 
-// The plot's size (emodeconnection#160): as wide as its container allows,
-// never wider (the stage, which a figure grown to Plotly's default 700 px must
-// not push out), and as tall as the reply's aspect (the plot box's height over
-// its width) makes it, with the margins around the box. A phone's tall frame
-// scrolls rather than stretching the plot.
+// The plot's size (emodeconnection#160): as wide as the size choice allows (Small 640 px,
+// Medium 960 px, Large 1280 px, or Fit width, the whole stage), never wider than the stage
+// (which a figure grown to Plotly's default 700 px must not push out), and as tall as the
+// reply's aspect (the plot box's height over its width) makes it, with the margins around the
+// box. A phone's tall frame scrolls rather than stretching the plot. Every reader of the plot's
+// width goes through figureWidth, so the data request samples the pixels that are shown.
+
+const SIZE_KEY = "emode.plotSize";
+const PLOT_SIZES = [["Small", 640], ["Medium", 960], ["Large", 1280], ["Fit width", Infinity]];
+const DEFAULT_PLOT_SIZE = "Medium";
+
+function plotSize() {
+  if (state.plotSize == null) {
+    let stored = null;
+    try {
+      stored = localStorage.getItem(SIZE_KEY);
+    } catch (err) {
+      stored = null;
+    }
+    state.plotSize = PLOT_SIZES.some(([n]) => n === stored) ? stored : DEFAULT_PLOT_SIZE;
+  }
+  return state.plotSize;
+}
+
+function setPlotSize(name) {
+  if (!PLOT_SIZES.some(([n]) => n === name)) return;
+  state.plotSize = name;
+  try {
+    localStorage.setItem(SIZE_KEY, name);
+  } catch (err) {
+    // the choice is only a convenience
+  }
+  fitFigure();
+  // the server samples the field at the pixels shown, so the shown plot is asked for again
+  if (state.current) show(state.current);
+}
+
 function figureWidth(fig) {
   const room = document.getElementById("stage").clientWidth;
-  const own = fig.clientWidth;
-  return Math.max(100, own > 0 && room > 0 ? Math.min(own, room) : room || own);
+  const cap = PLOT_SIZES.find(([n]) => n === plotSize())[1];
+  if (cap === Infinity) {
+    fig.style.width = "";
+    fig.style.flex = "";
+    fig.style.margin = "";
+    const own = fig.clientWidth;
+    return Math.max(100, own > 0 && room > 0 ? Math.min(own, room) : room || own);
+  }
+  // a capped plot is centered in the stage, which also centers the controls' column on a phone
+  const width = Math.max(100, room > 0 ? Math.min(cap, room) : cap);
+  fig.style.width = width + "px";
+  fig.style.flex = "0 0 auto";
+  fig.style.margin = "0 auto";
+  return width;
 }
 
 function figureSize(fig, reply) {
@@ -387,6 +439,11 @@ function draw(reply) {
     if (typeof meta === "string" && meta.startsWith("component:")) openDetails(meta.slice("component:".length));
     // a panel of the All modes grid opens its mode in the single view
     else if (typeof meta === "string" && meta.startsWith("mode:")) renderNow({ mode: meta.slice("mode:".length) });
+    // a click on a z panel's field moves the x-y cut to the clicked z, as the Cut z slider does (#227)
+    else {
+      const z = clickedCut(reply, point);
+      if (z !== null) change({ z_position: z });
+    }
   });
   fig.removeAllListeners && fig.removeAllListeners("plotly_clickannotation");
   fig.on && fig.on("plotly_clickannotation", (ev) => {
@@ -394,6 +451,42 @@ function draw(reply) {
     if (target && target.startsWith("go to ")) renderNow({ section: target.slice(6) });
   });
   buildControls(reply);
+}
+
+// The z of the x-y cut a click on `point` asks for, in the cut control's unit, or null when the
+// click is not on the field of a z panel that has a cut. `reply` is the figure on screen, so a
+// control rebuilt for a later reply is never read from an earlier one.
+function clickedCut(reply, point) {
+  const m = reply.menu || {};
+  const plane = (m.selected || {}).plane;
+  if (!point || !m.position || (plane !== "z-x" && plane !== "z-y")) return null;
+  // z runs along the first panel's x axis, the x-y cut drawn under it is on x2
+  const axis = point.data && point.data.xaxis;
+  if (axis && axis !== "x") return null;
+  const raw = Number(point.x);
+  if (!Number.isFinite(raw)) return null;
+  const layout = (reply.figure && reply.figure.layout) || {};
+  const title = layout.xaxis && layout.xaxis.title;
+  const text = String(title && typeof title === "object" ? title.text : title || "");
+  const found = text.match(/\((nm|\u03bcm|um)\)\s*$/);
+  const per = { nm: 1, "\u03bcm": 1000, um: 1000 };
+  const unit = String(m.position.unit);
+  let scale = null;
+  if (found && per[unit] !== undefined) {
+    // the axis shows its own unit, the cut control another one
+    scale = per[unit] / per[found[1]];
+  } else {
+    // a label of the user's own: the marker line sits at the cut, in both units
+    const marker = (reply.figure.data || []).find((t) => t.meta === "slice");
+    const at = marker && marker.x && Number(marker.x[0]);
+    const cut = parseFloat(m.position.value);
+    if (Number.isFinite(at) && Number.isFinite(cut) && at !== 0 && cut !== 0) scale = at / cut;
+  }
+  if (!scale) return null;
+  let z = raw / scale;
+  const lo = Number(m.position.min), hi = Number(m.position.max);
+  if (hi > lo) z = Math.min(hi, Math.max(lo, z));
+  return Number(z.toPrecision(6));
 }
 
 // A touch that moved more than a few pixels is a swipe, not a tap (#185).
@@ -681,6 +774,7 @@ function buildControls(reply) {
   else if (kind === "sweep") buildSweepControls(bar, reply);
   else buildPlotControls(bar, reply);
   if (kind === "schematic") bar.append(componentMenu(reply));
+  bar.append(sizeControl());
   if (kind !== "gds") bar.append(aspectControl(reply));
   if (kind !== "gds" && kind !== "schematic") bar.append(extentsPanel(reply));
   box.append(renderPanel());
@@ -855,6 +949,14 @@ document.addEventListener("keydown", (ev) => {
 const ASPECTS = [["√2", Math.SQRT2], ["golden", (1 + Math.sqrt(5)) / 2], ["silver", 1 + Math.SQRT2], ["1:1", 1]];
 const ASPECT_MIN = 0.001;
 const ASPECT_MAX = 1000;
+
+// How wide the plot may be: a cap per browser, never posted (it does not change the plot).
+function sizeControl() {
+  const wrap = document.createElement("span");
+  wrap.className = "plot-size";
+  wrap.append(select("Size", PLOT_SIZES.map(([n]) => n), plotSize(), setPlotSize));
+  return wrap;
+}
 
 function aspectControl(reply) {
   const c = reply.controls || {};

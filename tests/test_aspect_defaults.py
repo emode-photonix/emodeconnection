@@ -169,6 +169,7 @@ def test_a_desktop_plot_takes_the_figures_own_width():
     got = run_app(
         """
 document.getElementById("stage").clientWidth = 1400;
+state.plotSize = "Fit width";
 var fig = document.getElementById("figure");
 fig.clientWidth = 1000;
 var drawn = [];
