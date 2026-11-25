@@ -245,8 +245,16 @@ def api_get(path: str) -> dict:
         raise RuntimeError("Request timed out.")
 
 
+class ApiError(RuntimeError):
+    """The website refused a request. `code` is its error code, when it sent one."""
+
+    def __init__(self, message: str, code: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def api_post(path: str, payload: dict) -> dict:
-    """POST request with JSON body, returns parsed JSON or raises RuntimeError."""
+    """POST request with JSON body, returns parsed JSON or raises RuntimeError (ApiError on a refusal)."""
     url = f"{API_BASE}/{path.lstrip('/')}"
     try:
         resp = http_requests.post(url, json=payload, timeout=15)
@@ -255,7 +263,11 @@ def api_post(path: str, payload: dict) -> dict:
     except http_requests.exceptions.HTTPError as e:
         try:
             data = e.response.json()
-            raise RuntimeError(data.get('error') or data.get('message') or str(e))
+            code = data.get('code')
+            raise ApiError(
+                data.get('error') or data.get('message') or str(e),
+                code if isinstance(code, str) else None,
+            )
         except (ValueError, AttributeError):
             raise RuntimeError(f"HTTP {e.response.status_code}")
     except http_requests.exceptions.ConnectionError as e:
@@ -459,14 +471,25 @@ def prompt_credentials() -> tuple[str, str]:
     return email, password
 
 
+class TwoFactorRequired(Exception):
+    """The website refused the password because the account has two-factor on: sign in with the browser."""
+
+
 def login(email: str, password: str) -> str:
     """
     Authenticate against the installer-login endpoint.
-    Returns the downloadToken string, or exits on failure.
+    Returns the downloadToken string, or exits on failure. Raises
+    TwoFactorRequired, with the website's message, for an account with
+    two-factor on (emode-photonix/emode#470).
     """
     print("Authenticating...")
     try:
         data = api_post('/installer-login/', {'email': email, 'password': password})
+    except ApiError as e:
+        if e.code == 'two_factor_required':
+            raise TwoFactorRequired(str(e))
+        print(f"Authentication failed: {e}")
+        sys.exit(1)
     except RuntimeError as e:
         print(f"Authentication failed: {e}")
         sys.exit(1)
@@ -598,7 +621,11 @@ def password_requested(password: bool) -> bool:
 
 
 def authenticate(password: bool = False) -> str:
-    """Return a downloadToken: browser sign-in by default, the password as fallback."""
+    """Return a downloadToken: browser sign-in by default, the password as fallback.
+
+    An account with two-factor on cannot use the password, so when the website
+    refuses it for that reason the browser sign-in starts instead.
+    """
     if not password_requested(password):
         if sys.stdin.isatty():
             try:
@@ -615,7 +642,16 @@ def authenticate(password: bool = False) -> str:
             except DeviceFlowUnavailable:
                 print("Browser sign-in is not available here. Using your password instead.")
     email, pw = prompt_credentials()
-    return login(email, pw)
+    try:
+        return login(email, pw)
+    except TwoFactorRequired as e:
+        print(e)
+        print("Switching to the browser sign-in.")
+    try:
+        return device_login()
+    except DeviceFlowUnavailable:
+        print("The browser sign-in is not available right now. Try again later.")
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------
@@ -1284,7 +1320,8 @@ Environment variables:
     parser.add_argument(
         '--password',
         action='store_true',
-        help='Sign in with an email and password instead of the browser.',
+        help='Sign in with an email and password instead of the browser '
+             '(accounts without two-factor authentication).',
     )
     parser.add_argument(
         '--list-versions',

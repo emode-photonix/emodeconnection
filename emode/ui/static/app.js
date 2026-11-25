@@ -1851,7 +1851,18 @@ function showLogin(status) {
     clearTimeout(account.pollTimer);
     account.pollTimer = setTimeout(pollLogin, Math.max(1, status.interval || 5) * 1000);
   }
+  if (status.state === "signed_out" && status.two_factor_required) return switchToBrowserSignIn(status.error);
   showLoginError(status.error || "");
+}
+
+// EMode refused a password because the account has two-factor on (emode#470):
+// say so above the form and start the browser sign-in, as if its button were pressed.
+// EMode clears two_factor_required when the sign-in starts, so this runs once.
+function switchToBrowserSignIn(message) {
+  document.getElementById("login-password").value = "";
+  showLoginError("");
+  showAccountMessage(message || "This account uses two-factor authentication, so it signs in with your browser.");
+  return startDeviceSignIn();
 }
 
 function pollLogin() {
@@ -1864,15 +1875,18 @@ function signInWithPassword() {
   const input = document.getElementById("login-password");
   if (!email || !input.value) return showLoginError("Enter your email and password.");
   showLoginError("");
+  showAccountMessage("");
   setText("login-submit", "Signing in…");
-  return api("login/password", { email: email, password: input.value }).then((status) => {
-    setText("login-submit", "Log In");
-    if (status.state === "logged_in") input.value = "";
-    showLogin(status);
-  }).catch((err) => {
+  return api("login/password", { email: email, password: input.value }).then(passwordAnswered).catch((err) => {
     setText("login-submit", "Log In");
     showLoginError(String(err));
   });
+}
+
+function passwordAnswered(status) {
+  setText("login-submit", "Log In");
+  if (status.state === "logged_in") document.getElementById("login-password").value = "";
+  return showLogin(status);
 }
 
 function startDeviceSignIn() {
