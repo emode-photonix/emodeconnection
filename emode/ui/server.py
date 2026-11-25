@@ -57,7 +57,7 @@ from .renderers.plotly import to_plotly
 from ..plotting import PlotView, Schematic
 from .cut import CutPanel, cut_arguments, held_xy, offers_cut
 from .cut import frozen as frozen_cut
-from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, mode_labels, offers_all_modes
+from .modes import ALL_MODES, ModesPanel, columns_for, frozen_arguments, grid_pixels, mode_labels, offers_all_modes
 from .views import BENCH, KINDS, View, ViewRegistry, clean_tags, kind_of, menu_of, options_of, plain, title_of
 
 UI_DIR = Path(__file__).parent
@@ -728,7 +728,7 @@ class UIServer:
         if isinstance(view.data, ModesPanel):
             # small panels: one sample per CSS pixel is all they show
             css = float(width or (pixels or view.pixels)[0] / 2)
-            shown: Optional[Tuple[int, int]] = (int(css), int(css * aspect))
+            shown: Optional[Tuple[int, int]] = grid_pixels(css, aspect)
         else:
             shown = tuple(pixels) if pixels else None
         return {

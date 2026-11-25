@@ -257,7 +257,8 @@ def test_all_modes_shows_every_mode_in_a_grid_of_titled_clickable_panels(server)
     assert reply["menu"]["selected"]["mode"] == ALL_MODES
     assert reply["controls"]["all_modes"] is True
     # decimated to the small panels: ten modes in well under the size of ten single replies
-    assert size < 1_500_000
+    # (shorter panels decimate this test's 222-row raster by a stride of 2, not 3)
+    assert size < 2_000_000
     for t in heatmaps:
         ny, nx = _decode(t["z"]).shape
         assert nx <= 200 and ny <= 222
