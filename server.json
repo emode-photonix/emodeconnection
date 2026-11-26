@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.emodephotonix/emode",
+  "title": "EMode",
+  "description": "Photonic waveguide mode solver and EME simulator. Requires an EMode license, free demo available.",
+  "websiteUrl": "https://emodephotonix.com",
+  "repository": {
+    "url": "https://github.com/emode-photonix/emodeconnection",
+    "source": "github"
+  },
+  "version": "1.1.28",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "emode",
+      "version": "1.1.28",
+      "runtimeHint": "uvx",
+      "runtimeArguments": [
+        {"type": "named", "name": "--from", "value": "emode[mcp]==1.1.28"},
+        {"type": "positional", "value": "emode-mcp"}
+      ],
+      "transport": {"type": "stdio"}
+    }
+  ]
+}
